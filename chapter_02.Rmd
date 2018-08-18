@@ -1,0 +1,292 @@
+---
+title: "Chapter 2: Small Worlds and Large Worlds"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: journal
+---
+
+```{r}
+suppressPackageStartupMessages({
+    library(ggplot2)
+    library(dplyr)
+    library(rethinking)
+})
+```
+
+- **Small World**: the self-contained world of the model.
+- **Large World**: the 'real' world where you deploy the model.
+
+Assumptions made in the small world are tested in the large world when you deploy the model.
+
+# Garden of Forking Data
+
+Bayesian inference considers all the possible ways that the data _could_ have been generated, and weighs the relative probability of each.
+
+Start with simple counts, then add prior information, finally start working with probabilities instead of counts.
+
+For example move from counting the blue marbles to working with $p$ as the proportion of the marbles that are blue (i.e. the probability of any randomly chosen marble being blue).
+
+$p$ after getting $D_{new} \propto$ number of ways $p$ can produce $D_{new} \times$ prior for $p$.
+
+Which leads to Bayes rule:
+
+$$ P(p | D_{new}) = \frac{P(D_{new} | p) \times P(p)}{P(D_{new})}$$
+
+Method for computing the plausibilities is simply to rescale the counts.
+
+```{r}
+# these are the numbers of ways D_new could have been generated
+ways <- c( 0, 3, 8, 9, 0 )
+# normalise them to sum to 1
+ways/sum(ways)
+```
+
+The names for the components of Bayes rule are:
+
+- $p$ is the **parameter**, conjecture for proportion of blue marbles;
+- relative number of ways that $p$ can produce the data is the **likelihood**;
+- prior plausibility of any specific $p$ is the **prior probability**;
+- updated plausibility of any specific $p$ is the **posterior probability**.
+
+So:
+
+$$
+Posterior = \frac{Likelihood \times Prior}{Average \; Likelihood}
+$$
+
+# Building a Model
+
+The next example shown is a binomial, using repeated tests of a toy globe to estimate the proportion of water on its surface. The data generated are:
+
+_W L W W W L W L W_
+
+Start by assuming that the proportion of water on the globe is also the probability $p$ of getting a _W_ on any toss, and that each toss is an independent Bernoulli trial. So each toss is $Bernoulli(p)$, so the sequence is $Binomial(n, p)$.
+
+So in this case, the likelihood of any single value of $W$ is:
+
+$$
+P(w | n, p) = {n \choose w}p^{w}(1-p)^{n - w}
+$$
+
+Where the binomial coefficient at the front is given by:
+
+$$
+{n \choose w} =  \frac{n!}{w!(n-w)!}
+$$
+
+Can easily generate this in R.
+
+```{r}
+dbinom(x = 6, # number of 'successful' trials 
+       size = 9, # total number of trials
+       prob = 0.5) # probability of success on each trial
+```
+
+Can try different values for $p$.
+
+```{r}
+tibble(p = seq(from = 0.1, to = 0.9, by = 0.1)) %>% 
+    mutate(likelihood = dbinom(x = 6, size = 9, prob = p)) %>% 
+    ggplot(aes(x = p, y = likelihood)) + 
+    geom_point()
+```
+
+In this case we observe $n$ and $w$, and $p$ is the parameter to be estimated. Any parameter needs a prior: this could be a value or a distribution.
+
+In a simple model like this it's easy to find an analytical solution to this problem, but in general we need numerical methods. Options include:
+
+1. Grid approximation
+2. Quadratic approximation
+3. Markov chain Monte Carlo
+
+Start with grid approximation: essentially this changes a continuous problem to a discrete one by picking grid points at which to estimate the parameters.
+
+```{r}
+# set number of grid points to re-run and see how it changes
+grid_size <- 50
+# define grid
+p_grid <- seq(from = 0,
+              to = 1,
+              length.out = grid_size)
+# define prior
+prior <- rep(1, grid_size)
+# compute likelihood at each value in grid
+likelihood <- dbinom(x = 6, 
+                     size = 9, 
+                     prob = p_grid)
+# compute product of likelihood and prior
+unstd.posterior <- likelihood * prior
+# standardize the posterior, so it sums to 1
+posterior <- unstd.posterior / sum(unstd.posterior)
+
+tibble(p = p_grid, posterior = posterior) %>% 
+    ggplot(aes(x = p, y = posterior)) + 
+    geom_point(size = 0.8) + 
+    geom_vline(xintercept = p_grid[which.max(posterior)]) +
+    ggtitle(paste(grid_size, "Points"))
+```
+
+Now quadratic approximation. This works because peak of the posterior is often close to Gaussian, so its log will be quadratic. Can then use a quadratic to approximate it.
+
+`rethinking::map()` (Maximum A Posteriori) is a function that will estimate the mode of the posterior.
+
+```{r}
+globe_qa <- map(alist(w ~ dbinom(9, p),  # binomial likelihood
+                      p ~ dunif(0, 1)),   # uniform prior
+                data = list(w = 6))
+
+# display summary of quadratic approximation
+precis(globe_qa)
+```
+
+This output can be read: Assuming the posterior is Gaussian, it is maximized at 0.67, and its standard deviation is 0.16.
+
+Because the structure of this model is simple can compare directly to the analytical solution.
+
+```{r}
+# analytical calculation
+w <- 6
+n <- 9
+curve(dbeta(x, w + 1, n - w + 1), from = 0, to = 1)
+# quadratic approximation
+curve(dnorm(x, 0.67, 0.16), lty = 2, add = TRUE)
+```
+
+# Practice
+
+## Easy
+
+2E1. Which of the expressions below correspond to the statement: the probability of rain on Monday?
+
+1. $Pr(rain)$
+2. $Pr(rain|Monday)$
+3. $Pr(Monday|rain)$
+4. $Pr(rain,Monday)/Pr(Monday)$
+
+Answer: 2
+
+2E2. Which of the following statements corresponds to the expression: $Pr(Monday|rain)$?
+
+1. The probability of rain on Monday.
+2. The probability of rain, given that it is Monday.
+3. The probability that it is Monday, given that it is raining. 
+4. The probability that it is Monday and that it is raining.
+
+Answer: 3
+
+2E3. Which of the expressions below correspond to the statement: the probability that it is Monday, given that it is raining?
+
+1. $Pr(Monday|rain)$
+2. $Pr(rain|Monday)$
+3. $Pr(rain|Monday)Pr(Monday)$
+4. $\frac{Pr(rain|Monday)Pr(Monday)}{/Pr(rain)}$ 
+5. $\frac{Pr(Monday|rain)Pr(rain)}{/Pr(Monday)}$
+
+Answer: 1
+
+## Medium
+
+2M1. Recall the globe tossing model from the chapter. Compute and plot the grid approximate posterior distribution for each of the following sets of observations. In each case, assume a uniform prior for p.
+
+```{r}
+# write a function to make this easier
+plot_grid_unif_prior <- function(n, # number of trials
+                      w, # number of 'successes', i.e. water
+                      grid_size = 50L) { # how many grid points to plot
+    # define grid
+    p_grid <- seq(from = 0,
+                  to = 1,
+                  length.out = grid_size)
+    # define prior
+    prior <- rep(1, grid_size)
+    # compute likelihood at each value in grid
+    likelihood <- dbinom(x = w, 
+                         size = n, 
+                         prob = p_grid)
+    # compute product of likelihood and prior
+    unstd.posterior <- likelihood * prior
+    # standardize the posterior, so it sums to 1
+    posterior <- unstd.posterior / sum(unstd.posterior)
+    
+    tibble(p = p_grid, posterior = posterior) %>% 
+        ggplot(aes(x = p, y = posterior)) + 
+        geom_point(size = 0.8) + 
+        geom_vline(xintercept = p_grid[which.max(posterior)]) +
+        ggtitle(paste(grid_size, "Points"))
+}
+```
+
+(1) W,W,W
+```{r}
+plot_grid_unif_prior(3, 3)
+```
+
+(2) W,W,W,L
+```{r}
+plot_grid_unif_prior(4, 3)
+```
+
+(3) L,W,W,L,W,W,W
+```{r}
+plot_grid_unif_prior(7, 5)
+```
+
+2M2. Now assume a prior for $p$ that is equal to zero when $p < 0.5$ and is a positive constant when $p ≥ 0.5$. Again compute and plot the grid approximate posterior distribution for each of the sets of observations in the problem just above.
+
+```{r}
+# write a function to make this easier
+plot_grid_high_prior <- function(n, # number of trials
+                                 w, # number of 'successes', i.e. water
+                                 grid_size = 50L) { # how many grid points to plot
+    # define grid
+    p_grid <- seq(from = 0,
+                  to = 1,
+                  length.out = grid_size)
+    # define prior
+    prior <- if_else(p_grid < 0.5, 
+                     0, 
+                     1)
+    # compute likelihood at each value in grid
+    likelihood <- dbinom(x = w, 
+                         size = n, 
+                         prob = p_grid)
+    # compute product of likelihood and prior
+    unstd.posterior <- likelihood * prior
+    # standardize the posterior, so it sums to 1
+    posterior <- unstd.posterior / sum(unstd.posterior)
+    
+    tibble(p = p_grid, posterior = posterior) %>% 
+        ggplot(aes(x = p, y = posterior)) + 
+        geom_point(size = 0.8) + 
+        geom_vline(xintercept = p_grid[which.max(posterior)]) +
+        ggtitle(paste(grid_size, "Points"))
+}
+```
+
+```{r}
+plot_grid_high_prior(3, 3)
+```
+
+(2) W,W,W,L
+```{r}
+plot_grid_high_prior(4, 3)
+```
+
+(3) L,W,W,L,W,W,W
+```{r}
+plot_grid_high_prior(7, 5)
+```
+
+2M3. Suppose there are two globes, one for Earth and one for Mars. The Earth globe is 70% covered in water. The Mars globe is 100% land. Further suppose that one of these globes—you don’t know which—was tossed in the air and produced a “land” observation. Assume that each globe was equally likely to be tossed. Show that the posterior probability that the globe was the Earth, conditional on seeing “land” ($Pr(Earth|land)$), is 0.23.
+
+```{r}
+pr_land_earth <- 0.3 # likelihood
+pr_earth <- 0.5 # prior
+pr_land <- (pr_earth * pr_land_earth) + ((1 - pr_earth) * 1.0) # avg likelihood
+pr_earth_land <- (pr_land_earth * pr_earth)/pr_land # posterior
+round(pr_earth_land, 2)
+```
+
+2M4. Suppose you have a deck with only three cards. Each card has two sides, and each side is either black or white. One card has two black sides. The second card has one black and one white side. The third card has two white sides. Now suppose all three cards are placed in a bag and shuffled. Someone reaches into the bag and pulls out a card and places it flat on a table. A black side is shown facing up, but you don’t know the color of the side facing down. Show that the probability that the other side is also black is 2/3. Use the counting method (Section 2 of the chapter) to approach this problem. This means counting up the ways that each card could produce the observed data (a black side facing up on the table).
+
