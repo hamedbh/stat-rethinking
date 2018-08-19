@@ -187,13 +187,13 @@ Answer: 1
 
 ## Medium
 
-2M1. Recall the globe tossing model from the chapter. Compute and plot the grid approximate posterior distribution for each of the following sets of observations. In each case, assume a uniform prior for p.
+2M1. 
 
 ```{r}
 # write a function to make this easier
 plot_grid_unif_prior <- function(n, # number of trials
-                      w, # number of 'successes', i.e. water
-                      grid_size = 50L) { # how many grid points to plot
+                                 w, # number of 'successes', i.e. water
+                                 grid_size = 50L) { # how many grid points to plot
     # define grid
     p_grid <- seq(from = 0,
                   to = 1,
@@ -232,7 +232,7 @@ plot_grid_unif_prior(4, 3)
 plot_grid_unif_prior(7, 5)
 ```
 
-2M2. Now assume a prior for $p$ that is equal to zero when $p < 0.5$ and is a positive constant when $p ≥ 0.5$. Again compute and plot the grid approximate posterior distribution for each of the sets of observations in the problem just above.
+2M2.
 
 ```{r}
 # write a function to make this easier
@@ -278,7 +278,7 @@ plot_grid_high_prior(4, 3)
 plot_grid_high_prior(7, 5)
 ```
 
-2M3. Suppose there are two globes, one for Earth and one for Mars. The Earth globe is 70% covered in water. The Mars globe is 100% land. Further suppose that one of these globes—you don’t know which—was tossed in the air and produced a “land” observation. Assume that each globe was equally likely to be tossed. Show that the posterior probability that the globe was the Earth, conditional on seeing “land” ($Pr(Earth|land)$), is 0.23.
+2M3. 
 
 ```{r}
 pr_land_earth <- 0.3 # likelihood
@@ -288,5 +288,124 @@ pr_earth_land <- (pr_land_earth * pr_earth)/pr_land # posterior
 round(pr_earth_land, 2)
 ```
 
-2M4. Suppose you have a deck with only three cards. Each card has two sides, and each side is either black or white. One card has two black sides. The second card has one black and one white side. The third card has two white sides. Now suppose all three cards are placed in a bag and shuffled. Someone reaches into the bag and pulls out a card and places it flat on a table. A black side is shown facing up, but you don’t know the color of the side facing down. Show that the probability that the other side is also black is 2/3. Use the counting method (Section 2 of the chapter) to approach this problem. This means counting up the ways that each card could produce the observed data (a black side facing up on the table).
+2M4. 
+
+Call the cards by how many black sides they have: 0B, 1B, 2B. We want $P(2B)$.
+
+| Conjecture | Ways to show black side up |
+| :--------: | :------------------------: |
+|     0B     |              0             |
+|     1B     |              1             |
+|     2B     |              2             |
+
+Can discount the 0B row and just conside the others: there are three ways that I can have a black side facing up, of which only 2 have a black side down, which implies the probability of $2/3$.
+
+2M5. 
+
+Use Bayes rule:
+
+$$
+P(2B \; | \; 1B) = 
+
+\frac
+{P(1B \; | \; 2B) \; P(2B)}
+{P(1B)}
+$$
+
+
+```{r}
+bayes_rule <- function(likelihood, 
+                       prior, 
+                       avg_likelihood) {
+    (likelihood * prior) / avg_likelihood
+}
+bayes_rule(likelihood = 1, 
+           prior = 1/2, 
+           avg_likelihood = 5/8)
+```
+
+2M6. 
+
+Use same as before, but multiply each by the new prior.
+
+| Conjecture | Ways to show black side up | Ways to draw the card |
+| :--------: | :------------------------: | :-------------------: |
+|     0B     |              0             |           3           |
+|     1B     |              1             |           2           |
+|     2B     |              2             |           1           |
+
+This reweights the 1B row, so that the 2 ways to have a black side down in the 2B row are now 2/4 of the ways to have a black side up.
+
+2M7.
+
+We want to get $P(2B | 1B, 1W)$. Use the counting method as suggested. Can ignore the 0B row as it cannot give the result.
+
+| Conjecture | Ways to show black, first card | Ways to show white, second card |
+| :--------: | :----------------------------: | :-----------------------------: |
+|     1B     |                  1             |                  2              |
+|     2B     |                  2             |                  3              |
+
+Multiply the ways to show black on the first card by the ways to show white on the second card to give 2 for 1B, and 6 for 2B, so $P(2B) = 0.75$.
+
+## Hard
+
+2H1.
+
+Call event of birth one being twins $T_1$ and on second birth $T_2$. We need $P(T_2 \; | \; T_1)$.
+
+```{r}
+pr_A <- 1/2
+pr_B <- 1/2
+pr_twins_A <- 0.1 # P(twins|A)
+pr_twins_B <- 0.2 # P(twins|B)
+pr_twins <- (pr_twins_A * pr_A) + (pr_twins_B * pr_B)
+pr_A_twins <- (pr_twins_A * pr_A)/pr_twins
+pr_A_twins
+pr_B_twins <- (pr_twins_B * pr_B)/pr_twins
+pr_B_twins
+
+pr_twins_twins <- (pr_twins_A * pr_A_twins) + (pr_twins_B * pr_twins_B)
+
+```
+
+```{r}
+p_A = 1/2 # prior probability of species A
+p_B = 1/2 # prior probability of species B
+
+p_twins_A = 0.1 # P(Twins|Species = A)
+p_twins_B = 0.2 # P(Twins|Species = B)
+
+# Given first birth are twins, what is the probability that
+# second birth are also twins
+
+
+# Given a species, births should be independent. 
+# But, because we are unsure about the species, we need to 
+# average out the species to estimate the probability of
+# next birth being twins, given that the first birth 
+# were twins.
+
+# In other words,if I knew the species, knowing that the current 
+# birth resulted in twins, would not change my expectation about 
+# twins for the following birth.
+
+# Thus, in principle:
+# P(twins) = P(twins|Species = A)P(A) + P(twins|Species = B)P(B)
+
+# However, knowing about a single twin birth, does change 
+# the relative plausibilities of the two species. So, P(A) and
+# P(B), are actually P(A|twins) and P(B|twins).
+
+# P(A|twins) = P(twins|A)P(A)/P(twins)
+# P(B|twins) = P(twins|B)P(B)/P(twins)
+# P(twins) = P(twins|A)P(A) + P(twins|B)P(B)
+p_twins = 0.1 * 0.5 + 0.2 * 0.5
+
+p_A_twins = (0.1 * 0.5)/p_twins
+p_B_twins = (0.2 * 0.5)/p_twins
+p_A_twins
+p_B_twins
+p_twins_twins = 0.1 * p_A_twins + 0.2 * p_B_twins
+p_twins_twins
+```
 
