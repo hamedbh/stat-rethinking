@@ -354,58 +354,9 @@ Multiply the ways to show black on the first card by the ways to show white on t
 Call event of birth one being twins $T_1$ and on second birth $T_2$. We need $P(T_2 \; | \; T_1)$.
 
 ```{r}
-pr_A <- 1/2
-pr_B <- 1/2
-pr_twins_A <- 0.1 # P(twins|A)
-pr_twins_B <- 0.2 # P(twins|B)
-pr_twins <- (pr_twins_A * pr_A) + (pr_twins_B * pr_B)
-pr_A_twins <- (pr_twins_A * pr_A)/pr_twins
-pr_A_twins
-pr_B_twins <- (pr_twins_B * pr_B)/pr_twins
-pr_B_twins
-
-pr_twins_twins <- (pr_twins_A * pr_A_twins) + (pr_twins_B * pr_twins_B)
-
+likelihood <- c(A = 0.1, B = 0.2)
+prior <- c(A = 1, B = 1)
+posterior <- (likelihood * prior)/sum(likelihood * prior)
+posterior
+sum(posterior * likelihood)
 ```
-
-```{r}
-p_A = 1/2 # prior probability of species A
-p_B = 1/2 # prior probability of species B
-
-p_twins_A = 0.1 # P(Twins|Species = A)
-p_twins_B = 0.2 # P(Twins|Species = B)
-
-# Given first birth are twins, what is the probability that
-# second birth are also twins
-
-
-# Given a species, births should be independent. 
-# But, because we are unsure about the species, we need to 
-# average out the species to estimate the probability of
-# next birth being twins, given that the first birth 
-# were twins.
-
-# In other words,if I knew the species, knowing that the current 
-# birth resulted in twins, would not change my expectation about 
-# twins for the following birth.
-
-# Thus, in principle:
-# P(twins) = P(twins|Species = A)P(A) + P(twins|Species = B)P(B)
-
-# However, knowing about a single twin birth, does change 
-# the relative plausibilities of the two species. So, P(A) and
-# P(B), are actually P(A|twins) and P(B|twins).
-
-# P(A|twins) = P(twins|A)P(A)/P(twins)
-# P(B|twins) = P(twins|B)P(B)/P(twins)
-# P(twins) = P(twins|A)P(A) + P(twins|B)P(B)
-p_twins = 0.1 * 0.5 + 0.2 * 0.5
-
-p_A_twins = (0.1 * 0.5)/p_twins
-p_B_twins = (0.2 * 0.5)/p_twins
-p_A_twins
-p_B_twins
-p_twins_twins = 0.1 * p_A_twins + 0.2 * p_B_twins
-p_twins_twins
-```
-
