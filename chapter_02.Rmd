@@ -360,3 +360,45 @@ posterior <- (likelihood * prior)/sum(likelihood * prior)
 posterior
 sum(posterior * likelihood)
 ```
+
+2H2.
+
+We need $P(A \; | \; Twins)$.
+
+```{r}
+bayes_rule(likelihood = 0.1, 
+           prior = 0.5, 
+           avg_likelihood = (0.1 * 0.5) + (0.2 * 0.5))
+```
+
+2H3.
+
+We need $P(A \; | \; Twins, Singleton)$
+```{r}
+likelihood <- c(A = (1 - 0.1), B = (1 - 0.2))
+prior <- c(A = 1, B = 2)
+posterior <- (likelihood * prior)/sum(likelihood * prior)
+posterior
+```
+
+2H4.
+
+Need to calculate:
+
+$$
+P(A | Test_A) = \frac{P(Test_A | A) P(A)}{P(Test_A)}
+$$
+The only difference between the two calculations will be $P(A)$. First without the birth info.
+
+```{r}
+bayes_rule(likelihood = 0.8, 
+           prior = 0.5, 
+           avg_likelihood = ((0.5 * 0.8) + (0.5 * 0.35)))
+```
+
+```{r}
+bayes_rule(likelihood = 0.8, 
+           prior = 0.36, 
+           avg_likelihood = ((0.36 * 0.8) + (0.64 * 0.35)))
+```
+
