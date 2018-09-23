@@ -761,9 +761,9 @@ Requirement that every student got taller each year is ok with the Gamma prior I
 Can simply change the prior so that $\sigma \sim \textrm{Uniform}(0, 8)$ to limit the variance. Can test the variance of students after 1, 2, 3 years with this model to see how this behaves.
 
 ```{r}
-n <- 1e2
+n <- 1e4
 seq_len(3) %>%
-    map_df( ~ data_frame(
+    map_df( ~ dplyr::data_frame(
         year = .x,
         variance = var(
             rnorm(
@@ -771,5 +771,37 @@ seq_len(3) %>%
                 mean = rnorm(n, 120, 20) + (rgamma(n, 20, 1) * year),
                 sd = runif(n, 0, 8)))))
 ```
+
+The variance from all the parameters estimated is compounded in the final sample, which means the variance is much higher than the 64 stated. This means that we need to place 'stricter' priors on the parameters, or simplify the model to have fewer degrees of freedom. So a new model could be:
+
+$$
+y_i \sim (\mu_i, \sigma)
+\\
+\mu_i = \alpha + \beta{t_i}
+\\
+\alpha \sim \mathcal{N}(120, 5)
+\\
+\beta \sim \textrm{Gamma}(5, 1)
+\\
+\sigma \sim \textrm{Uniform}(0, 3)
+$$
+
+And now generate new samples from this prior predictive distribution and check variances after three years (when variance will be at its highest.
+
+```{r}
+n <- 1e3
+samples <- rerun(1e4,
+                 rnorm(
+                     n,
+                     mean = rnorm(n, 120, 2) + (rgamma(n, 5, 1) * 3),
+                     sd = runif(n, 0, 2)))
+sample_vars <- unlist(lapply(samples, var))
+hist(sample_vars)
+sum(sample_vars > 64)
+```
+
+This model seems to work ok to restrict the variance to be strictly less than 64, but these priors are much more opinionated than may be justified. A more conservative set of priors might allow for the possibility of variance greater than 64, but would give greater weight to the data in the posterior distribution.
+
+
 
 
