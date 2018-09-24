@@ -802,6 +802,125 @@ sum(sample_vars > 64)
 
 This model seems to work ok to restrict the variance to be strictly less than 64, but these priors are much more opinionated than may be justified. A more conservative set of priors might allow for the possibility of variance greater than 64, but would give greater weight to the data in the posterior distribution.
 
+## Hard
 
+4H1. 
+
+Can feed these new data points through the model set up before for the !Kung.
+
+```{r}
+data("Howell1")
+d <- Howell1
+# normalise the weights
+d$weight_norm <- scale(d$weight)
+
+# set up the model
+model <- map(
+    flist = alist(
+        height ~ dnorm(mean = mu, sd = sigma),
+        mu <- alpha + beta * weight_norm,
+        alpha ~ dnorm(mean = 0, sd = 100),
+        beta ~ dnorm(mean = 0, sd = 10),
+        sigma ~ dunif(min = 0, max = 64)
+    ), 
+    data = d
+)
+
+new_weights <- c(46.95, 43.72, 64.78, 32.59, 54.63)
+new_norm_weights <- (new_weights - mean(d$weight))/sd(d$weight)
+sim_heights <- sim(model, data = list(weight_norm = new_norm_weights))
+```
+
+And then get the HPDI and predicted heights.
+
+```{r}
+data.frame(Individual = seq_len(5), 
+           weight = new_weights, 
+           expected_height = round(colMeans(sim_heights), 2), 
+           HPDI_89_pct_low = apply(sim_heights, 2, HPDI)[1, ], 
+           HPDI_89_pct_high = apply(sim_heights, 2, HPDI)[2, ])
+```
+
+4H2.
+
+a.
+
+```{r}
+d2 <- d[d$age < 18, ]
+model <- map(
+    flist = alist(
+        height ~ dnorm(mean = mu, sd = sigma),
+        mu <- alpha + beta * weight,
+        alpha ~ dnorm(mean = 100, sd = 50),
+        beta ~ dnorm(mean = 0, sd = 10),
+        sigma ~ dunif(min = 0, max = 64)
+    ), 
+    data = d2, 
+    start = list(
+        alpha = mean(d$height), 
+        beta = 0, 
+        sigma = 10
+    )
+)
+
+precis(model)
+```
+
+The model predicts that each child will get c. 27cm taller for each 10kgs heavier.
+
+b.
+
+```{r}
+library(MASS)
+ntrials <- 1e5
+weight.seq2 <- seq_len(70)
+posterior_samples <- as.data.frame(
+    mvrnorm(n = ntrials, 
+            mu = coef(model), 
+            Sigma = vcov(model)))
+sample_mu <- sapply(weight.seq2, function(weight) {
+    posterior_samples$alpha + posterior_samples$beta * weight
+})
+sample_mu_mean <- apply(sample_mu, 2, mean)
+sample_mu_hpdi <- apply(sample_mu, 2, HPDI)
+sample_heights <- sapply(weight.seq2, function(weight) {
+    rnorm(n = nrow(posterior_samples), 
+          mean = posterior_samples$alpha + posterior_samples$beta * weight, 
+          sd = posterior_samples$sigma)
+})
+sample_height_hpdi <- apply(sample_heights, 2, HPDI)
+
+plot(height ~ weight, data = d2, col = col.alpha(rangi2, 0.3))
+lines(x = weight.seq2, y = sample_mu_mean)
+shade(object = sample_mu_hpdi, lim = weight.seq2)
+shade(object = sample_height_hpdi, lim = weight.seq2)
+```
+
+c. 
+
+The linear model shows bias in almost all areas of the population. There is a curve to the data, starting steep and then levelling off towards the highest weights. Fitting a straight line cannot capture that.
+
+4H3.
+
+```{r}
+d <- Howell1
+model <- map(
+    flist = alist(
+        height ~ dnorm(mean = mu, sd = sigma),
+        mu <- alpha + beta * log(weight),
+        alpha ~ dnorm(mean = 100, sd = 100),
+        beta ~ dnorm(mean = 0, sd = 100),
+        sigma ~ dunif(min = 0, max = 50)
+    ), 
+    data = d, 
+    start = list(
+        alpha = 0, 
+        beta = 0, 
+        sigma = 10
+    )
+)
+
+precis(model)
+```
 
 
