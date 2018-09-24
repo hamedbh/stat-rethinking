@@ -1,0 +1,90 @@
+---
+title: "Chapter 5: Multivariate Linear Models"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: journal
+---
+
+# Notes
+
+Build a model predicting divorce rates as a function of median age of divorce.
+
+```{r}
+# load data
+suppressPackageStartupMessages({
+    library(purrr)
+    library(dplyr)
+    library(rethinking)
+})
+data("WaffleDivorce")
+d <- WaffleDivorce
+
+# standardise predictor
+d$MedianAgeMarriage_std <- scale(d$MedianAgeMarriage)
+
+# fit a model
+model5.1 <- map(
+    flist = alist(
+        Divorce ~ dnorm(mu, sigma), 
+        mu <- a + bA * MedianAgeMarriage_std, 
+        a ~ dnorm(10, 10), 
+        bA ~ dnorm(0, 1), 
+        sigma ~ dunif(0, 10)
+    ), 
+    data = d
+)
+precis(model5.1)
+```
+
+Now plot with shaded regions.
+
+```{r}
+MAM_seq <- seq(from = -3, to = 3.5, length.out = 30)
+mu <- link(model5.1, data = data.frame(MedianAgeMarriage_std = MAM_seq))
+mu_PI <- apply(mu, 2, PI)
+
+# plot it all
+plot(Divorce ~ MedianAgeMarriage_std, data = d, col = rangi2)
+abline(model5.1)
+shade(mu_PI, MAM_seq)
+```
+
+Can do the same with Marriage rate as predictor.
+
+```{r}
+# standardise predictor
+d$Marriage_std <- scale(d$Marriage)
+
+# fit a model
+model5.2 <- map(
+    flist = alist(
+        Divorce ~ dnorm(mu, sigma), 
+        mu <- a + bR * Marriage_std,  
+        a ~ dnorm(10, 10), 
+        bR ~ dnorm(0, 1), 
+        sigma ~ dunif(0, 10)
+    ), 
+    data = d
+)
+precis(model5.2)
+```
+
+Now try combining the predictors, uncover how they vary in the same model.
+
+```{r}
+model5.3 <- map(
+    flist = alist(
+        Divorce ~ dnorm(mu, sigma), 
+        mu <- a + (bR * Marriage_std) + (bA * MedianAgeMarriage_std), 
+        a ~ dnorm(10, 10), 
+        bR ~ dnorm(0, 1), 
+        bA ~ dnorm(0, 1), 
+        sigma ~ dunif(0, 10)
+    ), 
+    data = d
+)
+precis(model5.3)
+plot(precis(model5.3))
+```
+
