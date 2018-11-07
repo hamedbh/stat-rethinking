@@ -192,3 +192,66 @@ shade(A_PI, A_seq)
 
 ## Posterior Prediction Plots
 
+Model checking to answer:
+
+1. Did model fit correctly?
+2. How did the model fail?
+
+```{r}
+# calling link() without specifying any new data simply predicts using the 
+# original data and the posterior distribution
+mu <- link(model5.3)
+```
+
+```{r}
+# summarise predictions
+mu_mean <- colMeans(mu)
+mu_PI <- apply(mu, 2, PI)
+
+# simulate observations, still using original data
+divorce_sim <- sim(model5.3, n = 1e4)
+divorce_PI <- apply(divorce_sim, 2, PI)
+```
+
+```{r}
+plot(mu_mean ~ d$Divorce, 
+     col = rangi2, 
+     ylim = range(mu_PI), 
+     xlab = "Observed Divorce", 
+     ylab = "Predicted Divorce")
+abline(a = 0, b = 1, lty = 2)
+for (i in seq_len(nrow(d))) {
+    lines(rep(d$Divorce[i], 2), 
+          c(mu_PI[1, i], mu_PI[2, i]) ,
+          col = rangi2)
+}
+```
+
+Can also use residual plots to show error.
+
+```{r}
+# compute residuals
+divorce_resid <- d$Divorce - mu_mean
+# get ordering by divorce rate
+o <- order(divorce_resid)
+# make the plot
+dotchart(divorce_resid[o], 
+         labels = d$Loc[o], 
+         xlim = c(-6, 5), 
+         cex = 0.6)
+abline(v = 0, 
+       col = col.alpha("black", 0.2))
+for (i in seq_len(nrow(d))) {
+    j <- o[i] # which State in order
+    lines(d$Divorce[j] - c(mu_PI[1, j],
+                           mu_PI[2, j]), 
+          rep(i, 2))
+    points(d$Divorce[j] - c(divorce_PI[1, j],
+                            divorce_PI[2, j]), 
+           rep(i, 2),
+           pch = 3, 
+           cex = 0.6, 
+           col = "gray")
+}
+```
+
