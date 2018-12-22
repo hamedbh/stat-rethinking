@@ -1,7 +1,7 @@
 ---
 title: "Chapter 5: Multivariate Linear Models"
 output: 
-  html_notebook: 
+  html_document: 
     highlight: kate
     theme: journal
 ---
@@ -12,11 +12,9 @@ Build a model predicting divorce rates as a function of median age of divorce.
 
 ```{r}
 # load data
-suppressPackageStartupMessages({
-    library(purrr)
-    library(dplyr)
-    library(rethinking)
-})
+library(purrr)
+library(dplyr)
+library(rethinking)
 data("WaffleDivorce")
 d <- WaffleDivorce
 
@@ -24,7 +22,7 @@ d <- WaffleDivorce
 d$MedianAgeMarriage_std <- scale(d$MedianAgeMarriage)
 
 # fit a model
-model5.1 <- map(
+model5.1 <- quap(
     flist = alist(
         Divorce ~ dnorm(mu, sigma), 
         mu <- a + bA * MedianAgeMarriage_std, 
@@ -57,7 +55,7 @@ Can do the same with Marriage rate as predictor.
 d$Marriage_std <- scale(d$Marriage)
 
 # fit a model
-model5.2 <- map(
+model5.2 <- quap(
     flist = alist(
         Divorce ~ dnorm(mu, sigma), 
         mu <- a + bR * Marriage_std,  
@@ -73,7 +71,7 @@ precis(model5.2)
 Now try combining the predictors, uncover how they vary in the same model.
 
 ```{r}
-model5.3 <- map(
+model5.3 <- quap(
     flist = alist(
         Divorce ~ dnorm(mu, sigma), 
         mu <- a + (bR * Marriage_std) + (bA * MedianAgeMarriage_std), 

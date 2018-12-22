@@ -1,7 +1,7 @@
 ---
 title: "Chapter 4: Linear Models"
 output: 
-  html_notebook: 
+  html_document: 
     highlight: kate
     theme: journal
 ---
@@ -11,10 +11,8 @@ output:
 The normal distribution comes about as a result of addition. An illustration with a random walk.
 
 ```{r}
-suppressPackageStartupMessages({
-    library(purrr)
-    library(rethinking)
-})
+library(purrr)
+library(rethinking)
 dens(replicate(n = 1e3, 
                expr = sum(runif(16, -1, 1))), 
      norm.comp = TRUE)
@@ -75,9 +73,9 @@ $$
 Revisiting the globe-tossing example we get:
 
 $$
-w \sim Binom(n, p)
+w \sim \textrm{Binomial}(n, p)
 \\
-p \sim Uniform(0, 1)
+p \sim \textrm{Uniform}(0, 1)
 $$
 
 ```{r}
@@ -248,7 +246,7 @@ dens(sample2.sigma, norm.comp = TRUE)
 
 ## Maximum A Posteriori
 
-Now use a quadratic approximation, with the peak at the _Maximum A Posteriori_ (MAP), using `rethinking::map()`.
+Now use a quadratic approximation, with the peak at the _Maximum A Posteriori_ (MAP), using `rethinking::quap()`.
 
 Define the model using formula syntax, and define start points as the sample mean and standard deviation.
 
@@ -266,14 +264,14 @@ starts <- list(
 ```
 
 ```{r}
-m4.1 <- map(flist, data = d2, start = starts)
+m4.1 <- quap(flist, data = d2, start = starts)
 precis(m4.1)
 ```
 
 Can run this again with a much stronger prior on $\mu$.
 
 ```{r}
-m4.2 <- map(
+m4.2 <- quap(
     flist = alist(
         height ~ dnorm(mu, sigma),
         mu ~ dnorm(178, 0.1),
@@ -288,7 +286,7 @@ Posterior for $\mu$ has barely moved from the prior, but $\sigma$ has changed a 
 Try again with something more moderate.
 
 ```{r}
-m4.2b <- map(
+m4.2b <- quap(
     flist = alist(
         height ~ dnorm(mu, sigma),
         mu ~ dnorm(178, 5),
@@ -298,7 +296,7 @@ m4.2b <- map(
 precis(m4.2b)
 ```
 
-From the `map()` output can use `vcov()` to recover the variance-covariance matrix for the parameters.
+From the `quap()` output can use `vcov()` to recover the variance-covariance matrix for the parameters.
 
 ```{r}
 vcov(m4.2b)
@@ -342,7 +340,7 @@ plot(post4)
 Sometimes a quadratic assumption for $\sigma$ is a problem, can estimate $\textrm{ln}(\sigma)$ instead.
 
 ```{r}
-m4.1_logsigma <- map(alist(
+m4.1_logsigma <- quap(alist(
     height ~ dnorm(mu, exp(log_sigma)),
     mu ~ dnorm(178, 20),
     log_sigma ~ dnorm(2, 10)), 
@@ -379,13 +377,13 @@ $$
 \\
 \beta \sim \mathcal{N}(0, 10)
 \\
-\sigma \sim Uniform(0, 50)
+\sigma \sim \textrm{Uniform}(0, 50)
 $$
 
-Now build the model with `map()`.
+Now build the model with `quap()`.
 
 ```{r}
-m4.3 <- map(
+m4.3 <- quap(
     flist = alist(
         height ~ dnorm(mu, sigma), 
         mu <- a + b*weight, 
@@ -422,7 +420,7 @@ The MAP line overstates the certainty of the model though. Can sample some pairs
 post6 <- extract.samples(m4.3)
 N <- 10
 dN <- d2[seq_len(N), ]
-mN <- map(
+mN <- quap(
     flist = alist(
         height ~ dnorm(mu, sigma), 
         mu <- a + b*weight, 
@@ -637,14 +635,14 @@ $$
 \\
 \beta_2 \sim \mathcal{N}(0, 10)
 \\
-\sigma \sim Uniform(0, 50)
+\sigma \sim \textrm{Uniform}(0, 50)
 $$
 
 Could run the model and define the square term in there, but easier to add it to the `data.frame`.
 
 ```{r}
 d$weight.s2 <- d$weight.s^2
-m4.5 <- map(
+m4.5 <- quap(
     flist = alist(
         height ~ dnorm(mu, sigma), 
         mu <- a + (b1 * weight.s) + (b2 * weight.s2), 
@@ -687,7 +685,11 @@ shade(height.PI, weight.seq)
 
 4E2. Three parameters in the posterior.
 
-4E3. $\frac{\prod_i \mathcal{N}(y_i|\mu, \sigma)\mathcal{N}(\mu|0, 10)Uniform(\sigma|0, 10)}{\int\int\prod_i \mathcal{N}(y_i|\mu, \sigma)\mathcal{N}(\mu|0, 10)Uniform(\sigma|0, 10) d\mu d\sigma}$
+4E3. 
+
+$$
+\frac{\prod_i \mathcal{N}(y_i|\mu, \sigma)\mathcal{N}(\mu|0, 10)\textrm{Uniform}(\sigma|0, 10)}{\int\int\prod_i \mathcal{N}(y_i|\mu, \sigma)\mathcal{N}(\mu|0, 10)\textrm{Uniform}(\sigma|0, 10) d{\mu} d\sigma}
+$$
 
 4E4. The line $mu_i = \alpha + \beta{x}_i$ is the linear model.
 
@@ -786,7 +788,7 @@ y_i \sim (\mu_i, \sigma)
 \sigma \sim \textrm{Uniform}(0, 3)
 $$
 
-And now generate new samples from this prior predictive distribution and check variances after three years (when variance will be at its highest.
+And now generate new samples from this prior predictive distribution and check variances after three years (when variance will be at its highest).
 
 ```{r}
 n <- 1e3
@@ -815,7 +817,7 @@ d <- Howell1
 d$weight_norm <- scale(d$weight)
 
 # set up the model
-model <- map(
+model <- quap(
     flist = alist(
         height ~ dnorm(mean = mu, sd = sigma),
         mu <- alpha + beta * weight_norm,
@@ -847,7 +849,7 @@ a.
 
 ```{r}
 d2 <- d[d$age < 18, ]
-model <- map(
+model <- quap(
     flist = alist(
         height ~ dnorm(mean = mu, sd = sigma),
         mu <- alpha + beta * weight,
@@ -906,7 +908,7 @@ a.
 
 ```{r}
 d <- Howell1
-model <- map(
+model <- quap(
     flist = alist(
         height ~ dnorm(mean = mu, sd = sigma),
         mu <- alpha + beta * log(weight),

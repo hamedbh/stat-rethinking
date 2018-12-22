@@ -1,17 +1,15 @@
 ---
 title: "Chapter 2: Small Worlds and Large Worlds"
 output: 
-  html_notebook: 
+  html_document: 
     highlight: kate
     theme: journal
 ---
 
 ```{r}
-suppressPackageStartupMessages({
-    library(ggplot2)
-    library(dplyr)
-    library(rethinking)
-})
+library(ggplot2)
+library(tidyverse)
+library(rethinking)
 ```
 
 - **Small World**: the self-contained world of the model.
@@ -129,10 +127,10 @@ tibble(p = p_grid, posterior = posterior) %>%
 
 Now quadratic approximation. This works because peak of the posterior is often close to Gaussian, so its log will be quadratic. Can then use a quadratic to approximate it.
 
-`rethinking::map()` (Maximum A Posteriori) is a function that will estimate the mode of the posterior.
+`rethinking::quap()` (Maximum A Posteriori) is a function that will estimate the mode of the posterior.
 
 ```{r}
-globe_qa <- map(alist(w ~ dbinom(9, p),  # binomial likelihood
+globe_qa <- quap(alist(w ~ dbinom(9, p),  # binomial likelihood
                       p ~ dunif(0, 1)),   # uniform prior
                 data = list(w = 6))
 

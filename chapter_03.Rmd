@@ -1,17 +1,15 @@
 ---
 title: "Chapter 3: Sampling the Imaginary"
 output: 
-  html_notebook: 
+  html_document: 
     highlight: kate
     theme: journal
 ---
 
 ```{r}
-suppressPackageStartupMessages({
-    library(ggplot2)
-    library(dplyr)
-    library(rethinking)
-})
+library(ggplot2)
+library(dplyr)
+library(rethinking)
 ```
 
 # Easy
