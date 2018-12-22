@@ -86,3 +86,170 @@ precis(model5.3)
 plot(precis(model5.3))
 ```
 
+For plotting multivariate regressions need to use a few techniques.
+
+## Predictor Reisdual Plots
+
+Use one of the predictors to model the other.
+
+```{r}
+model5.4 <- map(
+    flist = alist(
+        Marriage_std ~ dnorm(mu, sigma), 
+        mu <- a + b * MedianAgeMarriage_std, 
+        a ~ dnorm(0, 10), 
+        b ~ dnorm(0, 1), 
+        sigma ~ dunif(0, 10)
+    ), 
+    data = d
+)
+precis(model5.4)
+```
+
+Now get the rersiduals and plot them.
+
+```{r}
+mu <- coef(model5.4)[["a"]] + coef(model5.4)[["b"]] * d$MedianAgeMarriage_std
+m5.4_resid <- d$Marriage_std - mu
+
+plot(Marriage_std ~ MedianAgeMarriage_std, data = d, col = rangi2)
+abline(model5.4)
+for (i in seq_along(m5.4_resid)) {
+    x <- d$MedianAgeMarriage_std[[i]]
+    y <- d$Marriage_std[[i]]
+    lines(c(x, x), c(mu[[i]], y), lwd = 0.5, col = col.alpha("black", 0.7))
+}
+```
+
+```{r}
+plot(m5.4_resid, d$Divorce, 
+     xlab = "Marriage Rate Residuals", 
+     ylab = "Divorce Rate")
+abline(coef = coef(lm(d$Divorce ~ m5.4_resid)))
+abline(v = 0, lty = 2)
+```
+
+## Counterfactual Plots
+
+Answer the question: how would $y$ change if only one variable varied and the rest were set to the mean?
+
+Start with doing this for marriage rate.
+
+```{r}
+A_avg <- mean(d$MedianAgeMarriage_std)
+R_seq <- seq(from = -3, to = 3, length.out = 30)
+pred_data <- data.frame(
+    Marriage_std = R_seq, 
+    MedianAgeMarriage_std = A_avg
+)
+
+mu_R <- link(model5.3, data = pred_data)
+mu_R_mean <- colMeans(mu_R)
+mu_R_PI <- apply(mu_R, 2, PI)
+
+R_sim <- sim(model5.3, data = pred_data, n = 1e4)
+R_PI <- apply(R_sim, 2, PI)
+```
+
+Now do the same for Median Age of Marriage.
+
+```{r}
+R_avg <- mean(d$Marriage_std)
+A_seq <- seq(from = -3, to = 3, length.out = 30)
+pred_data <- data.frame(
+    Marriage_std = R_avg, 
+    MedianAgeMarriage_std = A_seq
+)
+
+mu_A <- link(model5.3, data = pred_data)
+mu_A_mean <- colMeans(mu_A)
+mu_A_PI <- apply(mu_A, 2, PI)
+
+A_sim <- sim(model5.3, data = pred_data, n = 1e4)
+A_PI <- apply(A_sim, 2, PI)
+```
+
+Now plot both side by side.
+
+```{r}
+par(mfrow = c(1, 2))
+# display predictions, hiding raw data with type="n"
+# first plot for marriage rate
+plot(Divorce ~ Marriage_std, data = d, type = "n")
+mtext("MedianAgeMarriage.s = 0")
+lines(R_seq, mu_R_mean)
+shade(mu_R_PI, R_seq)
+shade(R_PI, R_seq)
+# now for median age
+plot(Divorce ~ MedianAgeMarriage_std, data = d, type = "n")
+mtext("Marriage_std = 0")
+lines(A_seq, mu_A_mean)
+shade(mu_A_PI, A_seq)
+shade(A_PI, A_seq)
+```
+
+## Posterior Prediction Plots
+
+Model checking to answer:
+
+1. Did model fit correctly?
+2. How did the model fail?
+
+```{r}
+# calling link() without specifying any new data simply predicts using the 
+# original data and the posterior distribution
+mu <- link(model5.3)
+```
+
+```{r}
+# summarise predictions
+mu_mean <- colMeans(mu)
+mu_PI <- apply(mu, 2, PI)
+
+# simulate observations, still using original data
+divorce_sim <- sim(model5.3, n = 1e4)
+divorce_PI <- apply(divorce_sim, 2, PI)
+```
+
+```{r}
+plot(mu_mean ~ d$Divorce, 
+     col = rangi2, 
+     ylim = range(mu_PI), 
+     xlab = "Observed Divorce", 
+     ylab = "Predicted Divorce")
+abline(a = 0, b = 1, lty = 2)
+for (i in seq_len(nrow(d))) {
+    lines(rep(d$Divorce[i], 2), 
+          c(mu_PI[1, i], mu_PI[2, i]) ,
+          col = rangi2)
+}
+```
+
+Can also use residual plots to show error.
+
+```{r}
+# compute residuals
+divorce_resid <- d$Divorce - mu_mean
+# get ordering by divorce rate
+o <- order(divorce_resid)
+# make the plot
+dotchart(divorce_resid[o], 
+         labels = d$Loc[o], 
+         xlim = c(-6, 5), 
+         cex = 0.6)
+abline(v = 0, 
+       col = col.alpha("black", 0.2))
+for (i in seq_len(nrow(d))) {
+    j <- o[i] # which State in order
+    lines(d$Divorce[j] - c(mu_PI[1, j],
+                           mu_PI[2, j]), 
+          rep(i, 2))
+    points(d$Divorce[j] - c(divorce_PI[1, j],
+                            divorce_PI[2, j]), 
+           rep(i, 2),
+           pch = 3, 
+           cex = 0.6, 
+           col = "gray")
+}
+```
+
