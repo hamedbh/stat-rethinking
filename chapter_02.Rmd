@@ -59,7 +59,7 @@ The next example shown is a binomial, using repeated tests of a toy globe to est
 
 _W L W W W L W L W_
 
-Start by assuming that the proportion of water on the globe is also the probability $p$ of getting a _W_ on any toss, and that each toss is an independent Bernoulli trial. So each toss is $Bernoulli(p)$, so the sequence is $Binomial(n, p)$.
+Start by assuming that the proportion of water on the globe is also the probability $p$ of getting a _W_ on any toss, and that each toss is an independent Bernoulli trial. So each toss is $\text{Bernoulli}(p)$, so the sequence is $\text{Binomial}(n, p)$.
 
 So in this case, the likelihood of any single value of $W$ is:
 
@@ -131,8 +131,8 @@ Now quadratic approximation. This works because peak of the posterior is often c
 
 ```{r}
 globe_qa <- quap(alist(w ~ dbinom(9, p),  # binomial likelihood
-                      p ~ dunif(0, 1)),   # uniform prior
-                data = list(w = 6))
+                       p ~ dunif(0, 1)),   # uniform prior
+                 data = list(w = 6))
 
 # display summary of quadratic approximation
 precis(globe_qa)
@@ -296,18 +296,14 @@ Call the cards by how many black sides they have: 0B, 1B, 2B. We want $P(2B)$.
 |     1B     |              1             |
 |     2B     |              2             |
 
-Can discount the 0B row and just conside the others: there are three ways that I can have a black side facing up, of which only 2 have a black side down, which implies the probability of $2/3$.
+Can discount the 0B row and just consider the others: there are three ways that I can have a black side facing up, of which only 2 have a black side down, which implies the probability of $2/3$.
 
 2M5. 
 
 Use Bayes rule:
 
 $$
-P(2B \; | \; 1B) = 
-
-\frac
-{P(1B \; | \; 2B) \; P(2B)}
-{P(1B)}
+P(2B \; | \; 1B) = \frac {P(1B \; | \; 2B) \; P(2B)} {P(1B)}
 $$
 
 
