@@ -64,7 +64,7 @@ quantile(samples, 0.8)
 HPDI(samples, prob = 0.66)
 ```
 
-3E7. Which values of p contain 66% of the posterior probability, assuming equal posterior probabil- ity both below and above the interval?
+3E7. Which values of p contain 66% of the posterior probability, assuming equal posterior probability both below and above the interval?
 
 ```{r}
 PI(samples, prob = 0.66)
