@@ -11,8 +11,8 @@ output:
 The normal distribution comes about as a result of addition. An illustration with a random walk.
 
 ```{r}
-library(purrr)
 library(rethinking)
+library(purrr)
 dens(replicate(n = 1e3, 
                expr = sum(runif(16, -1, 1))), 
      norm.comp = TRUE)
@@ -61,21 +61,34 @@ walk(seq_len(6L), function(i) {
 Build up models using a certain structure of language, viz.:
 
 $$
-outcome_i \sim \mathcal{N}(\mu_i, \sigma)
+y_i \sim \mathcal{N}(\mu_i, \sigma^2)
 \\
-\mu_i = \beta \times \textrm{predictor}_i
+\mu_i = \beta x_i
 \\
 \beta \sim \mathcal{N}(0, 10)
 \\
-\sigma \sim \textrm{HalfCauchy}(0, 1)
+\sigma \sim \textrm{Exponential}(0, 1)
+\\
+x_i \sim \mathcal{N}(0, 1)
 $$
 
 Revisiting the globe-tossing example we get:
 
 $$
-w \sim \textrm{Binomial}(n, p)
+W \sim \textrm{Binomial}(N, p)
 \\
 p \sim \textrm{Uniform}(0, 1)
+$$
+
+The $\sim$ symbol indicates that these parameters are _stochastic_: we do not know them with certainty, so we use these techniques to estimate them.
+
+Can also write this into Bayes' formula:
+
+$$
+P(p | w, n) = 
+    \frac
+        {\text{Binomial}(w | n, p) \text{Uniform}(p | 0, 1)}
+        {\int\text{Binomial}(w | n, p) \text{Uniform}(p | 0, 1) dp}
 $$
 
 ```{r}
@@ -134,6 +147,22 @@ prior_h <- rnorm(1e4, mean = sample_mu, sd = sample_sigma)
 dens(prior_h)
 ```
 
+Can put this model into Bayes' formula also:
+
+$$
+P(\mu, \sigma |h) = 
+    \frac
+        { \prod_i 
+            \mathcal{N}(h_i | \mu, \sigma) 
+            \mathcal{N}(\mu | 178, 20)
+            \text{Uniform}(\sigma | 0, 50)}
+        { \int \int \prod_i 
+            \mathcal{N}(h_i | \mu, \sigma) 
+            \mathcal{N}(\mu | 178, 20)
+            \text{Uniform}(\sigma | 0, 50)
+            d\mu d\sigma}
+$$
+
 ### Grid Approximation
 
 Can start off with a brute force approach via grid approximation.
@@ -146,14 +175,16 @@ sigma.list <- seq(from = 4,
                   to = 9,
                   length.out = 200)
 post <- expand.grid(mu = mu.list, sigma = sigma.list)
-post$LL <- sapply(seq_len(nrow(post)), function(i)
-    sum(
-        dnorm(
-            d2$height,
-            mean = post$mu[i],
-            sd = post$sigma[i],
-            log = TRUE
-       )))
+post$LL <- sapply(seq_len(nrow(post)), 
+                  function(i) {
+                      sum(
+                          dnorm(
+                              d2$height,
+                              mean = post$mu[i],
+                              sd = post$sigma[i],
+                              log = TRUE))
+                  }
+)
 post$prod <- post$LL + dnorm(post$mu, 178, 20, TRUE) +
     dunif(post$sigma, 0, 50, TRUE)
 post$prob <- exp(post$prod - max(post$prod))
@@ -244,7 +275,7 @@ There's a much longer tail to the right for sigma, because variance is only boun
 dens(sample2.sigma, norm.comp = TRUE)
 ```
 
-## Maximum A Posteriori
+## Quadratic Approximation
 
 Now use a quadratic approximation, with the peak at the _Maximum A Posteriori_ (MAP), using `rethinking::quap()`.
 
@@ -368,33 +399,113 @@ $$
 linear model;
 
 $$
-\mu_i = \alpha + {\beta}x_i
+\mu_i = \alpha + {\beta}(x_i - \bar{x})
 $$
 
 and then the priors.
 $$
-\alpha \sim \mathcal{N}(178, 100)
+\alpha \sim \mathcal{N}(178, 20)
 \\
 \beta \sim \mathcal{N}(0, 10)
 \\
 \sigma \sim \textrm{Uniform}(0, 50)
 $$
 
-Now build the model with `quap()`.
+### Testing the Priors
+
+To figure out whether the priors are reasonable we can simulate and see whether the results are plausible.
 
 ```{r}
+set.seed(2971)
+N <- 100
+a <- rnorm(N, 178, 20)
+b <- rnorm(N, 0, 10)
+plot(NULL,
+     xlim = range(d2$weight),
+     ylim = c(-100, 400),
+     xlab = "weight",
+     ylab = "height")
+abline(h = 0, lty = 2)
+abline(h = 272, lty = 1, lwd = 0.5)
+mtext("b ~ dnorm(0,10)")
+xbar <- mean(d2$weight)
+for (i in 1:N)
+  curve(
+    a[i] + b[i] * (x - xbar),
+    from = min(d2$weight),
+    to = max(d2$weight),
+    add = TRUE,
+    col = col.alpha("black", 0.2)
+  )
+```
+
+This is implying some strange things:
+
+- many people with negative heights;
+- many people taller than any human that has even lived;
+- strong suggestion that weight and height are negatively correlated.
+
+Can do better by changing the prior on $\beta$ to be lognormal:
+
+$$
+\beta \sim \text{Log-Normal}(0, 1) \implies \text{ln}(\beta) \sim \mathcal{N}(0, 1)
+$$
+
+This rules out a negative coefficient for the predictor in the linear model. The new priors are:
+
+$$
+h_i \sim \mathcal{N}(\mu_i, \sigma)
+\\
+\mu_i = \alpha + {\beta}(x_i - \bar{x})
+\\
+\alpha \sim \mathcal{N}(178, 20)
+\\
+\beta \sim \text{Log-Normal}(0, 1)
+\\
+\sigma \sim \textrm{Uniform}(0, 50)
+$$
+Can simulate from this prior again and check the output.
+
+```{r}
+set.seed(2971)
+N <- 100
+a <- rnorm(N, 178, 20)
+b <- rlnorm(N, 0, 1)
+plot(NULL,
+     xlim = range(d2$weight),
+     ylim = c(-100, 400),
+     xlab = "weight",
+     ylab = "height")
+abline(h = 0, lty = 2)
+abline(h = 272, lty = 1, lwd = 0.5)
+mtext("b ~ dnorm(0,10)")
+xbar <- mean(d2$weight)
+for (i in 1:N)
+  curve(
+    a[i] + b[i] * (x - xbar),
+    from = min(d2$weight),
+    to = max(d2$weight),
+    add = TRUE,
+    col = col.alpha("black", 0.2)
+  )
+```
+
+A much more sensible set of priors. Now build the model with `quap()`.
+
+```{r}
+xbar <- mean(d2$weight)
 m4.3 <- quap(
     flist = alist(
         height ~ dnorm(mu, sigma), 
-        mu <- a + b*weight, 
+        mu <- a + b*(weight - xbar), 
         a ~ dnorm(178, 100), 
-        b ~ dnorm(0, 10), 
+        b ~ dlnorm(0, 1), 
         sigma ~ dunif(0, 50)
    ), 
     data = d2, 
     start = list(
         a = mean(d2$height), 
-        b = 0
+        b = 0.2
    )
 )
 ```
