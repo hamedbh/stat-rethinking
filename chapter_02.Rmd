@@ -7,9 +7,8 @@ output:
 ---
 
 ```{r}
-library(ggplot2)
-library(tidyverse)
 library(rethinking)
+library(tidyverse)
 ```
 
 - **Small World**: the self-contained world of the model.
@@ -59,6 +58,8 @@ The next example shown is a binomial, using repeated tests of a toy globe to est
 
 _W L W W W L W L W_
 
+## Likelihood
+
 Start by assuming that the proportion of water on the globe is also the probability $p$ of getting a _W_ on any toss, and that each toss is an independent Bernoulli trial. So each toss is $\text{Bernoulli}(p)$, so the sequence is $\text{Binomial}(n, p)$.
 
 So in this case, the likelihood of any single value of $W$ is:
@@ -84,13 +85,62 @@ dbinom(x = 6, # number of 'successful' trials
 Can try different values for $p$.
 
 ```{r}
-tibble(p = seq(from = 0.1, to = 0.9, by = 0.1)) %>% 
+tibble(p = seq(from = 0.1, to = 0.9, by = 0.01)) %>% 
     mutate(likelihood = dbinom(x = 6, size = 9, prob = p)) %>% 
     ggplot(aes(x = p, y = likelihood)) + 
-    geom_point()
+    geom_point() + 
+    scale_x_continuous(breaks = seq(0, 1, by = 0.1), 
+                       minor_breaks = NULL)
 ```
 
-In this case we observe $n$ and $w$, and $p$ is the parameter to be estimated. Any parameter needs a prior: this could be a value or a distribution.
+## Parameters
+
+In this case we observe $n$ and $w$, and $p$ is the parameter to be estimated. 
+
+## Prior 
+
+Any parameter needs a prior: this could be a value or a distribution.
+
+## Posterior
+
+Recreating the figures from the book showing the combination:
+
+$$
+Likelihood \times Prior \propto Posterior
+$$
+
+```{r}
+d <- tibble(
+    probability = seq(0, 1, length.out = 1e3)
+) %>% 
+    expand(probability, row = c("flat", "stepped", "Laplace")) %>% 
+    arrange(row, probability) %>% 
+    mutate(prior = ifelse(row == "flat", 1,
+                          ifelse(row == "stepped", rep(0:1, each = 1e3/2),
+                                 exp(-abs(probability - .5) / .25) / ( 2 * .25))),
+           likelihood = dbinom(x = 6, size = 9, prob = probability)) %>% 
+    group_by(row) %>% 
+    mutate(posterior = (prior * likelihood)/(sum(prior * likelihood))) %>% 
+    gather(key, value, -probability, -row) %>% 
+    ungroup() %>% 
+    mutate(key = factor(key, levels = c("prior", "likelihood", "posterior")),
+           row = factor(row, levels = c("flat", "stepped", "Laplace")))
+
+plots <- map(levels(d$key), 
+             ~ return(d %>%
+                          filter(key == .x) %>% 
+                          ggplot(aes(x = probability, y = value)) +
+                          geom_line() +
+                          scale_x_continuous(NULL, breaks = c(0, .5, 1)) +
+                          scale_y_continuous(NULL, breaks = NULL) +
+                          labs(subtitle = .x) +
+                          theme(panel.grid       = element_blank(),
+                                strip.background = element_blank(),
+                                strip.text       = element_blank()) +
+                          facet_wrap(row ~ ., scales = "free_y", ncol = 1)))
+
+gridExtra::grid.arrange(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
+```
 
 In a simple model like this it's easy to find an analytical solution to this problem, but in general we need numerical methods. Options include:
 
@@ -101,28 +151,34 @@ In a simple model like this it's easy to find an analytical solution to this pro
 Start with grid approximation: essentially this changes a continuous problem to a discrete one by picking grid points at which to estimate the parameters.
 
 ```{r}
-# set number of grid points to re-run and see how it changes
-grid_size <- 50
-# define grid
-p_grid <- seq(from = 0,
-              to = 1,
-              length.out = grid_size)
-# define prior
-prior <- rep(1, grid_size)
-# compute likelihood at each value in grid
-likelihood <- dbinom(x = 6, 
-                     size = 9, 
-                     prob = p_grid)
-# compute product of likelihood and prior
-unstd.posterior <- likelihood * prior
-# standardize the posterior, so it sums to 1
-posterior <- unstd.posterior / sum(unstd.posterior)
+globe_grid <- function(grid_size) {
+    d <- tibble(
+        p_grid = seq(from = 0,
+                     to = 1,
+                     length.out = grid_size), 
+        prior = 1) %>% 
+        mutate(likelihood = dbinom(6, size = 9, prob = p_grid)) %>% 
+        mutate(unstd_posterior = prior * likelihood) %>% 
+        mutate(posterior = unstd_posterior/sum(unstd_posterior))
+    g <- d %>% 
+        ggplot(aes(x = p_grid, y = posterior)) + 
+        geom_point() + 
+        geom_line() + 
+        geom_vline(xintercept = d$p_grid[which.max(d$posterior)], 
+                   colour = "blue") +
+        ggtitle(paste(grid_size, "Points")) + 
+        labs(x = "probability of water", y = "posterior") + 
+        scale_x_continuous(breaks = seq(0, 1, by = 0.1), 
+                           minor_breaks = NULL)
+    plot(g)
+}
+globe_grid(20)
+```
 
-tibble(p = p_grid, posterior = posterior) %>% 
-    ggplot(aes(x = p, y = posterior)) + 
-    geom_point(size = 0.8) + 
-    geom_vline(xintercept = p_grid[which.max(posterior)]) +
-    ggtitle(paste(grid_size, "Points"))
+Try again with different grid sizes.
+
+```{r}
+walk(c(5, 10, 20, 50), globe_grid)
 ```
 
 Now quadratic approximation. This works because peak of the posterior is often close to Gaussian, so its log will be quadratic. Can then use a quadratic to approximate it.
@@ -146,9 +202,43 @@ Because the structure of this model is simple can compare directly to the analyt
 # analytical calculation
 w <- 6
 n <- 9
-curve(dbeta(x, w + 1, n - w + 1), from = 0, to = 1)
-# quadratic approximation
-curve(dnorm(x, 0.67, 0.16), lty = 2, add = TRUE)
+tibble(x = seq(0, 1, length.out = 100)) %>% 
+    ggplot(aes(x, ..y..)) + 
+    stat_function(fun = dbeta, 
+                  n = 100, 
+                  args = list(shape1 = w + 1, 
+                              shape2 = n - w + 1)) + 
+    stat_function(fun = dnorm, 
+                  n = 100, 
+                  colour = "blue", 
+                  args = list(mean = 0.67, 
+                              sd = 0.16)) + 
+    geom_vline(xintercept = 0.01 * which.max(dbeta(seq(0, 1, length.out = 100), 
+                                                   shape1 = w + 1, 
+                                                   shape2 = n - w + 1)), 
+               colour = "red") + 
+    labs(x = "probability of water", y = "posterior")
+```
+
+Try again with $n = 18$ and $n = 36$.
+
+```{r}
+globe_qa_18 <-
+  quap(
+    alist(
+      w ~ dbinom(9*2, p),
+      p ~ dunif(0, 1)
+    ), data = list(w = 6*2))
+
+globe_qa_36 <-
+  quap(
+    alist(
+      w ~ dbinom(9*4, p),
+      p ~ dunif(0, 1)
+    ), data = list(w = 6*4))
+
+precis(globe_qa_18)
+precis(globe_qa_36)
 ```
 
 # Practice
