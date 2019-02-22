@@ -9,22 +9,79 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+library(voxel)
+library(mgcv)
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(bayesplot)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+data("cherry_blossoms", package = "rethinking")
+d <- cherry_blossoms %>% 
+    filter(!is.na(temp))
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Start by building a GAM with `mgcv`.
+
+```{r}
+m1 <- gam(temp ~ s(year, k = 15), 
+          data = d, 
+          method = "REML")
+summary(m1)
+```
+
+Plot the GAM.
+
+```{r}
+plotGAM(m1, smooth.cov = "year") + 
+    geom_point(data = d, 
+               aes(year, temp), 
+               colour = "steelblue", 
+               alpha = 0.25)
+```
+
+Now build a similar model with `brm()`.
+
+```{r}
+m2 <- brm(
+    bf(temp ~ s(year, k = 15)), 
+    data = d, 
+    cores = 4, 
+    seed = 2150, 
+    iter = 4000, 
+    warmup = 1000, 
+    file = "Stan/ch_04/b4_8"
+)
+summary(m2)
+```
+
+```{r}
+pairs(m2)
+```
+
+Create a plot with the raw data.
+
+```{r}
+plot(marginal_effects(m2), points = TRUE)
+```
+
+Compare the models.
+
+```{r}
+gam.vcomp(m1, rescale = FALSE)
+```
+
+Estimates for the smooth term are very similar. Can plot the posterior predictive check for the Bayesian model.
+
+```{r}
+pp_check(m2)
+```
+
+```{r}
+pp_check(m2, type = "ecdf_overlay")
+```
+
+Many of these techniques from Gavin Simpson's post about [Fitting GAMs with `brms`](https://www.fromthebottomoftheheap.net/2018/04/21/fitting-gams-with-brms/).
