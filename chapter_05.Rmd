@@ -30,13 +30,13 @@ library(ggrepel)
 library(tidyverse)
 data("WaffleDivorce", package = "rethinking")
 d <- WaffleDivorce %>% 
-  as_tibble() %>% 
-  set_names(nm = names(.) %>% 
-              str_replace_all("\\.", "_")) %>% 
-  # build z-score versions of the main variables we'll use
-  mutate(Divorce_z           = scale(Divorce), 
-         MedianAgeMarriage_z = scale(MedianAgeMarriage), 
-         Marriage_z          = scale(Marriage))
+    as_tibble() %>% 
+    set_names(nm = names(.) %>% 
+                  str_replace_all("\\.", "_")) %>% 
+    # build z-score versions of the main variables we'll use
+    mutate(Divorce_z           = scale(Divorce), 
+           MedianAgeMarriage_z = scale(MedianAgeMarriage), 
+           Marriage_z          = scale(Marriage))
 # check out the data
 str(d)
 glimpse(d)
@@ -49,64 +49,64 @@ Plot divorce rate against the prevalence of Waffle Houses.
 
 ```{r}
 d %>% 
-  ggplot(aes(WaffleHouses/Population, 
-             Divorce)) + 
-  stat_smooth(method = "lm", 
-              fullrange = TRUE, 
-              size = 0.5, 
-              alpha = 0.2, 
-              colour = "steelblue4", 
-              fill = "steelblue") + 
-  geom_point(size = 1.5, alpha = 0.5, colour = "steelblue4") + 
-  geom_text_repel(data = d %>% 
-                    filter(Loc %in% c("ME", "OK", "AR", "AL", 
-                                      "GA", "SC", "NJ")), 
-                  aes(label = Loc), 
-                  size = 3, 
-                  seed = 1042) + 
-  scale_x_continuous(limits = c(0, 55)) + 
-  coord_cartesian(xlim = c(0, 50), 
-                  ylim = c(5, 15)) + 
-  labs(x = "Waffle Houses per million", 
-       y = "Divorce Rate") + 
-  theme_classic()
+    ggplot(aes(WaffleHouses/Population, 
+               Divorce)) + 
+    stat_smooth(method = "lm", 
+                fullrange = TRUE, 
+                size = 0.5, 
+                alpha = 0.2, 
+                colour = "steelblue4", 
+                fill = "steelblue") + 
+    geom_point(size = 1.5, alpha = 0.5, colour = "steelblue4") + 
+    geom_text_repel(data = d %>% 
+                        filter(Loc %in% c("ME", "OK", "AR", "AL", 
+                                          "GA", "SC", "NJ")), 
+                    aes(label = Loc), 
+                    size = 3, 
+                    seed = 1042) + 
+    scale_x_continuous(limits = c(0, 55)) + 
+    coord_cartesian(xlim = c(0, 50), 
+                    ylim = c(5, 15)) + 
+    labs(x = "Waffle Houses per million", 
+         y = "Divorce Rate") + 
+    theme_classic()
 ```
 
 There is a positive correlation between them, but this is not evidence of causality. The two main predictors we might want to consider are the median age of marriage (`MedianAgeMarriage`) and the marriage rate (`Marriage`). Can visualise all of these in multiple ways, firstly as a heat map on the US.
 
 ```{r}
 d %>% 
-  # do this to match format in fifty_states
-  mutate(Location = str_to_lower(Location)) %>% 
-  select(ends_with("_z"), # use z-score version to keep scales consistent
-         Location) %>% 
-  {
-    # will otherwise generate warnings about attributes being dropped
-    suppressWarnings(gather(., key, value, -Location))
-  } %>% 
-  ggplot(aes(map_id = Location)) + 
-  geom_map(aes(fill = value), 
-           map = fifty_states, 
-           colour = "grey50",
-           size = 0.02) + 
-  expand_limits(x = fifty_states$long, y = fifty_states$lat) + 
-  scale_x_continuous(NULL, breaks = NULL) + 
-  scale_y_continuous(NULL, breaks = NULL) + 
-  scale_fill_viridis_c(option = "B") + 
-  coord_map() + 
-  theme_bw() +
-  theme(panel.grid       = element_blank(),
-        strip.background = element_rect(fill = "transparent", 
-                                        color = "transparent")) +
-  facet_wrap(~key)
+    # do this to match format in fifty_states
+    mutate(Location = str_to_lower(Location)) %>% 
+    select(ends_with("_z"), # use z-score version to keep scales consistent
+           Location) %>% 
+    {
+        # will otherwise generate warnings about attributes being dropped
+        suppressWarnings(gather(., key, value, -Location))
+    } %>% 
+    ggplot(aes(map_id = Location)) + 
+    geom_map(aes(fill = value), 
+             map = fifty_states, 
+             colour = "grey50",
+             size = 0.02) + 
+    expand_limits(x = fifty_states$long, y = fifty_states$lat) + 
+    scale_x_continuous(NULL, breaks = NULL) + 
+    scale_y_continuous(NULL, breaks = NULL) + 
+    scale_fill_viridis_c(option = "B") + 
+    coord_map() + 
+    theme_bw() +
+    theme(panel.grid       = element_blank(),
+          strip.background = element_rect(fill = "transparent", 
+                                          color = "transparent")) +
+    facet_wrap(~key)
 ```
 
 Then can create pairs plots for the variables.
 
 ```{r}
 d %>% 
-  select(ends_with("_z")) %>% 
-  pairs(col = "steelblue")
+    select(ends_with("_z")) %>% 
+    pairs(col = "steelblue")
 ```
 
 Can see some evidence of association, but which are meaningful?
@@ -131,16 +131,16 @@ Now build the model.
 
 ```{r}
 b5_1 <- brm(
-  Divorce_z ~ 1 + MedianAgeMarriage_z, 
-  data = d, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  iter = 2000, 
-  warmup = 1000, 
-  file = "Stan/ch_05/b5_1"
+    Divorce_z ~ 1 + MedianAgeMarriage_z, 
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    file = "Stan/ch_05/b5_1"
 )
 summary(b5_1)
 ```
@@ -149,18 +149,18 @@ These priors seem quite strict, but this is because the variables have been norm
 
 ```{r}
 ppd_5_1 <- brm(
-  Divorce_z ~ 1 + MedianAgeMarriage_z, 
-  data = d, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  iter = 2000, 
-  warmup = 1000, 
-  sample_prior = "only", 
-  file = "Stan/ch_05/ppd_5_1", 
-  control = list(adapt_delta = 0.9)
+    Divorce_z ~ 1 + MedianAgeMarriage_z, 
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    sample_prior = "only", 
+    file = "Stan/ch_05/ppd_5_1", 
+    control = list(adapt_delta = 0.9)
 )
 ```
 
@@ -168,13 +168,13 @@ Now we can plot the marginal effects to see the range of plausible associations 
 
 ```{r}
 g <- marginal_effects(ppd_5_1, method = "predict") %>% 
-  plot(points = TRUE, plot = FALSE) 
+    plot(points = TRUE, plot = FALSE) 
 
 g$MedianAgeMarriage_z +
-  labs(x = "Median Age Marriage (z-score)", 
-       y = "Divorce Rate (z-score)") + 
-  ggtitle("Prior predictive distribution") + 
-  theme_minimal()
+    labs(x = "Median Age Marriage (z-score)", 
+         y = "Divorce Rate (z-score)") + 
+    ggtitle("Prior predictive distribution") + 
+    theme_minimal()
 ```
 
 There is still quite a range of plausible associations, so the priors are not as restrictive as they may seem.
@@ -185,28 +185,28 @@ The summary for the model shows that the relationship between predictor and outc
 marriage_age_seq <- tibble(MedianAgeMarriage_z = seq(-3, 3, length.out = 100))
 
 fitted_5_1 <- marriage_age_seq %>% 
-  bind_cols(fitted(b5_1, 
-                   newdata = marriage_age_seq, 
-                   probs = c(0.055, 0.945)) %>% 
-              as_tibble())
+    bind_cols(fitted(b5_1, 
+                     newdata = marriage_age_seq, 
+                     probs = c(0.055, 0.945)) %>% 
+                  as_tibble())
 
 fitted_5_1 %>% 
-  ggplot(aes(MedianAgeMarriage_z, Estimate)) + 
-  geom_ribbon(aes(ymin = Q5.5, 
-                  ymax = Q94.5), 
-              fill = "steelblue", 
-              alpha = 0.2) + 
-  geom_line(colour = "steelblue4") + 
-  geom_point(data = d, 
-             aes(MedianAgeMarriage_z, 
-                 Divorce_z), 
-             size = 2, 
-             colour = "steelblue4") + 
-  labs(y = "Divorce (z-score)", 
-       x = "Median Age Marriage (z-score)") + 
-  coord_cartesian(xlim = range(d$MedianAgeMarriage_z), 
-                  ylim = range(d$Divorce_z)) + 
-  theme_classic()
+    ggplot(aes(MedianAgeMarriage_z, Estimate)) + 
+    geom_ribbon(aes(ymin = Q5.5, 
+                    ymax = Q94.5), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    geom_point(data = d, 
+               aes(MedianAgeMarriage_z, 
+                   Divorce_z), 
+               size = 2, 
+               colour = "steelblue4") + 
+    labs(y = "Divorce (z-score)", 
+         x = "Median Age Marriage (z-score)") + 
+    coord_cartesian(xlim = range(d$MedianAgeMarriage_z), 
+                    ylim = range(d$Divorce_z)) + 
+    theme_classic()
 ```
 
 Now follow the same set of steps, but for `Marriage_z` ($M$) as the predictor.
@@ -227,16 +227,16 @@ Now build the model.
 
 ```{r}
 b5_2 <- brm(
-  Divorce_z ~ 1 + Marriage_z, 
-  data = d, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  iter = 2000, 
-  warmup = 1000, 
-  file = "Stan/ch_05/b5_2"
+    Divorce_z ~ 1 + Marriage_z, 
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    file = "Stan/ch_05/b5_2"
 )
 summary(b5_2)
 ```
@@ -245,28 +245,28 @@ Generate the prior predictive distribution plots again to check the priors.
 
 ```{r}
 ppd_5_2 <- brm(
-  Divorce_z ~ 1 + Marriage_z, 
-  data = d, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  iter = 2000, 
-  warmup = 1000, 
-  sample_prior = "only", 
-  file = "Stan/ch_05/ppd_5_2", 
-  control = list(adapt_delta = 0.9)
+    Divorce_z ~ 1 + Marriage_z, 
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    sample_prior = "only", 
+    file = "Stan/ch_05/ppd_5_2", 
+    control = list(adapt_delta = 0.9)
 )
 
 g <- marginal_effects(ppd_5_2, method = "predict") %>% 
-  plot(points = TRUE, plot = FALSE) 
+    plot(points = TRUE, plot = FALSE) 
 
 g$Marriage_z +
-  labs(x = "Marriage Rate (z-score)", 
-       y = "Divorce Rate (z-score)") + 
-  ggtitle("Prior predictive distribution") + 
-  theme_minimal()
+    labs(x = "Marriage Rate (z-score)", 
+         y = "Divorce Rate (z-score)") + 
+    ggtitle("Prior predictive distribution") + 
+    theme_minimal()
 ```
 
 The summary for the model shows that the relationship between predictor and outcome is probably positive. Can plot posterior predictions to see how these compare with the raw data.
@@ -275,28 +275,28 @@ The summary for the model shows that the relationship between predictor and outc
 marriage_rate_seq <- tibble(Marriage_z = seq(-3, 3, length.out = 100))
 
 fitted_5_2 <- marriage_rate_seq %>% 
-  bind_cols(fitted(b5_2, 
-                   newdata = marriage_rate_seq, 
-                   probs = c(0.055, 0.945)) %>% 
-              as_tibble())
+    bind_cols(fitted(b5_2, 
+                     newdata = marriage_rate_seq, 
+                     probs = c(0.055, 0.945)) %>% 
+                  as_tibble())
 
 fitted_5_2 %>% 
-  ggplot(aes(Marriage_z, Estimate)) + 
-  geom_ribbon(aes(ymin = Q5.5, 
-                  ymax = Q94.5), 
-              fill = "steelblue", 
-              alpha = 0.2) + 
-  geom_line(colour = "steelblue4") + 
-  geom_point(data = d, 
-             aes(Marriage_z, 
-                 Divorce_z), 
-             size = 2, 
-             colour = "steelblue4") + 
-  labs(y = "Divorce (z-score)", 
-       x = "Marriage Rate (z-score)") + 
-  coord_cartesian(xlim = range(d$Marriage_z), 
-                  ylim = range(d$Divorce_z)) + 
-  theme_classic()
+    ggplot(aes(Marriage_z, Estimate)) + 
+    geom_ribbon(aes(ymin = Q5.5, 
+                    ymax = Q94.5), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    geom_point(data = d, 
+               aes(Marriage_z, 
+                   Divorce_z), 
+               size = 2, 
+               colour = "steelblue4") + 
+    labs(y = "Divorce (z-score)", 
+         x = "Marriage Rate (z-score)") + 
+    coord_cartesian(xlim = range(d$Marriage_z), 
+                    ylim = range(d$Divorce_z)) + 
+    theme_classic()
 ```
 
 Before building a multivariate model, need to consider issues of causality.
@@ -307,15 +307,15 @@ Can use directed acyclic graphs (DAGs) to illustrate causality in models and hig
 
 ```{r}
 dag_5_1 <- dagify(
-  D ~ A, 
-  M ~ A, 
-  D ~ M, 
-  outcome = "D", 
-  coords = list(x = c(A = 0, D = 1, M = 2), 
-                y = c(A = 1, D = 0, M = 1))) %>% 
-  tidy_dagitty()
+    D ~ A, 
+    M ~ A, 
+    D ~ M, 
+    outcome = "D", 
+    coords = list(x = c(A = 0, D = 1, M = 2), 
+                  y = c(A = 1, D = 0, M = 1))) %>% 
+    tidy_dagitty()
 ggdag(dag_5_1) + 
-  theme_dag()
+    theme_dag()
 ```
 
 This graph shows that there are two paths by which the marriage age may affect divorce rate: either directly or via the marriage rate. If this graph is correct then a model with both predictors will be better than either of the models with a single predictor.
@@ -342,16 +342,16 @@ Then build the model.
 
 ```{r}
 b5_3 <- brm(
-  Divorce_z ~ 1 + Marriage_z + MedianAgeMarriage_z, 
-  data = d, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  iter = 2000, 
-  warmup = 1000, 
-  file = "Stan/ch_05/b5_3"
+    Divorce_z ~ 1 + Marriage_z + MedianAgeMarriage_z, 
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    file = "Stan/ch_05/b5_3"
 )
 summary(b5_3)
 ```
@@ -362,7 +362,7 @@ Can see this in a dotplot of the coefficients.
 
 ```{r}
 stanplot(b5_3) + 
-  theme(text = element_text(family = "Avenir"))
+    theme(text = element_text(family = "Avenir"))
 ```
 
 There are ways to create this plot with `bayesplot::mcmc_intervals()` or `tidybayes::stat_pointintervalh()` also; both work with the `posterior_samples()` from the `brm` output. The main merit of these is that they allow for more customisation or the plot as the dotplot is just another geom to be layered. 
@@ -375,16 +375,16 @@ Use one of the predictors to model the other.
 
 ```{r}
 b5_4a <- brm(
-  Marriage_z ~ 1 + MedianAgeMarriage_z, 
-  data = d, 
-  prior = c(prior(normal(0, 10), class = Intercept), 
-            prior(normal(0, 1), class = b), 
-            prior(cauchy(0, 1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  iter = 2500, 
-  warmup = 1000, 
-  file = "Stan/ch_05/b5_4a"
+    Marriage_z ~ 1 + MedianAgeMarriage_z, 
+    data = d, 
+    prior = c(prior(normal(0, 10), class = Intercept), 
+              prior(normal(0, 1), class = b), 
+              prior(cauchy(0, 1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    iter = 2500, 
+    warmup = 1000, 
+    file = "Stan/ch_05/b5_4a"
 )
 summary(b5_4a)
 ```
@@ -394,17 +394,17 @@ Use the `fitted()` values to get the first plot from the book.
 ```{r}
 fitted_5_4a <- fitted(b5_4a, 
                       probs = c(0.055, 0.945)) %>% 
-  as_tibble() %>% 
-  bind_cols(d)
+    as_tibble() %>% 
+    bind_cols(d)
 
 fitted_5_4a %>% 
-  ggplot(aes(MedianAgeMarriage_z, Marriage_z)) + 
-  geom_point(shape = 1, size = 2, colour = "steelblue4") + 
-  geom_segment(aes(xend = MedianAgeMarriage_z, yend = Estimate), 
-               size = 0.25) + 
-  geom_line(aes(y = Estimate), 
-            colour = "steelblue") + 
-  theme_classic()
+    ggplot(aes(MedianAgeMarriage_z, Marriage_z)) + 
+    geom_point(shape = 1, size = 2, colour = "steelblue4") + 
+    geom_segment(aes(xend = MedianAgeMarriage_z, yend = Estimate), 
+                 size = 0.25) + 
+    geom_line(aes(y = Estimate), 
+              colour = "steelblue") + 
+    theme_classic()
 ```
 
 Now get the residuals and plot them.
@@ -412,8 +412,8 @@ Now get the residuals and plot them.
 ```{r}
 resids_5_4a <- residuals(b5_4a, 
                          probs = c(0.055, 0.945)) %>% 
-  as_tibble() %>% 
-  bind_cols(d)
+    as_tibble() %>% 
+    bind_cols(d)
 
 # to add some annotation
 plot_text <- tibble(Estimate = c(-0.5, 0.5), 
@@ -421,42 +421,42 @@ plot_text <- tibble(Estimate = c(-0.5, 0.5),
                     label = c("slower", "faster"))
 
 resids_5_4a %>% 
-  ggplot(aes(Estimate, Divorce)) + 
-  stat_smooth(method = "lm", 
-              fullrange = TRUE, 
-              colour = "steelblue4", 
-              fill = "steelblue4", 
-              alpha = 0.2, 
-              size = 0.5) + 
-  geom_vline(xintercept = 0, 
-             linetype = 2, 
-             colour = "grey50") + 
-  geom_point(size = 2, 
-             colour = "steelblue4", 
-             alpha = 0.6) + 
-  geom_text(data = plot_text, 
-            aes(label = label)) + 
-  scale_x_continuous(limits = c(-2, 2)) + 
-  coord_cartesian(xlim = range(resids_5_4a$Estimate), 
-                  ylim = c(6, 14.1)) + 
-  labs(x = "Marriage Rate Residuals") + 
-  theme_classic()
+    ggplot(aes(Estimate, Divorce)) + 
+    stat_smooth(method = "lm", 
+                fullrange = TRUE, 
+                colour = "steelblue4", 
+                fill = "steelblue4", 
+                alpha = 0.2, 
+                size = 0.5) + 
+    geom_vline(xintercept = 0, 
+               linetype = 2, 
+               colour = "grey50") + 
+    geom_point(size = 2, 
+               colour = "steelblue4", 
+               alpha = 0.6) + 
+    geom_text(data = plot_text, 
+              aes(label = label)) + 
+    scale_x_continuous(limits = c(-2, 2)) + 
+    coord_cartesian(xlim = range(resids_5_4a$Estimate), 
+                    ylim = c(6, 14.1)) + 
+    labs(x = "Marriage Rate Residuals") + 
+    theme_classic()
 ```
 
 Now do the same in reverse.
 
 ```{r}
 b5_4b <- brm(
-  MedianAgeMarriage_z ~ 1 + Marriage_z, 
-  data = d, 
-  prior = c(prior(normal(0, 10), class = Intercept), 
-            prior(normal(0, 1), class = b), 
-            prior(cauchy(0, 1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  iter = 2500, 
-  warmup = 1000, 
-  file = "Stan/ch_05/b5_4b"
+    MedianAgeMarriage_z ~ 1 + Marriage_z, 
+    data = d, 
+    prior = c(prior(normal(0, 10), class = Intercept), 
+              prior(normal(0, 1), class = b), 
+              prior(cauchy(0, 1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    iter = 2500, 
+    warmup = 1000, 
+    file = "Stan/ch_05/b5_4b"
 )
 summary(b5_4b)
 ```
@@ -466,8 +466,8 @@ Now get the residuals and plot them.
 ```{r}
 resids_5_4b <- residuals(b5_4b, 
                          probs = c(0.055, 0.945)) %>% 
-  as_tibble() %>% 
-  bind_cols(d)
+    as_tibble() %>% 
+    bind_cols(d)
 
 # to add some annotation
 plot_text <- tibble(Estimate = c(-0.7, 0.5), 
@@ -475,26 +475,26 @@ plot_text <- tibble(Estimate = c(-0.7, 0.5),
                     label = c("younger", "older"))
 
 resids_5_4b %>% 
-  ggplot(aes(Estimate, Divorce)) + 
-  stat_smooth(method = "lm", 
-              fullrange = TRUE, 
-              colour = "steelblue4", 
-              fill = "steelblue4", 
-              alpha = 0.2, 
-              size = 0.5) + 
-  geom_vline(xintercept = 0, 
-             linetype = 2, 
-             colour = "grey50") + 
-  geom_point(size = 2, 
-             colour = "steelblue4", 
-             alpha = 0.6) + 
-  geom_text(data = plot_text, 
-            aes(label = label)) + 
-  scale_x_continuous(limits = c(-2, 3)) + 
-  coord_cartesian(xlim = range(resids_5_4b$Estimate), 
-                  ylim = c(6, 14.1)) + 
-  labs(x = "Age of Marriage Residuals") + 
-  theme_classic()
+    ggplot(aes(Estimate, Divorce)) + 
+    stat_smooth(method = "lm", 
+                fullrange = TRUE, 
+                colour = "steelblue4", 
+                fill = "steelblue4", 
+                alpha = 0.2, 
+                size = 0.5) + 
+    geom_vline(xintercept = 0, 
+               linetype = 2, 
+               colour = "grey50") + 
+    geom_point(size = 2, 
+               colour = "steelblue4", 
+               alpha = 0.6) + 
+    geom_text(data = plot_text, 
+              aes(label = label)) + 
+    scale_x_continuous(limits = c(-2, 3)) + 
+    coord_cartesian(xlim = range(resids_5_4b$Estimate), 
+                    ylim = c(6, 14.1)) + 
+    labs(x = "Age of Marriage Residuals") + 
+    theme_classic()
 ```
 
 ## Counterfactual Plots
@@ -506,37 +506,37 @@ Start with doing this for marriage rate.
 ```{r}
 # need to build a tibble with possible data for M and A set to its mean
 new_data <- tibble(
-  Marriage_z = seq(from = -3, to = 3, length.out = 100), 
-  MedianAgeMarriage_z = mean(d$MedianAgeMarriage_z)
+    Marriage_z = seq(from = -3, to = 3, length.out = 100), 
+    MedianAgeMarriage_z = mean(d$MedianAgeMarriage_z)
 )
 
 fitted(b5_3, 
        newdata = new_data, 
        probs = c(0.055, 0.945)) %>% 
-  as_tibble() %>% 
-  rename(fit_low = Q5.5, 
-         fit_hi  = Q94.5) %>% 
-  bind_cols(
-    predict(b5_3, 
-            newdata = new_data, 
-            probs = c(0.055, 0.945)) %>% 
-      as_tibble() %>% 
-      transmute(pred_low = Q5.5, 
-                pred_hi  = Q94.5)
-  ) %>% 
-  bind_cols(new_data) %>% 
-  ggplot(aes(Marriage_z, Estimate)) + 
-  geom_ribbon(aes(ymin = pred_low, ymax = pred_hi), 
-              fill = "steelblue", 
-              alpha = 0.2) + 
-  geom_ribbon(aes(ymin = fit_low, ymax = fit_hi), 
-              fill = "steelblue", 
-              alpha = 0.2) + 
-  geom_line(colour = "steelblue4") + 
-  coord_cartesian(xlim = range(d$Marriage_z)) + 
-  labs(subtitle = "Counterfactual plot for \nMedianAgeMarriage_z = 0", 
-       y = "Divorce_z") + 
-  theme_classic() -> g1
+    as_tibble() %>% 
+    rename(fit_low = Q5.5, 
+           fit_hi  = Q94.5) %>% 
+    bind_cols(
+        predict(b5_3, 
+                newdata = new_data, 
+                probs = c(0.055, 0.945)) %>% 
+            as_tibble() %>% 
+            transmute(pred_low = Q5.5, 
+                      pred_hi  = Q94.5)
+    ) %>% 
+    bind_cols(new_data) %>% 
+    ggplot(aes(Marriage_z, Estimate)) + 
+    geom_ribbon(aes(ymin = pred_low, ymax = pred_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_ribbon(aes(ymin = fit_low, ymax = fit_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    coord_cartesian(xlim = range(d$Marriage_z)) + 
+    labs(subtitle = "Counterfactual plot for \nMedianAgeMarriage_z = 0", 
+         y = "Divorce_z") + 
+    theme_classic() -> g1
 
 g1
 ```
@@ -546,37 +546,37 @@ Now do the same for Median Age of Marriage.
 ```{r}
 # need to build a tibble with possible data for M and A set to its mean
 new_data <- tibble(
-  Marriage_z = mean(d$Marriage_z), 
-  MedianAgeMarriage_z = seq(from = -3, to = 3.5, length.out = 100)
+    Marriage_z = mean(d$Marriage_z), 
+    MedianAgeMarriage_z = seq(from = -3, to = 3.5, length.out = 100)
 )
 
 fitted(b5_3, 
        newdata = new_data, 
        probs = c(0.055, 0.945)) %>% 
-  as_tibble() %>% 
-  rename(fit_low = Q5.5, 
-         fit_hi  = Q94.5) %>% 
-  bind_cols(
-    predict(b5_3, 
-            newdata = new_data, 
-            probs = c(0.055, 0.945)) %>% 
-      as_tibble() %>% 
-      transmute(pred_low = Q5.5, 
-                pred_hi  = Q94.5)
-  ) %>% 
-  bind_cols(new_data) %>% 
-  ggplot(aes(MedianAgeMarriage_z, Estimate)) + 
-  geom_ribbon(aes(ymin = pred_low, ymax = pred_hi), 
-              fill = "steelblue", 
-              alpha = 0.2) + 
-  geom_ribbon(aes(ymin = fit_low, ymax = fit_hi), 
-              fill = "steelblue", 
-              alpha = 0.2) + 
-  geom_line(colour = "steelblue4") + 
-  coord_cartesian(xlim = range(d$MedianAgeMarriage_z)) + 
-  labs(subtitle = "Counterfactual plot for \nMarriage_z = 0", 
-       y = "Divorce_z") + 
-  theme_classic() -> g2
+    as_tibble() %>% 
+    rename(fit_low = Q5.5, 
+           fit_hi  = Q94.5) %>% 
+    bind_cols(
+        predict(b5_3, 
+                newdata = new_data, 
+                probs = c(0.055, 0.945)) %>% 
+            as_tibble() %>% 
+            transmute(pred_low = Q5.5, 
+                      pred_hi  = Q94.5)
+    ) %>% 
+    bind_cols(new_data) %>% 
+    ggplot(aes(MedianAgeMarriage_z, Estimate)) + 
+    geom_ribbon(aes(ymin = pred_low, ymax = pred_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_ribbon(aes(ymin = fit_low, ymax = fit_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    coord_cartesian(xlim = range(d$MedianAgeMarriage_z)) + 
+    labs(subtitle = "Counterfactual plot for \nMarriage_z = 0", 
+         y = "Divorce_z") + 
+    theme_classic() -> g2
 
 g2
 ```
@@ -598,68 +598,68 @@ Model checking to answer:
 ```{r}
 fitted(b5_3, 
        probs = c(0.055, 0.945)) %>% 
-  as_tibble() %>% 
-  bind_cols(d) %>% 
-  ggplot(aes(Divorce_z, Estimate)) + 
-  geom_abline(linetype = 2, colour = "grey50", size = 0.5) + 
-  geom_point(size = 1.5, colour = "steelblue4", alpha = 0.7) + 
-  geom_linerange(aes(ymin = Q5.5, ymax = Q94.5), 
-                 size = 0.25, colour = "steelblue4") + 
-  geom_linerange(aes(ymin = Estimate - Est.Error, 
-                     ymax = Estimate + Est.Error), 
-                 size = 0.5, colour = "steelblue4") + 
-  geom_text(data = . %>% filter(Loc %in% c("ID", "UT")), 
-            aes(label = Loc), 
-            hjust = 0, 
-            nudge_x = -0.2) + 
-  labs(x = "Observed Divorce", y = "Predicted Divorce") + 
-  theme_classic()
+    as_tibble() %>% 
+    bind_cols(d) %>% 
+    ggplot(aes(Divorce_z, Estimate)) + 
+    geom_abline(linetype = 2, colour = "grey50", size = 0.5) + 
+    geom_point(size = 1.5, colour = "steelblue4", alpha = 0.7) + 
+    geom_linerange(aes(ymin = Q5.5, ymax = Q94.5), 
+                   size = 0.25, colour = "steelblue4") + 
+    geom_linerange(aes(ymin = Estimate - Est.Error, 
+                       ymax = Estimate + Est.Error), 
+                   size = 0.5, colour = "steelblue4") + 
+    geom_text(data = . %>% filter(Loc %in% c("ID", "UT")), 
+              aes(label = Loc), 
+              hjust = 0, 
+              nudge_x = -0.2) + 
+    labs(x = "Observed Divorce", y = "Predicted Divorce") + 
+    theme_classic()
 ```
 
 ```{r}
 residuals(b5_3, 
           probs = c(0.055, 0.945)) %>% 
-  as_tibble() %>% 
-  rename(fit_low = Q5.5,
-         fit_hi  = Q94.5) %>% 
-  bind_cols(
-    predict(b5_3, 
-            probs = c(0.055, 0.945)) %>% 
-      as_tibble() %>% 
-      transmute(pred_low = Q5.5,
-                pred_hi = Q94.5)) %>% 
-  bind_cols(d) %>%
-  # convert the pred_ intervals to a deviance metric
-  mutate(pred_low = Divorce_z - pred_low,
-         pred_hi = Divorce_z - pred_hi) %>% 
-  ggplot(aes(x = reorder(Loc, Estimate), y = Estimate)) +
-  geom_hline(yintercept = 0, 
-             size = 0.5, 
-             colour = "steelblue4", 
-             alpha = 0.1) +
-  geom_pointrange(aes(ymin = fit_low, ymax = fit_hi),
-                  size = 0.4, 
-                  shape = 20, 
-                  colour = "steelblue4") + 
-  geom_segment(aes(y    = Estimate - Est.Error, 
-                   yend = Estimate + Est.Error,
-                   x    = Loc, 
-                   xend = Loc),
-               size = 1, 
-               colour = "steelblue4") +
-  geom_segment(aes(y    = pred_low, 
-                   yend = pred_hi,
-                   x    = Loc, 
-                   xend = Loc),
-               size = 3, 
+    as_tibble() %>% 
+    rename(fit_low = Q5.5,
+           fit_hi  = Q94.5) %>% 
+    bind_cols(
+        predict(b5_3, 
+                probs = c(0.055, 0.945)) %>% 
+            as_tibble() %>% 
+            transmute(pred_low = Q5.5,
+                      pred_hi = Q94.5)) %>% 
+    bind_cols(d) %>%
+    # convert the pred_ intervals to a deviance metric
+    mutate(pred_low = Divorce_z - pred_low,
+           pred_hi = Divorce_z - pred_hi) %>% 
+    ggplot(aes(x = reorder(Loc, Estimate), y = Estimate)) +
+    geom_hline(yintercept = 0, 
+               size = 0.5, 
                colour = "steelblue4", 
                alpha = 0.1) +
-  labs(x = NULL, y = NULL) +
-  coord_flip() +
-  theme_classic() + 
-  theme(panel.grid   = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.text.y  = element_text(hjust = 0))
+    geom_pointrange(aes(ymin = fit_low, ymax = fit_hi),
+                    size = 0.4, 
+                    shape = 20, 
+                    colour = "steelblue4") + 
+    geom_segment(aes(y    = Estimate - Est.Error, 
+                     yend = Estimate + Est.Error,
+                     x    = Loc, 
+                     xend = Loc),
+                 size = 1, 
+                 colour = "steelblue4") +
+    geom_segment(aes(y    = pred_low, 
+                     yend = pred_hi,
+                     x    = Loc, 
+                     xend = Loc),
+                 size = 3, 
+                 colour = "steelblue4", 
+                 alpha = 0.1) +
+    labs(x = NULL, y = NULL) +
+    coord_flip() +
+    theme_classic() + 
+    theme(panel.grid   = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.text.y  = element_text(hjust = 0))
 ```
 
 ## Simulating Spurious Association
@@ -669,8 +669,8 @@ Can illustrate the problem with a simulation where we know the true nature of re
 ```{r}
 N <- 100
 d2 <- tibble(x_real = rnorm(N)) %>% 
-  mutate(x_spur = rnorm(N, mean = x_real), 
-         y      = rnorm(N, mean = x_real))
+    mutate(x_spur = rnorm(N, mean = x_real), 
+           y      = rnorm(N, mean = x_real))
 head(d2)
 ```
 
@@ -686,8 +686,8 @@ The DAG for these variables:
 dagify(x_spur ~ x_real, 
        y      ~ x_real, 
        outcome = "y") %>% 
-  tidy_dagitty() %>% 
-  ggdag()
+    tidy_dagitty() %>% 
+    ggdag()
 ```
 
 Now model the relationships as:
@@ -708,17 +708,17 @@ $$
 
 ```{r}
 b5_4c <- brm(
-  y ~ 1 + x_real + x_spur, 
-  data = d2, 
-  prior = c(prior(normal(0, 1), class = Intercept), 
-            prior(normal(0, 1), class = b), 
-            prior(cauchy(0, 1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  file = "Stan/ch_05/b5_4c"
+    y ~ 1 + x_real + x_spur, 
+    data = d2, 
+    prior = c(prior(normal(0, 1), class = Intercept), 
+              prior(normal(0, 1), class = b), 
+              prior(cauchy(0, 1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_05/b5_4c"
 )
 fixef(b5_4c, probs = c(0.055, 0.945)) %>% 
-  round(digits = 2)
+    round(digits = 2)
 ```
 
 As it should the model gets the coefficients 'right': for $x_{real}$ c. 1; for $x_{spur}$ about 0.
@@ -730,9 +730,9 @@ Can use a different dataset to explore a different sort of confounding structure
 ```{r}
 data("milk", package = "rethinking")
 d <- milk %>% 
-  as_tibble() %>% 
-  set_names(nm = names(.) %>% 
-              str_replace_all("\\.", "_"))
+    as_tibble() %>% 
+    set_names(nm = names(.) %>% 
+                  str_replace_all("\\.", "_"))
 head(d)
 ```
 
@@ -740,8 +740,8 @@ Can look at pairs plots for the three variables of interest.
 
 ```{r}
 d %>% 
-  select(kcal_per_g, mass, neocortex_perc) %>% 
-  pairs(col = "steelblue4")
+    select(kcal_per_g, mass, neocortex_perc) %>% 
+    pairs(col = "steelblue4")
 ```
 
 Cannot tell much from this, so start modelling! Start with a simple model using only `necortex_perc` to predict `kcal_per_g`:
@@ -756,38 +756,38 @@ Before getting into priors need to drop the NA values. (The `quap` function used
 
 ```{r}
 d2 <- d %>% 
-  select(kcal_per_g, mass, neocortex_perc) %>% 
-  filter(complete.cases(.)) %>% 
-  mutate(K = scale(kcal_per_g), 
-         M = scale(log(mass)), 
-         N = scale(neocortex_perc))
+    select(kcal_per_g, mass, neocortex_perc) %>% 
+    filter(complete.cases(.)) %>% 
+    mutate(K = scale(kcal_per_g), 
+           M = scale(log(mass)), 
+           N = scale(neocortex_perc))
 ```
 
 Can set this up as a prior-only `brm()` model and then plot the two sets of priors given to see if they are plausible.
 
 ```{r}
 ppd_5_5_a <- brm(
-  K ~ 1 + N, 
-  data = d2, 
-  prior = c(prior(normal(0, 1), class = Intercept), 
-            prior(normal(0, 1), class = b), 
-            prior(exponential(1), class = sigma)), 
-  sample_prior = "only", 
-  chains = 4, 
-  cores = 4, 
-  file = "Stan/ch_05/ppd_5_5_a"
+    K ~ 1 + N, 
+    data = d2, 
+    prior = c(prior(normal(0, 1), class = Intercept), 
+              prior(normal(0, 1), class = b), 
+              prior(exponential(1), class = sigma)), 
+    sample_prior = "only", 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_05/ppd_5_5_a"
 )
 
 ppd_5_5_b <- brm(
-  K ~ 1 + N, 
-  data = d2, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  sample_prior = "only", 
-  chains = 4, 
-  cores = 4, 
-  file = "Stan/ch_05/ppd_5_5_b"
+    K ~ 1 + N, 
+    data = d2, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    sample_prior = "only", 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_05/ppd_5_5_b"
 )
 ```
 
@@ -795,22 +795,22 @@ Now plot the PPD side by side.
 
 ```{r}
 g1 <- marginal_effects(ppd_5_5_a, method = "predict") %>% 
-  plot(points = TRUE, plot = FALSE) 
+    plot(points = TRUE, plot = FALSE) 
 
 g2 <- marginal_effects(ppd_5_5_b, method = "predict") %>% 
-  plot(points = TRUE, plot = FALSE) 
+    plot(points = TRUE, plot = FALSE) 
 g1$N +
-  labs(x = "Neocortex Percentage (z-score)", 
-       y = "Kcal per g (z-score)") + 
-  ggtitle("PPD: Looser Priors") + 
-  coord_cartesian(ylim = c(-6, 6)) + 
-  theme_minimal() -> plot_1
+    labs(x = "Neocortex Percentage (z-score)", 
+         y = "Kcal per g (z-score)") + 
+    ggtitle("PPD: Looser Priors") + 
+    coord_cartesian(ylim = c(-6, 6)) + 
+    theme_minimal() -> plot_1
 g2$N +
-  labs(x = "Neocortex Percentage (z-score)", 
-       y = "Kcal per g (z-score)") + 
-  ggtitle("PPD: Tighter Priors") + 
-  coord_cartesian(ylim = c(-6, 6)) + 
-  theme_minimal() -> plot_2
+    labs(x = "Neocortex Percentage (z-score)", 
+         y = "Kcal per g (z-score)") + 
+    ggtitle("PPD: Tighter Priors") + 
+    coord_cartesian(ylim = c(-6, 6)) + 
+    theme_minimal() -> plot_2
 
 multiplot(plot_1, plot_2, cols = 2)
 ```
@@ -833,14 +833,14 @@ $$
 
 ```{r}
 b5_5 <- brm(
-  K ~ 1 + N, 
-  data = d2, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  file = "Stan/ch_05/b5_5"
+    K ~ 1 + N, 
+    data = d2, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_05/b5_5"
 )
 print(b5_5, digits = 3)
 ```
@@ -852,24 +852,24 @@ new_data <- tibble(N = seq(-4, 4, length.out = 100))
 fitted(b5_5,  
        newdata = new_data,
        probs = c(0.055, 0.945)) %>%
-  as_tibble() %>%
-  bind_cols(new_data) %>% 
-  
-  ggplot(aes(x = N, y = Estimate)) +
-  geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
-              fill = "steelblue", 
-              alpha = 0.2) +
-  geom_line(color = "steelblue4", 
-            size = 0.5) +
-  geom_point(data = d2, 
-             aes(x = N, y = K),
-             size = 2, 
-             color = "steelblue4") +
-  coord_cartesian(xlim = range(d2$N), 
-                  ylim = range(d2$K)) + 
-  labs(y = "K") + 
-  ggtitle("K regressed on N") + 
-  theme_classic() -> g3
+    as_tibble() %>%
+    bind_cols(new_data) %>% 
+    
+    ggplot(aes(x = N, y = Estimate)) +
+    geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
+                fill = "steelblue", 
+                alpha = 0.2) +
+    geom_line(color = "steelblue4", 
+              size = 0.5) +
+    geom_point(data = d2, 
+               aes(x = N, y = K),
+               size = 2, 
+               color = "steelblue4") +
+    coord_cartesian(xlim = range(d2$N), 
+                    ylim = range(d2$K)) + 
+    labs(y = "K") + 
+    ggtitle("K regressed on N") + 
+    theme_classic() -> g3
 ```
 
 Can build a similar model using log of mass `M` as the predictor.
@@ -888,14 +888,14 @@ $$
 
 ```{r}
 b5_6 <- brm(
-  K ~ 1 + M, 
-  data = d2, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  file = "Stan/ch_05/b5_6"
+    K ~ 1 + M, 
+    data = d2, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_05/b5_6"
 )
 print(b5_6, digits = 3)
 ```
@@ -907,24 +907,24 @@ new_data <- tibble(M = seq(-4, 4, length.out = 100))
 fitted(b5_6,  
        newdata = new_data,
        probs = c(0.055, 0.945)) %>%
-  as_tibble() %>%
-  bind_cols(new_data) %>% 
-  
-  ggplot(aes(x = M, y = Estimate)) +
-  geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
-              fill = "steelblue", 
-              alpha = 0.2) +
-  geom_line(color = "steelblue4", 
-            size = 0.5) +
-  geom_point(data = d2, 
-             aes(x = M, y = K),
-             size = 2, 
-             color = "steelblue4") +
-  coord_cartesian(xlim = range(d2$M), 
-                  ylim = range(d2$K)) + 
-  labs(y = "K") +
-  ggtitle("K regressed on M") + 
-  theme_classic() -> g4
+    as_tibble() %>%
+    bind_cols(new_data) %>% 
+    
+    ggplot(aes(x = M, y = Estimate)) +
+    geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
+                fill = "steelblue", 
+                alpha = 0.2) +
+    geom_line(color = "steelblue4", 
+              size = 0.5) +
+    geom_point(data = d2, 
+               aes(x = M, y = K),
+               size = 2, 
+               color = "steelblue4") +
+    coord_cartesian(xlim = range(d2$M), 
+                    ylim = range(d2$K)) + 
+    labs(y = "K") +
+    ggtitle("K regressed on M") + 
+    theme_classic() -> g4
 multiplot(g3, g4, cols = 2)
 ```
 
@@ -932,14 +932,14 @@ The associations look fairly weak. But now we can build the multiple regression 
 
 ```{r}
 b5_7 <- brm(
-  K ~ 1 + M + N, 
-  data = d2, 
-  prior = c(prior(normal(0, 0.2), class = Intercept), 
-            prior(normal(0, 0.5), class = b), 
-            prior(exponential(1), class = sigma)), 
-  chains = 4, 
-  cores = 4, 
-  file = "Stan/ch_05/b5_7"
+    K ~ 1 + M + N, 
+    data = d2, 
+    prior = c(prior(normal(0, 0.2), class = Intercept), 
+              prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_05/b5_7"
 )
 print(b5_7, digits = 3)
 ```
@@ -949,7 +949,7 @@ The coefficients imply stronger associations than in the bivariate regressions. 
 
 ```{r}
 stanplot(b5_7) + 
-  theme(text = element_text(family = "Avenir"))
+    theme(text = element_text(family = "Avenir"))
 ```
 
 The counterfactual plots show this well.
@@ -962,46 +962,46 @@ new_data_g6 <- tibble(M = seq(-4, 4, length.out = 100),
 g5 <- fitted(b5_7,  
              newdata = new_data_g5,
              probs = c(0.055, 0.945)) %>%
-  as_tibble() %>%
-  bind_cols(new_data_g5) %>% 
-  
-  ggplot(aes(x = N, y = Estimate)) +
-  geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
-              fill = "steelblue", 
-              alpha = 0.2) +
-  geom_line(color = "steelblue4", 
-            size = 0.5) +
-  geom_point(data = d2, 
-             aes(x = N, y = K),
-             size = 2, 
-             color = "steelblue4") +
-  coord_cartesian(xlim = range(d2$N), 
-                  ylim = range(d2$K)) + 
-  labs(y = "K") +
-  ggtitle("Counterfactual holding M = 0") + 
-  theme_classic()
+    as_tibble() %>%
+    bind_cols(new_data_g5) %>% 
+    
+    ggplot(aes(x = N, y = Estimate)) +
+    geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
+                fill = "steelblue", 
+                alpha = 0.2) +
+    geom_line(color = "steelblue4", 
+              size = 0.5) +
+    geom_point(data = d2, 
+               aes(x = N, y = K),
+               size = 2, 
+               color = "steelblue4") +
+    coord_cartesian(xlim = range(d2$N), 
+                    ylim = range(d2$K)) + 
+    labs(y = "K") +
+    ggtitle("Counterfactual holding M = 0") + 
+    theme_classic()
 
 g6 <- fitted(b5_7,  
              newdata = new_data_g6,
              probs = c(0.055, 0.945)) %>%
-  as_tibble() %>%
-  bind_cols(new_data_g6) %>% 
-  
-  ggplot(aes(x = M, y = Estimate)) +
-  geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
-              fill = "steelblue", 
-              alpha = 0.2) +
-  geom_line(color = "steelblue4", 
-            size = 0.5) +
-  geom_point(data = d2, 
-             aes(x = M, y = K),
-             size = 2, 
-             color = "steelblue4") +
-  coord_cartesian(xlim = range(d2$M), 
-                  ylim = range(d2$K)) + 
-  labs(y = "K") +
-  ggtitle("Counterfactual holding N = 0") + 
-  theme_classic()
+    as_tibble() %>%
+    bind_cols(new_data_g6) %>% 
+    
+    ggplot(aes(x = M, y = Estimate)) +
+    geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5),
+                fill = "steelblue", 
+                alpha = 0.2) +
+    geom_line(color = "steelblue4", 
+              size = 0.5) +
+    geom_point(data = d2, 
+               aes(x = M, y = K),
+               size = 2, 
+               color = "steelblue4") +
+    coord_cartesian(xlim = range(d2$M), 
+                    ylim = range(d2$K)) + 
+    labs(y = "K") +
+    ggtitle("Counterfactual holding N = 0") + 
+    theme_classic()
 multiplot(g5, g6, cols = 2)
 ```
 
@@ -1009,8 +1009,8 @@ The associations are now much clearer: why? Because while both the log-mass and 
 
 ```{r}
 d2 %>% 
-  select(K, N, M) %>% 
-  pairs(col = "steelblue")
+    select(K, N, M) %>% 
+    pairs(col = "steelblue")
 ```
 
 Neocortex percentage is positively correlated with milk energy, while log-mass is negatively correlated with it. Log-mass and neocortex percentage are also positively correlated with each other. All of this masks the true relationship unless we consider them all together. 
@@ -1026,30 +1026,30 @@ dag_5_7a <- dagify(N ~ M,
                    K ~ N, 
                    outcome = "K", 
                    coords = dag_coords) %>% 
-  tidy_dagitty() %>% 
-  ggdag()
+    tidy_dagitty() %>% 
+    ggdag()
 dagify(N ~ M, 
        K ~ M, 
        K ~ N, 
        outcome = "K", 
        coords = dag_coords) %>% 
-  tidy_dagitty() %>% 
-  ggdag()
+    tidy_dagitty() %>% 
+    ggdag()
 dagify(M ~ N, 
        K ~ M, 
        K ~ N, 
        outcome = "K", 
        coords = dag_coords) %>% 
-  tidy_dagitty() %>% 
-  ggdag()
+    tidy_dagitty() %>% 
+    ggdag()
 dagify(N ~ U,
        M ~ U, 
        K ~ M, 
        K ~ N, 
        outcome = "K", 
        coords = dag_coords) %>% 
-  tidy_dagitty() %>% 
-  ggdag()
+    tidy_dagitty() %>% 
+    ggdag()
 ```
 
 In the first log-mass causes neocortex percentage; in the second that is reversed; in the third some unobserved variable causes both of them.
@@ -1065,41 +1065,41 @@ set.seed(531)
 
 d <- tibble(height = rnorm(N, mean = 10, sd = 2), 
             leg_prop = runif(N, min = 0.4, max = 0.5)) %>% 
-  mutate(leg_left = leg_prop * height + rnorm(N, sd = 0.02), 
-         leg_right = leg_prop * height + rnorm(N, sd = 0.02))
+    mutate(leg_left = leg_prop * height + rnorm(N, sd = 0.02), 
+           leg_right = leg_prop * height + rnorm(N, sd = 0.02))
 ```
 
 The two leg lengths are strongly correlated:
 
 ```{r}
 d %>% 
-  select(leg_left, leg_right) %>% 
-  cor() %>% 
-  round(digits = 5)
+    select(leg_left, leg_right) %>% 
+    cor() %>% 
+    round(digits = 5)
 
 d %>% 
-  ggplot(aes(leg_left, leg_right)) + 
-  stat_smooth(method = "lm", 
-              colour = "grey50", 
-              size = 0.5) + 
-  geom_point(colour = "steelblue") + 
-  theme_classic()
+    ggplot(aes(leg_left, leg_right)) + 
+    stat_smooth(method = "lm", 
+                colour = "grey50", 
+                size = 0.5) + 
+    geom_point(colour = "steelblue") + 
+    theme_classic()
 ```
 
 So what happens if we use both for predicting height?
 
 ```{r}
 b5_8 <- brm(
-      height ~ 1 + leg_left + leg_right,
-      data = d, 
-      prior = c(prior(normal(10, 100), class = Intercept),
-                prior(normal(2, 10), class = b),
-                prior(cauchy(0, 5), class = sigma)),
-      iter = 2000, 
-      warmup = 500, 
-      chains = 4, 
-      cores = 4, 
-      file = "Stan/ch_05/b5_8")
+    height ~ 1 + leg_left + leg_right,
+    data = d, 
+    prior = c(prior(normal(10, 100), class = Intercept),
+              prior(normal(2, 10), class = b),
+              prior(cauchy(0, 5), class = sigma)),
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_05/b5_8")
 print(b5_8, digits = 3)
 ```
 
@@ -1107,7 +1107,7 @@ The error on the parameter estimates is huge, as we can see in a plot.
 
 ```{r}
 stanplot(b5_8) + 
-  theme(text = element_text(family = "Avenir"))
+    theme(text = element_text(family = "Avenir"))
 ```
 
 This problem of collinearity is why it's important to be careful with variable selection when building models: adding both causes confusion in this case.
@@ -1119,7 +1119,7 @@ Can use the !Kung data again for working with a categorical variable, which in t
 ```{r}
 data("Howell1", package = "rethinking")
 d <- Howell1 %>% 
-  as_tibble()
+    as_tibble()
 rm(Howell1)
 head(d)
 ```
@@ -1144,14 +1144,14 @@ NB. The book uses a uniform prior on $\sigma$ but that causes problems for the s
 
 ```{r}
 b5_9 <- brm(
-  height ~ 1 + male, 
-  data = d, 
-  prior = c(prior(normal(178, 20), class = Intercept), 
-            prior(normal(0, 10), class = b), 
-            prior(cauchy(0, 2), class = sigma)), 
-  cores = 4, 
-  chains = 4, 
-  file = "Stan/ch_05/b5_9"
+    height ~ 1 + male, 
+    data = d, 
+    prior = c(prior(normal(178, 20), class = Intercept), 
+              prior(normal(0, 10), class = b), 
+              prior(cauchy(0, 2), class = sigma)), 
+    cores = 4, 
+    chains = 4, 
+    file = "Stan/ch_05/b5_9"
 )
 print(b5_9, digits = 3)
 ```
@@ -1161,17 +1161,17 @@ With this approach $\beta_m$ represents the expected difference between a man an
 ```{r}
 tibble(mu_female = rnorm(1e4, 178, 20), 
        mu_male   = rnorm(1e4, 178, 20) + rnorm(1e4, 0, 10)) %>% 
-  gather() %>% 
-  group_by(key) %>% 
-  summarise(mean = mean(value), 
-            std_dev = sd(value))
+    gather() %>% 
+    group_by(key) %>% 
+    summarise(mean = mean(value), 
+              std_dev = sd(value))
 ```
 
 An alternative approach given in the book is to use index variables, so that sex is recoded, as below:
 
 ```{r}
 d$sex <- factor(if_else(d$male == 1, "male", "female"))
-  
+
 head(d)
 ```
 
@@ -1191,15 +1191,105 @@ Doing this with `brms` is easy if the predictor is a factor: just have to rememb
 
 ```{r}
 b5_10 <- brm(
-  height ~ 0 + sex, 
-  data = d, 
-  prior = c(prior(normal(178, 20), class = b), 
-            prior(cauchy(0, 2), class = sigma)), 
-  cores = 4, 
-  chains = 4, 
-  file = "Stan/ch_05/b5_10"
+    height ~ 0 + sex, 
+    data = d, 
+    prior = c(prior(normal(178, 20), class = b), 
+              prior(cauchy(0, 2), class = sigma)), 
+    cores = 4, 
+    chains = 4, 
+    file = "Stan/ch_05/b5_10"
 )
 print(b5_10, digits = 3)
 ```
 
+For data with many categories the approach is similar, and the index variable approach scales better. An example with the `milk` dataset.
+
+```{r}
+# several values for clade
+unique(milk$clade)
+# mutate this to an integer id, also normalise the kilocalories
+d <- milk %>% 
+    mutate(clade_id = as.integer(clade)) %>% 
+    mutate(K = as.numeric(scale(kcal.per.g)))
+```
+
+Now build a model for average milk energy in each clade.
+
+$$
+K_i \sim \mathcal{N}(\mu_i, \sigma)
+\\
+\mu_i = \alpha_{CLADE[i]}
+\\
+\alpha_{j} \sim \mathcal{N}(0, 0.5) \text{ for } j \in \{1, 2, 3, 4\}
+\\
+\sigma \sim \text{Exponential}(1)
+$$
+
+```{r}
+b5_11 <- brm(
+    K ~ 0 + clade, 
+    data = d, 
+    prior = c(prior(normal(0, 0.5), class = b), 
+              prior(exponential(1), class = sigma)), 
+    cores = 4, 
+    chains = 4, 
+    file = "Stan/ch_05/b5_11"
+)
+print(b5_11, digits = 3)
+```
+
+Can plot the coefficient estimates.
+
+```{r}
+stanplot(b5_11, pars = "^b") + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+Can easily add another categorical predictor: the example given in the book is to put each species in a house from Hogwarts.
+
+```{r}
+# set the seed to get the same results as the book
+set.seed(63)
+d2 <- d %>% 
+    mutate(house = factor(sample(rep(c("Gryffindor", "Hufflepuff", 
+                                       "Ravenclaw", "Slytherin"), each = 8), 
+                                 size = nrow(d))))
+# now build the model
+b5_12 <- brm(
+    K ~ 0 + (1 | house) + (1 |clade), 
+    data = d2, 
+    prior = c(prior(normal(0, 0.5), class = sd), 
+              prior(exponential(1), class = sigma)), 
+    cores = 4, 
+    chains = 4, 
+    file = "Stan/ch_05/b5_12"
+)
+print(b5_12, digits = 3)
+```
+
+Can build the plot manually.
+
+```{r}
+posterior_summary(b5_12, probs = c(0.055, 0.25, 0.5, 0.75, 0.945)) %>% 
+    as_tibble(rownames = "parameter") %>% 
+    filter(str_detect(parameter, "^r\\_")) %>% 
+    mutate(parameter = factor(str_replace(parameter, 
+                                          "r\\_(.+)\\[(.+),.+\\]", 
+                                          "\\1_\\2"))) %>% 
+    ggplot(aes(fct_rev(parameter), Q50)) + 
+    geom_linerange(aes(ymin = Q5.5, ymax = Q94.5), 
+                   size = 0.5, 
+                   colour = "steelblue") + 
+    geom_linerange(aes(ymin = Q25, ymax = Q75), 
+                   size = 2, 
+                   colour = "navy") + 
+    geom_point(shape = 21, 
+               size = 5, 
+               colour = "navy", 
+               fill = "skyblue") + 
+    theme_minimal() + 
+    theme(text = element_text(family = "Avenir")) + 
+    labs(x = NULL, y = NULL) + 
+    coord_flip()
+```
 
