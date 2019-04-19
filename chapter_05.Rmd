@@ -1277,6 +1277,9 @@ posterior_summary(b5_12, probs = c(0.055, 0.25, 0.5, 0.75, 0.945)) %>%
                                           "r\\_(.+)\\[(.+),.+\\]", 
                                           "\\1_\\2"))) %>% 
     ggplot(aes(fct_rev(parameter), Q50)) + 
+    geom_hline(yintercept = 0, 
+               colour = "grey90", 
+               size = 0.8) + 
     geom_linerange(aes(ymin = Q5.5, ymax = Q94.5), 
                    size = 0.5, 
                    colour = "steelblue") + 
@@ -1288,8 +1291,433 @@ posterior_summary(b5_12, probs = c(0.055, 0.25, 0.5, 0.75, 0.945)) %>%
                colour = "navy", 
                fill = "skyblue") + 
     theme_minimal() + 
-    theme(text = element_text(family = "Avenir")) + 
+    theme(text = element_text(family = "Avenir"), 
+          panel.grid = element_blank()) + 
     labs(x = NULL, y = NULL) + 
     coord_flip()
 ```
 
+# Practice
+
+## Easy
+
+### 5E1
+
+_2_ and _3_ are multiple linear regressions. _1_ has a single predictor, and _3_ creates a single predictor variable that is the difference of $x_i$ and $z_i$.
+
+### 5E2
+
+The model specification would be:
+
+$$
+A \sim \mathcal{N}(\mu_i, \sigma)
+\\
+\mu_i = \alpha + \beta_{L}{L} + \beta_{P}{P} 
+\\
+\alpha \sim \mathcal{N}(0, 1)
+\\
+\beta_{L} \sim \mathcal{N}(0, 1)
+\\
+\beta_{P} \sim \mathcal{N}(0, 1)
+\\
+\sigma \sim \text{Exponential}(1)
+$$
+
+Priors might need some work depending on the dataset.
+
+### 5E3
+
+One possible model is:
+
+$$
+\log(T) \sim \mathcal{N}(\mu_i, \sigma)
+\\
+\mu_i = \alpha + \beta_{F}{F} + \beta_{S}{S} 
+\\
+\alpha \sim \mathcal{N}(0, 1)
+\\
+\beta_{F} \sim \mathcal{N}(0, 1)
+\\
+\beta_{S} \sim \mathcal{N}(0, 1)
+\\
+\sigma \sim \text{Exponential}(1)
+$$
+
+The log transformation constrains $T$ to be positive. If the model's assumptions about the effects are correct then both $\beta_{F}$ and $\beta_{S}$ should be positive.
+
+### 5E4
+
+The odd one out is $\mu_i = \alpha + \beta_{A}A_i + \beta_{B}B_i + \beta_{C}C_i + \beta_{D}D_i$ as it specifies five parameters, whereas the others all have four.
+
+## Medium
+
+### 5M1
+
+```{r}
+set.seed(2144)
+spur_corr <- tibble(x_cause = rnorm(100)) %>% 
+    mutate(x_spur = rnorm(100, mean = x_cause), 
+           y = rnorm(100, mean = x_cause))
+cor(spur_corr)
+```
+
+```{r}
+b5_13 <- brm(
+    y ~ 1 + x_cause + x_spur, 
+    data = spur_corr, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 1), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_13"
+)
+stanplot(b5_13) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+### 5M2
+
+Use the same method as in the book to create a masked relationship. In this case the outcome is correlated with both predictors in opposite directions, and the predictors are positively correlated with each other.
+
+```{r}
+set.seed(2112)
+N <- 100
+rho <- 0.8
+masking <- tibble(
+    x_pos = rnorm(N), 
+    x_neg = rnorm(N, rho * x_pos, sqrt(1 - rho^2)), 
+    y     = rnorm(N, (x_pos - x_neg)))
+pairs(masking, col = "steelblue")
+```
+
+
+```{r}
+b5_14 <- brm(
+    y ~ 1 + x_pos + x_neg, 
+    data = masking, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 1), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_14"
+)
+stanplot(b5_14) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+### 5M3
+
+We could hypothesise that a higher divorce rate makes people available to remarry, and that because these people have already been married at least once they are more likely to marry again. A model might use divorce rate as a predictor for marriage rate, and add median age of marriage on the basis that a young age of marriage gives more time for remarrying.
+
+```{r}
+data("WaffleDivorce", package = "rethinking")
+waffle <- WaffleDivorce %>% 
+    as_tibble() %>% 
+    mutate(marriage_norm = scale(Marriage) %>% 
+               as.double(), 
+           divorce_norm = scale(Divorce) %>% 
+               as.double(), 
+           median_norm = scale(MedianAgeMarriage) %>% 
+               as.numeric())
+head(waffle)
+```
+
+```{r}
+b5_15 <- brm(
+    marriage_norm ~ 1 + divorce_norm + median_norm, 
+    data = waffle, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 1), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_15"
+)
+stanplot(b5_15) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+The model doesn't give much support for the hypothesis: the median age of marriage has a strongly negative parameter estimate, whereas that for divorce rate is quite small.
+
+### 5M4
+
+Use the data previously grabbed from [Wikipedia][1] on LDS membership.
+
+```{r}
+waffle_LDS <- waffle %>% 
+    inner_join(read_rds("./data/LDS.rds"), 
+               by = c("Location" = "state")) %>% 
+    mutate(LDS_norm = scale(LDS) %>% 
+               as.numeric())
+```
+
+```{r}
+b5_16 <- brm(
+    divorce_norm ~ 1 + marriage_norm + median_norm + LDS_norm, 
+    data = waffle_LDS, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 1), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_16"
+)
+stanplot(b5_16) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+The parameter estimates give us confidence that there are negative effects for both the median age of marriage and the proportion of LDS on the divorce rate.
+
+### 5M5
+
+We need to consider the idea that an increase in gasoline prices would be linked to a drop in obesity rates. Suppose that $Y$ is the proportion of the population that is obese on the last day of a given month, and $X_1$ is the inflation-adjusted, normalised average price of a litre of petrol in the preceding month. That means for $a > b$:
+
+$$
+E(Y | X_1 = a) < E(Y | X_1 = b)
+$$
+
+The first mechanism suggested connects $X_1$ and $Y$ via the amount of driving, supposing that higher petrol prices might lead to less driving and more exercise. We could use a predictor, such as average miles driven per person in the preceding month, $X_2$. In that case our multiple regression model might be:
+
+$$
+y_i \sim \mathcal{N}(\mu_i, \sigma)
+\\
+\mu_i = \alpha + \beta_{1}x_{1i} + \beta_{2}x_{2i}
+\\
+\alpha \sim \mathcal{N}(0, 0.5)
+\\
+\beta_j \sim \mathcal{N}(0, 0.5) \ \text{for} \ j \in \{1, 2\}
+\\
+\sigma \sim \text{Exponential}(1)
+$$
+
+The second causal mechanism proposed is that higher petrol prices lead to people driving less and therefore eating fewer large meals in restaurants. If we knew the average number of restaurant meals eaten per person in the preceding month, $X_3$, we could use that as a predictor. We could add $X_3$ as an additional predictor, or use it instead of $X_2$.
+
+## Hard
+
+Set up the foxes dataset.
+
+```{r}
+data("foxes", package = "rethinking")
+d <- foxes %>% 
+    as_tibble() %>% 
+    # normalise the outcome variable
+    mutate(weight_norm = scale(weight) %>% as.double())
+head(d)
+```
+
+### 5H1
+
+Build the two regressions with `brms`.
+
+```{r}
+# first for just area as predictor
+# set sample_prior = "yes" for both to check priors afterwards
+b5_17a <- brm(
+    weight_norm ~ 1 + area, 
+    data = d, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 0.5), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    sample_prior = "yes", 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_17a"
+)
+# now using groupsize
+b5_17b <- brm(
+    weight_norm ~ 1 + groupsize, 
+    data = d, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 0.5), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    sample_prior = "yes", 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_17b"
+)
+summary(b5_17a)
+summary(b5_17b)
+```
+
+The results don't suggest much influence for either predictor, but this could be because of the sort of masked relationship we saw earlier. Can plot the posterior predictions.
+
+```{r}
+area_seq <- tibble(area = seq(0, 6, length.out = 100))
+
+fitted_5_17a <- area_seq %>% 
+    bind_cols(fitted(b5_17a, 
+                     newdata = area_seq, 
+                     probs = c(0.055, 0.945)) %>% 
+                  as_tibble())
+
+fitted_5_17a %>% 
+    ggplot(aes(area, Estimate)) + 
+    geom_ribbon(aes(ymin = Q5.5, 
+                    ymax = Q94.5), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    geom_point(data = d, 
+               aes(area, 
+                   weight_norm), 
+               size = 2, 
+               colour = "steelblue4") + 
+    labs(y = "Weight (z-score)", 
+         x = "Area") + 
+    coord_cartesian(xlim = range(d$area), 
+                    ylim = range(d$weight_norm)) + 
+    theme_classic()
+```
+
+Little evidence for a relationship, and the bowtie is fairly tight around the MAP line having zero-slope.
+
+```{r}
+groupsize_seq <- tibble(groupsize = seq(1, 12, length.out = 100))
+
+fitted_5_17b <- groupsize_seq %>% 
+    bind_cols(fitted(b5_17b, 
+                     newdata = groupsize_seq, 
+                     probs = c(0.055, 0.945)) %>% 
+                  as_tibble())
+
+fitted_5_17b %>% 
+    ggplot(aes(groupsize, Estimate)) + 
+    geom_ribbon(aes(ymin = Q5.5, 
+                    ymax = Q94.5), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    geom_point(data = d, 
+               aes(groupsize, 
+                   weight_norm), 
+               size = 2, 
+               colour = "steelblue4") + 
+    labs(y = "Weight (z-score)", 
+         x = "Group Size") + 
+    coord_cartesian(xlim = range(d$groupsize), 
+                    ylim = range(d$weight_norm)) + 
+    theme_classic()
+```
+
+Weak negative trend for groupsize, but not at all conclusive. 
+
+### 5H2
+
+```{r}
+b5_18 <- brm(
+    weight_norm ~ 1 + area + groupsize, 
+    data = d, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 0.5), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    sample_prior = "yes", 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_18"
+)
+summary(b5_18)
+```
+
+Now plot the counterfactual plots, holding one predictor at its mean at a time.
+
+```{r}
+# build the data holding groupsize at its mean
+new_data_group <- tibble(
+    area = seq(0, 6, length.out = 100), 
+    groupsize = mean(d$groupsize)
+)
+
+fitted(b5_18, 
+       newdata = new_data_group, 
+       probs = c(0.055, 0.945)) %>% 
+    as_tibble() %>% 
+    rename(fit_low = Q5.5, 
+           fit_hi  = Q94.5) %>% 
+    bind_cols(
+        predict(b5_18, 
+                newdata = new_data_group, 
+                probs = c(0.055, 0.945)) %>% 
+            as_tibble() %>% 
+            transmute(pred_low = Q5.5, 
+                      pred_hi  = Q94.5)
+    ) %>% 
+    bind_cols(new_data_group) %>% 
+    ggplot(aes(area, Estimate)) + 
+    geom_ribbon(aes(ymin = pred_low, ymax = pred_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_ribbon(aes(ymin = fit_low, ymax = fit_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    coord_cartesian(xlim = range(d$area)) + 
+    labs(subtitle = sprintf("Counterfactual plot for \ngroupsize = %.2f",
+                            mean(d$groupsize)), 
+         y = "Weight") + 
+    theme_classic() -> g7
+
+# now hold area at its mean
+new_data_area <- tibble(
+    area = mean(d$area), 
+    groupsize = seq(1, 12, length.out = 100)
+)
+
+fitted(b5_18, 
+       newdata = new_data_area, 
+       probs = c(0.055, 0.945)) %>% 
+    as_tibble() %>% 
+    rename(fit_low = Q5.5, 
+           fit_hi  = Q94.5) %>% 
+    bind_cols(
+        predict(b5_18, 
+                newdata = new_data_area, 
+                probs = c(0.055, 0.945)) %>% 
+            as_tibble() %>% 
+            transmute(pred_low = Q5.5, 
+                      pred_hi  = Q94.5)
+    ) %>% 
+    bind_cols(new_data_area) %>% 
+    ggplot(aes(groupsize, Estimate)) + 
+    geom_ribbon(aes(ymin = pred_low, ymax = pred_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_ribbon(aes(ymin = fit_low, ymax = fit_hi), 
+                fill = "steelblue", 
+                alpha = 0.2) + 
+    geom_line(colour = "steelblue4") + 
+    coord_cartesian(xlim = range(d$groupsize)) + 
+    labs(subtitle = sprintf("Counterfactual plot for \narea = %.2f",
+                            mean(d$area)), 
+         y = "Weight") + 
+    theme_classic() -> g8
+multiplot(g7, g8, cols = 2)
+```
+
+The evidence is now fairly strong that area has a positive association with weight, and that group size has a negative one. These are probably masked. Can test this by looking at the correlation between groupsize and area.
+
+```{r}
+d %>% 
+    select(groupsize, area) %>% 
+    cor()
+```
+
+Because they are strongly correlated with each other but relate to the outcome in opposite directions they mask each other, much as in the example with primates in this chapter.
+
+
+[1]: https://en.wikipedia.org/wiki/The_Church_of_Jesus_Christ_of_Latter-day_Saints_membership_statistics_(United_States)
