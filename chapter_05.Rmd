@@ -2,8 +2,10 @@
 title: "Chapter 5: Multivariate Linear Models"
 output: 
   html_document: 
-    highlight: kate
-    theme: journal
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+    toc_float: yes
 ---
 
 # Notes
@@ -1709,7 +1711,7 @@ fitted(b5_18,
 multiplot(g7, g8, cols = 2)
 ```
 
-The evidence is now fairly strong that area has a positive association with weight, and that group size has a negative one. These are probably masked. Can test this by looking at the correlation between groupsize and area.
+The evidence is now fairly strong that area has a positive association with weight, and that group size has a negative one. These were probably masking each other in the simple linear regression. Can test this by looking at the correlation between groupsize and area.
 
 ```{r}
 d %>% 
@@ -1719,5 +1721,71 @@ d %>%
 
 Because they are strongly correlated with each other but relate to the outcome in opposite directions they mask each other, much as in the example with primates in this chapter.
 
+### 5H3
+
+```{r}
+# first fit multiple regression with avgfood and groupsize
+b5_19a <- brm(
+    weight_norm ~ 1 + avgfood + groupsize, 
+    data = d, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 0.5), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    sample_prior = "yes", 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_19a"
+)
+# now add area to the last model
+b5_19b <- brm(
+    weight_norm ~ 1 + avgfood + groupsize + area, 
+    data = d, 
+    prior = c(prior(normal(0, 1), class = "Intercept"), 
+              prior(normal(0, 0.5), class = "b"), 
+              prior(exponential(1), class = "sigma")), 
+    sample_prior = "yes", 
+    chains = 4, 
+    iter = 2000, 
+    warmup = 1000, 
+    cores = 4, 
+    file = "./Stan/ch_05/b5_19b"
+)
+# inspect both summaries
+summary(b5_19a)
+summary(b5_19b)
+```
+
+#### 5H3a
+
+To answer the question of which predictor is better, start by inspecting some plots. First the dotplots for the parameter estimates on model `b5_18` (which includes `area`) and `b5_19a` (`avgfood`).
+
+```{r}
+stanplot(b5_18) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+```{r}
+stanplot(b5_19a) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+The CI for the coefficient of `avgfood` is very wide, whereas that for `area` is fairly small. What about the model with all of the predictors?
+
+```{r}
+stanplot(b5_19b) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+The coefficient estimate for `avgfood` is not dissimilar to the last plot, but that for area is now wider. Perhaps the two predictors are behaving similarly to the left and right leg when predicting height?
+
+```{r}
+d %>% 
+    select(avgfood, area) %>% 
+    cor()
+```
+
+The two predictors are strongly correlated and both have some sort of positive relationship with the outcome. This suggests that one of them is probably redundant, and given the wide parameter estimate CI for `avgfood` I'd be inclined to keep `area` instead. 
 
 [1]: https://en.wikipedia.org/wiki/The_Church_of_Jesus_Christ_of_Latter-day_Saints_membership_statistics_(United_States)
