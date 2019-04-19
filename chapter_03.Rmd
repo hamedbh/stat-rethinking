@@ -2,9 +2,9 @@
 title: "Chapter 3: Sampling the Imaginary"
 output: 
   html_document: 
-    highlight: kate
+    highlight: pygments
     number_sections: yes
-    theme: journal
+    theme: cerulean
     toc: yes
     toc_depth: 3
     toc_float: yes

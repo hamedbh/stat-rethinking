@@ -1,8 +1,13 @@
 ---
 title: 'Chapter 4 Cont.: Splines'
-author: "Hamed Bastan-Hagh"
-date: "20/02/2019"
-output: html_document
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
 ---
 
 ```{r setup, include=FALSE}

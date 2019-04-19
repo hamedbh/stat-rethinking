@@ -3,8 +3,10 @@ title: "Chapter 5: Multivariate Linear Models"
 output: 
   html_document: 
     highlight: pygments
+    number_sections: yes
     theme: cerulean
     toc: yes
+    toc_depth: 3
     toc_float: yes
 ---
 
