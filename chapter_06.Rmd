@@ -348,8 +348,8 @@ The parameter estimates have shrunk towards zero and the error is much wider. Ea
 ```{r}
 list(b6_3, b6_4, b6_5) %>% 
     map(~ stanplot(.x, 
-                    prob_outer = 0.89) +  
-             theme(text = element_text(family = "Avenir")))
+                   prob_outer = 0.89) +  
+            theme(text = element_text(family = "Avenir")))
 ```
 
 This is a less stark example than the leg-length: because `Fat` and `L` are so tightly correlated their parameter estimates are much more uncertain, because the posterior distribution describes a much wider range for those parameters that are plausible. Can see this easily in a pairs plot.
@@ -415,6 +415,134 @@ d2 %>%
     coord_cartesian(ylim = c(0, .0072))
 ```
 
+
+## Post-Treatment Bias
+
+> … mistaken inferences arising from including variables that are consequences of other variables.
+
+Illustrated through simulation.
+
+```{r}
+set.seed(71)
+# number of plants
+N <- 100
+d <- tibble(
+    h0 = rnorm(N, 10, 2), 
+    treatment = rep(0:1, each = N/2)
+) %>% 
+    mutate(fungus = rbinom(N, size = 1, prob = 0.5 - (treatment * 0.4))) %>% 
+    mutate(h1 = h0 + rnorm(N, mean = 5 - (3 * fungus))) %>% 
+    select(h0, h1, treatment, fungus)
+d %>% 
+    gather() %>% 
+    group_by(key) %>% 
+    mean_qi(.width = 0.89) %>% 
+    mutate_if(is.double, round, digits = 2)
+```
+
+Now need to set up a model with a sensible prior. Let the height of the $i$th plant at time $t$ be $h_{t,i}$, where $t \in \{0, 1\}$. Then the model is:
+
+$$
+\begin{eqnarray}
+h_{1,i} & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & h_{0,i} \times p
+\end{eqnarray}
+$$
+
+Where:
+
+$$
+p = \frac{h_{1,i}}{h_{0,i}}
+$$
+
+To allow for the possibility of the plants shrinking but to keep $p > 0$ use a log-normal prior. So the priors would be:
+
+$$
+\begin{eqnarray}
+\log(p) & \sim & \mathcal{N}(0, 0.25) \\
+\sigma & \sim & \text{Exponential}(1)
+\end{eqnarray}
+$$
+
+Can simulate from this to ensure that the results are sensible.
+
+```{r}
+sim_p <- tibble(
+    p = rlnorm(1e4, 0, 0.25)
+)
+sim_p %>% 
+    gather() %>% 
+    group_by(key) %>% 
+    mean_qi(.width = 0.89) %>% 
+    mutate_if(is.double, round, digits = 2)
+```
+
+```{r}
+b6_6 <- brm(
+    h1 ~ 0 + h0,
+    data = d, 
+    prior = c(prior(lognormal(0, 0.25), class = b), 
+              prior(exponential(1), class = sigma)), 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_6"
+)
+posterior_summary(b6_6) %>% 
+    round(digits = 2)
+```
+
+Now change the model to account for `treatment` and `fungus`.
+
+$$
+\begin{eqnarray}
+h_{1,i} & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & h_{0,i} \times p \\
+p & = & \alpha + \beta_T T_i + \beta_F F_i \\
+\log(\alpha) & \sim & \mathcal{N}(0, 0.25) \\
+\beta_T & \sim & \mathcal{N}(0, 0.5) \\
+\beta_F & \sim & \mathcal{N}(0, 0.5) \\
+\sigma & \sim & \text{Exponential}(1)
+\end{eqnarray}
+$$
+
+So $p$ is now itself a linear combination of other parameters. To do this in `brms` needs the nonlinear syntax, which we can justify by substituting the model specification for $p$.
+
+$$
+\begin{eqnarray}
+p & = & \alpha + \beta_T T_i + \beta_F F_i \\
+\mu_i & = & h_{0,i} \times p \\
+
+& = & h_{0,i} \times (\alpha + \beta_T T_i + \beta_F F_i) \\
+
+\end{eqnarray}
+$$
+
+So that the model will be:
+
+```{r}
+b6_7 <- brm(
+    bf(h1 ~ h0 * (a + t * treatment + f * fungus), 
+       a + t + f ~ 1, 
+       nl = TRUE), 
+    data = d, 
+    family = "gaussian", 
+    prior = c(prior(lognormal(0, 0.2), nlpar = a), 
+              prior(normal(0, 0.5), nlpar = t), 
+              prior(normal(0, 0.5), nlpar = f), 
+              prior(exponential(1), class = sigma)), 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_7"
+)
+posterior_summary(b6_7) %>% 
+    round(digits = 2)
+```
+
+The results suggest that the treatment has no effect, whereas the fungus has some negative effect on growth. However the simulation was set up so that the treatment _does_ matter, so something has gone wrong.
 
 [BDA_R]: https://github.com/avehtari/BDA_R_demos
 [SKurtz_SR_2ed]: https://github.com/ASKurz/Statistical_Rethinking_with_brms_ggplot2_and_the_tidyverse_2_ed/blob/master/06.Rmd
