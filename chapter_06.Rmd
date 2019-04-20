@@ -1,0 +1,420 @@
+---
+title: "Chapter 6: The Haunted DAG & The Causal Terror"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+```{r}
+library(tidyverse)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+```
+
+# Notes
+
+## Intro
+
+Recreate the example shown in the book. Take some styling tips from Aki Vehtari's [Bayesian Data Analysis examples][BDA_R] by way of [Solomon Kurtz][SKurtz_SR_2ed] working his way through the second edition.
+
+```{r}
+# number of grant proposals
+N <- 200L
+# proportion of grant proposals to approve
+p <- 0.1
+set.seed(1917)
+d <- tibble(
+    # the two variables are totally uncorrelated
+    trustworthiness = rnorm(N), 
+    newsworthiness = rnorm(N)
+) %>% 
+    mutate(total_score = trustworthiness + newsworthiness) %>% 
+    mutate(selected = total_score >= quantile(total_score, 1 - p))
+```
+
+What is the correlation between newsworthiness and trustwortiness among selected articles?
+
+```{r}
+d %>% 
+    filter(selected) %>% 
+    select(newsworthiness, trustworthiness) %>% 
+    cor()
+```
+
+Can visualise how this happens.
+
+```{r}
+theme_set(theme_minimal())
+# create a tibble for the annotation
+berksen_text <- tibble(
+    newsworthiness  = c(2.25, 1.3), 
+    trustworthiness = c(2.25, -2.4),
+    selected = c(TRUE, FALSE),
+    label    = c("selected", "rejected")
+)
+d %>% 
+    ggplot(
+        aes(
+            newsworthiness, 
+            trustworthiness, 
+            colour = selected)) + 
+    geom_point(alpha = .6) + 
+    geom_text(data = berksen_text, 
+              aes(label = label)) + 
+    geom_smooth(data = d %>% filter(selected), 
+                method = "lm", 
+                fullrange = TRUE, 
+                fill = "orange", 
+                color = "orange", 
+                alpha = 0.25, 
+                size = 0.2) + 
+    scale_colour_manual(values = c("black", "orange")) + 
+    coord_cartesian(ylim = range(d$trustworthiness)) +
+    theme(legend.position = "none")
+```
+
+This chapter focuses on the bad things that can go wrong when adding additional predictors to a linear model:
+
+- Multicollinearity;
+- Post-treatment bias; 
+- Collider bias.
+
+## Multicollinearity
+
+### Height as a Function of Leg-length
+
+Adding a predictor can make a model worse though. An example with legs, based on the reasonable assumption that leg-length is a good predictor of height.
+
+```{r}
+# simulate the data
+N <- 100
+set.seed(909)
+
+d <- tibble(height = rnorm(N, mean = 10, sd = 2), 
+            leg_prop = runif(N, min = 0.4, max = 0.5)) %>% 
+    mutate(leg_left = leg_prop * height + rnorm(N, sd = 0.02), 
+           leg_right = leg_prop * height + rnorm(N, sd = 0.02)) %>% 
+    select(-leg_prop)
+```
+
+The two leg lengths are strongly correlated:
+
+```{r}
+d %>% 
+    select(leg_left, leg_right) %>% 
+    cor() %>% 
+    round(digits = 5)
+
+d %>% 
+    ggplot(aes(leg_left, leg_right)) + 
+    stat_smooth(method = "lm", 
+                colour = "grey50", 
+                size = 0.5) + 
+    geom_point(colour = "steelblue")
+```
+
+So what happens if we use both for predicting height?
+
+```{r}
+b6_1 <- brm(
+    height ~ 1 + leg_left + leg_right,
+    data = d, 
+    prior = c(prior(normal(10, 100), class = Intercept),
+              prior(normal(2, 10), class = b),
+              prior(exponential(1), class = sigma)),
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_1")
+print(b6_1, digits = 3)
+```
+
+The error on the parameter estimates is huge, as we can see in a plot.
+
+```{r}
+color_scheme_set("orange")
+stanplot(b6_1, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+This problem of collinearity is why it's important to be careful with variable selection when building models: adding both causes confusion in this case. Can get various other plots, such as the pairs.
+
+```{r}
+pairs(b6_1, 
+      pars = "leg_[lr]")
+```
+
+The coefficients now have an almost perfect _negative_ correlation.
+
+Some posterior sampling can illustrate this also.
+
+```{r}
+post <- posterior_samples(b6_1)
+
+post %>% 
+    ggplot(aes(b_leg_left, b_leg_right)) + 
+    geom_point(colour = "steelblue", 
+               alpha = 0.1, size = 0.5)
+```
+
+Yet another method for illustrating is with `bayesplot::mcmc_scatter()`.
+
+```{r}
+post %>% 
+    mcmc_scatter(regex_pars = "b_leg_[lr]", 
+                 alpha = 0.1, 
+                 size = 0.5)
+```
+
+The model is answering the question:
+
+> What is the value of knowing each predictor, after already knowing all of the other predictors?
+
+Since the two legs offer almost the same info, the only answer to this question is "very little".
+
+The model is set up as:
+
+$$
+\begin{eqnarray}
+y_i & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha + \beta_{1}x_{1i} + \beta_{2} x_{2i}
+\end{eqnarray}
+$$
+
+But since $x_{1i}$ and $x_{2i}$ are basically identical we can ditch the extra subscript and just call them a single predictor, $x_i$ for the $i$-th observation. Then the model can be written as.
+
+$$
+\begin{eqnarray}
+y_i & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha + (\beta_1 + \beta_2) x_i
+\end{eqnarray}
+$$
+
+So what are the posterior estimates for the sum of $\beta_1$ and $\beta_2$?
+
+```{r}
+post %>% 
+    ggplot(aes(x = b_leg_left + b_leg_right, y = 0)) + 
+    geom_halfeyeh(fill = "steelblue", 
+                  point_interval = median_qi, 
+                  .width = 0.89) + 
+    scale_y_continuous(NULL, breaks = NULL) + 
+    labs(title    = "Sum the multicollinear coefficients",
+         subtitle = "Marked by the median and 89% PIs")
+```
+
+Now build a model with only one predictor.
+
+```{r}
+b6_2 <- brm(
+    height ~ 1 + leg_left,
+    data = d, 
+    prior = c(prior(normal(10, 100), class = Intercept),
+              prior(normal(2, 10), class = b),
+              prior(exponential(1), class = sigma)),
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_2")
+
+stanplot(b6_2, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+The parameter estimate for `leg_left` is exactly as it should be from the way the data were simulated. Can also check the density plot.
+
+```{r}
+posterior_samples(b6_2) %>% 
+    ggplot(aes(x = b_leg_left, y = 0)) +
+    geom_halfeyeh(fill = "steelblue", 
+                  point_interval = median_qi, 
+                  .width = .89) +
+    scale_y_continuous(NULL, breaks = NULL) +
+    labs(title    = "Just one coefficient needed",
+         subtitle = "Marked by the median and 89% PIs",
+         x        = "only b_leg_left, this time")
+```
+
+This gets almost identical results. Adding the extra predictor was worse than useless.
+
+### Multicollinear Milk
+
+Another example with the `milk` dataset from `rethinking`.
+
+```{r}
+data(milk, package = "rethinking")
+d <- milk %>% 
+    as_tibble() %>% 
+    mutate(K = scale(kcal.per.g), 
+           Fat = scale(perc.fat), 
+           L = scale(perc.lactose))
+```
+
+Start by building two bivariate regressions. First with $F$ (fat percentage in milk) as the predictor:
+
+$$
+\begin{eqnarray}
+K_i & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha + \beta_F F_i \\
+\alpha & \sim & \mathcal{N}(0, 0.2) \\
+\beta_F & \sim & \mathcal{N}(0, 0.5) \\
+\sigma & \sim & \text{Exponential}(1)
+\end{eqnarray}
+$$
+
+Then with $L$, lactose percentage:
+
+$$
+\begin{eqnarray}
+K_i & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha + \beta_L L_i \\
+\alpha & \sim & \mathcal{N}(0, 0.2) \\
+\beta_L & \sim & \mathcal{N}(0, 0.5) \\
+\sigma & \sim & \text{Exponential}(1)
+\end{eqnarray}
+$$
+
+```{r}
+b6_3 <- brm(
+    K ~ 1 + Fat,
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept),
+              prior(normal(0, 0.5), class = b),
+              prior(exponential(1), class = sigma)),
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_3"
+)
+b6_4 <- brm(
+    K ~ 1 + L,
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept),
+              prior(normal(0, 0.5), class = b),
+              prior(exponential(1), class = sigma)),
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_4"
+)
+```
+
+
+```{r}
+print(b6_3, digits = 3)
+```
+
+
+```{r}
+list(b6_3, b6_4) %>% 
+    map(~ posterior_summary(.x, 
+                            , probs = c(0.055, 0.945)) %>% 
+            round(digits = 2))
+```
+
+The posterior distributions for $\beta_F$ and $\beta_L$ are near-identical (up to sign). However this will change if we include both in the model.
+
+```{r}
+b6_5 <- brm(
+    K ~ 1 + Fat + L,
+    data = d, 
+    prior = c(prior(normal(0, 0.2), class = Intercept),
+              prior(normal(0, 0.5), class = b),
+              prior(exponential(1), class = sigma)),
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_5"
+)
+posterior_summary(b6_5, probs = c(0.055, 0.945)) %>% 
+    round(digits = 2)
+```
+
+The parameter estimates have shrunk towards zero and the error is much wider. Easiest to see in plots.
+
+```{r}
+list(b6_3, b6_4, b6_5) %>% 
+    map(~ stanplot(.x, 
+                    prob_outer = 0.89) +  
+             theme(text = element_text(family = "Avenir")))
+```
+
+This is a less stark example than the leg-length: because `Fat` and `L` are so tightly correlated their parameter estimates are much more uncertain, because the posterior distribution describes a much wider range for those parameters that are plausible. Can see this easily in a pairs plot.
+
+```{r}
+pairs(~ kcal.per.g + perc.fat + perc.lactose, data = d, col = "steelblue")
+```
+
+`perc.fat` and `perc.lactose` are so tightly correlated that each renders the other near-redundant. As it says in the book:
+
+> Either helps in predicting kcal.per.g, but neither helps much _once you already know the other_.
+
+How strongly-correlated are they?
+
+```{r}
+d %>% 
+    select(perc.fat, perc.lactose) %>% 
+    cor()
+```
+
+(The rule of thumb I've encountered when doing frequentist modelling is that if $|\rho| > 0.8$ then one of the predictors needs to go.)
+
+### Simulating Multicollinearity
+
+```{r}
+sim_coll <- function(seed, rho) {
+    set.seed(seed)
+    tmp <- d %>% 
+        mutate(x = rnorm(n(), 
+                         mean = perc.fat * rho, 
+                         sd = sqrt((1 - rho^2) * var(perc.fat))))
+    m <- lm(kcal.per.g ~ perc.fat + x, data = tmp)
+    sqrt(diag(vcov(m)))[2]
+}
+n_seed <- 100
+n_rho <- 30
+d2 <- tibble(seed = seq_len(n_seed)) %>% 
+    expand(seed, rho = seq(from = 0, 
+                           to = 0.99, 
+                           length.out = n_rho)) %>% 
+    mutate(parameter_sd = map2_dbl(seed, 
+                                   rho, 
+                                   sim_coll)) %>% 
+    group_by(rho) %>% 
+    summarise(mean = mean(parameter_sd), 
+              ll = quantile(parameter_sd, 0.055), 
+              ul = quantile(parameter_sd, 0.945))
+```
+
+Now visualise how the standard deviation changes as $\rho$ increases.
+
+```{r}
+d2 %>% 
+    ggplot(aes(rho, mean)) + 
+    geom_smooth(aes(ymin = ll, ymax = ul), 
+                stat = "identity", 
+                fill = "orange", 
+                colour = "orange", 
+                alpha = .3, 
+                size = 0.7) + 
+    labs(x = expression(rho), 
+         y = "parameter SD") + 
+    coord_cartesian(ylim = c(0, .0072))
+```
+
+
+[BDA_R]: https://github.com/avehtari/BDA_R_demos
+[SKurtz_SR_2ed]: https://github.com/ASKurz/Statistical_Rethinking_with_brms_ggplot2_and_the_tidyverse_2_ed/blob/master/06.Rmd
