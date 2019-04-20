@@ -1058,64 +1058,6 @@ dagify(N ~ U,
 
 In the first log-mass causes neocortex percentage; in the second that is reversed; in the third some unobserved variable causes both of them.
 
-## When Adding Variables Hurts
-
-Adding a predictor can make a model worse though. An example with legs, based on the reasonable assumption that leg-length is a good predictor of height.
-
-```{r}
-# simulate the data
-N <- 100
-set.seed(531)
-
-d <- tibble(height = rnorm(N, mean = 10, sd = 2), 
-            leg_prop = runif(N, min = 0.4, max = 0.5)) %>% 
-    mutate(leg_left = leg_prop * height + rnorm(N, sd = 0.02), 
-           leg_right = leg_prop * height + rnorm(N, sd = 0.02))
-```
-
-The two leg lengths are strongly correlated:
-
-```{r}
-d %>% 
-    select(leg_left, leg_right) %>% 
-    cor() %>% 
-    round(digits = 5)
-
-d %>% 
-    ggplot(aes(leg_left, leg_right)) + 
-    stat_smooth(method = "lm", 
-                colour = "grey50", 
-                size = 0.5) + 
-    geom_point(colour = "steelblue") + 
-    theme_classic()
-```
-
-So what happens if we use both for predicting height?
-
-```{r}
-b5_8 <- brm(
-    height ~ 1 + leg_left + leg_right,
-    data = d, 
-    prior = c(prior(normal(10, 100), class = Intercept),
-              prior(normal(2, 10), class = b),
-              prior(cauchy(0, 5), class = sigma)),
-    iter = 2000, 
-    warmup = 500, 
-    chains = 4, 
-    cores = 4, 
-    file = "Stan/ch_05/b5_8")
-print(b5_8, digits = 3)
-```
-
-The error on the parameter estimates is huge, as we can see in a plot.
-
-```{r}
-stanplot(b5_8) + 
-    theme(text = element_text(family = "Avenir"))
-```
-
-This problem of collinearity is why it's important to be careful with variable selection when building models: adding both causes confusion in this case.
-
 ## Categorical Variables
 
 Can use the !Kung data again for working with a categorical variable, which in this case is sex.
