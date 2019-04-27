@@ -1,13 +1,5 @@
 ---
 title: "Chapter 6: The Haunted DAG & The Causal Terror"
-output: 
-  html_document: 
-    highlight: pygments
-    number_sections: yes
-    theme: cerulean
-    toc: yes
-    toc_depth: 3
-    toc_float: yes
 ---
 
 ```{r}
@@ -15,6 +7,8 @@ library(tidyverse)
 library(brms)
 library(bayesplot)
 library(tidybayes)
+library(dagitty)
+library(ggdag)
 ```
 
 # Notes
@@ -543,6 +537,537 @@ posterior_summary(b6_7) %>%
 ```
 
 The results suggest that the treatment has no effect, whereas the fungus has some negative effect on growth. However the simulation was set up so that the treatment _does_ matter, so something has gone wrong.
+
+Specifically: because `fungus` is largely a consequence of `treatment`. Returning to the question from earlier:
+
+> Once we already know whether or not a plant developed fungus, does soil treatment matter?
+
+Since the answer is no, the parameter estimate for treatment is basically zero. Try remodelling without `fungus`. The model specification becomes:
+
+$$
+\begin{eqnarray}
+h_{1,i} & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & h_{0,i} \times (\alpha + \beta_T T_i) \\
+\log(\alpha) & \sim & \mathcal{N}(0, 0.25) \\
+\beta_T & \sim & \mathcal{N}(0, 0.5) \\
+\sigma & \sim & \text{Exponential}(1) \\
+\end{eqnarray}
+$$
+
+Now fit the model.
+
+```{r}
+b6_8 <- brm(
+    bf(h1 ~ h0 * (a + t * treatment), 
+       a + t ~ 1, 
+       nl = TRUE), 
+    data = d, 
+    family = "gaussian", 
+    prior = c(prior(lognormal(0, 0.2), nlpar = a), 
+              prior(normal(0, 0.5), nlpar = t), 
+              prior(exponential(1), class = sigma)), 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_8"
+)
+posterior_summary(b6_8) %>% 
+    round(digits = 2)
+
+stanplot(b6_8, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+Can also represent what's going on in a DAG.
+
+```{r}
+fungus_dag <- dagify(F ~ T,
+                     H1 ~ H0 + F,
+                     coords = tibble(
+                         name = c("H0", "T", "F", "H1"),
+                         x    = c(1, 5, 4, 3),
+                         y    = c(2, 2, 1.5, 1))
+)
+
+fungus_dag %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+The phrase from the book is that 
+
+> … conditioning on F induces d-separation …
+
+where the d stands for dependence. The `dagitty` package can analyse a DAG for d-separation.
+
+```{r}
+dseparated(fungus_dag, "T", "H1")
+dseparated(fungus_dag, "T", "H1", "F")
+```
+
+And it can do something more automatic with the whole DAG and no variables specified.
+
+```{r}
+impliedConditionalIndependencies(fungus_dag)
+```
+
+The `_||_` means independent of, so this confirms what the modelling steps showed: that the outcome is independent of the treatment conditional on fungus.
+
+Two really important ideas in the book re. post-treatment effects:
+
+1. This sort of effect can occur in both experimental and observational data, but is much harder to identify in observational.
+2. Using model selection (i.e. with information criteria such as WAIC) would not help here since the model with fungus would get better results and make better out-of-sample predictions. The problem is more fundamental: _the model is asking the wrong question_.
+
+## Collider Bias
+
+Return to the publication example, which we can show with a DAG.
+
+```{r}
+publishing_dag <- dagify(
+    S ~ T + N, 
+    coords = tibble(name = c("T", "S", "N"),
+                    x    = c(1, 2, 3),
+                    y    = c(0, 0, 0))
+)
+publishing_dag %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+S is a collider, which we can spot because of the two arrows pointing into it. When conditioning on S (as we did when plotting the linear model curve on the black and orange plot) we create a connection between T and N. Independently they are unconnected, but conditional on being selected an article with low trustworthiness has higher newsworthiness (and vice versa).
+
+Next example is about sadness and age. The assumptions for the model are:
+
+- the happier people are more likely they are to get married;
+- the older people are the more likely they are to have gotten married (just because they've had more chances to meet Mr./Mrs. Right).
+
+The DAG that describes this causal model is:
+
+```{r}
+marriage_dag <- dagify(
+    M ~ A + H, 
+    coords = tibble(name = c("A", "M", "H"),
+                    x    = c(1, 2, 3),
+                    y    = c(0, 0, 0))
+)
+marriage_dag %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+Now run a simulation for this model using McElreath's convenience function.
+
+```{r}
+d <- rethinking::sim_happiness() %>% 
+    as_tibble()
+glimpse(d)
+```
+
+```{r}
+d %>% 
+    mutate(married = factor(married,
+                            labels = c("unmarried", "married"))) %>% 
+    ggplot(aes(age, happiness, fill = married)) + 
+    geom_point(shape = 21) + 
+    scale_fill_manual(NULL, values = c("white", "steelblue")) + 
+    labs(x = "Age", y = "Happiness") + 
+    theme(panel.grid = element_blank(), 
+          legend.position = "top")
+```
+
+The pattern is much the same as for the publications. Now we could try building a model that regresses happiness on age, conditioning on marriage. Such a model would be:
+
+$$
+\begin{eqnarray}
+H_{i} & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha_{MID[i]} + \beta_A A_i \\
+\end{eqnarray}
+$$
+
+This sets up separate intercepts for those who are married and unmarried. $A$ is just the person's age.
+
+Need to consider the priors also. The scale of $A$ will affect the interpretation of the intercept. Can rescale so that only adults are considered and that the period from 18 to 65 is one unit. The happiness is bounded on $[-2, 2]$, so the strongest possible relationship (i.e. the max of $\beta_A$) is 4. So setting the standard deviation to half of that will keep the majority of the prior in a sensible range. The prior for the intercepts can be a standard normal.
+
+So the full model specification would be:
+
+$$
+\begin{eqnarray}
+H_{i} & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha_{MID[i]} + \beta_A A_i \\
+\alpha_i & \sim & \mathcal{N}(0, 1) \\
+\beta_A & \sim & \mathcal{N}(0, 2) \\
+\sigma & \sim & \text{Exponential}(1)
+\end{eqnarray}
+$$
+
+Can now add the rescaled age variable and the marriage index.
+
+```{r}
+d2 <- d %>% 
+    filter(age >= 18) %>% 
+    mutate(A = (age - 18)/(65 - 18)) %>% 
+    mutate(mid = factor(married + 1, 
+                        labels = c("single", "married")))
+head(d2)
+```
+
+And then build the model.
+
+```{r}
+b6_9 <- brm(
+    happiness ~ 0 + A + mid, 
+    prior = c(prior(normal(0, 1), class = b, coef = midmarried), 
+              prior(normal(0, 1), class = b, coef = midsingle), 
+              prior(normal(0, 2), class = b, coef = A), 
+              prior(exponential(1), class = sigma)), 
+    data = d2, 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_9"
+)
+
+posterior_summary(b6_9) %>% 
+    round(digits = 2)
+
+stanplot(b6_9, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+The model concludes a strong negative association between age and happiness, but we know this is false because we simulated the data. Now build a model without marriage status.
+
+```{r}
+b6_10 <- brm(
+    happiness ~ 0 + intercept + A, 
+    prior = c(prior(normal(0, 1), class = b, coef = intercept), 
+              prior(normal(0, 2), class = b, coef = A), 
+              prior(exponential(1), class = sigma)), 
+    data = d2, 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_10"
+)
+
+posterior_summary(b6_10) %>% 
+    round(digits = 2)
+
+stanplot(b6_10, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+Now the estimate for $\beta_A$ is centered around zero, as it should be. 
+
+This illustrates what can happen when conditioning on a collider: it introduces a spurious association between the causes.
+
+### The Haunted DAG
+
+In that example we could pin down the exact causal relationship because the data were simulated, but that's not typical.
+
+Another possible DAG would model the causal relationship between educational achievement of grandparents ($G$), parents ($P$), and children ($C$).
+
+```{r}
+dagify(C ~ P + G, 
+       P ~ G, 
+       coords = tibble(
+           name = c("G", "P", "C"), 
+           x = c(1, 2, 2), 
+           y = c(2, 2, 1)
+       )) %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+But suppose there is some unobserved variable that is affecting the observed ones, such as the effect of living in a good or bad neighbourhood.
+
+```{r}
+dagify(C ~ P + G + U, 
+       P ~ G + U, 
+       coords = tibble(
+           name = c("G", "P", "C", "U"), 
+           x = c(1, 2, 2, 2.5), 
+           y = c(2, 2, 1, 1.5)
+       )) %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+From the book:
+
+> Now P is a common consequence of G and U, so if we condition on P, it will bias inference about G > C, _even if we never get to measure U_.
+
+Show this with simulation.
+
+```{r}
+N <- 200  # number of grandparent-parent-child triads
+b_GP <- 1 # direct effect of G on P
+b_GC <- 0 # direct effect of G on C
+b_PC <- 1 # direct effect of P on C
+b_U <- 2 #directeffectofUonPandC
+set.seed(1)
+d <- tibble(
+    U = 2 * rbernoulli(N, 0.5) - 1, 
+    G = rnorm(N)
+) %>% 
+    mutate(
+        P = rnorm(N, (b_GP * G) + (b_U * U)), 
+        C = rnorm(N, (b_PC * P) + (b_GC * G) + (b_U * U))
+    )
+head(d)
+```
+
+To model $C$ we can see that we need to condition on $P$. But we are unaware of $U$, even though it's a common cause of $C$ and $P$. Show this by modelling first without $U$ (which is all that would be possible in the case of real observational data).
+
+```{r}
+b6_11 <- brm(
+    C ~ 1 + G + P, 
+    prior = c(prior(normal(0, 1), class = b), 
+              prior(normal(0, 1), class = Intercept), 
+              prior(exponential(1), class = sigma)), 
+    data = d, 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_11"
+)
+
+posterior_summary(b6_11) %>% 
+    round(digits = 2)
+
+stanplot(b6_11, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+Easiest to visualise with a scatterplot of the full data.
+
+```{r}
+d2 <- d %>% 
+    mutate_at(vars(C, G, P), scale) %>% 
+    mutate(U = factor(if_else(U == 1, 
+                              "good", 
+                              "bad")), 
+           central = factor(P >= quantile(P, 0.45) & 
+                                P <= quantile(P, 0.6)))
+
+d2 %>% 
+    ggplot(aes(G, C, colour = U)) + 
+    geom_point(data = d2 %>% 
+                   filter(central == "TRUE")) + 
+    scale_colour_manual(values = c("black", "black", 
+                                   "orange", "orange")) + 
+    geom_point(data = d2 %>% 
+                   filter(central == "FALSE"), 
+               shape = 21) + 
+    geom_text(data = tibble(
+        G = c(0.2, -1.5), 
+        C = c(-2, 2), 
+        U = c("FALSE", "TRUE"), 
+        label = c("bad neighbourhood", 
+                  "good neighbourhood")),
+        aes(label = label)) + 
+    geom_smooth(data = d2 %>% filter(central == TRUE), 
+                aes(G, C), 
+                method = "lm", 
+                inherit.aes = FALSE, 
+                fullrange = TRUE, 
+                fill = "black", 
+                colour = "black", 
+                alpha = 0.25, 
+                size = 0.2) + 
+    labs(x = "grandparent education (G)", 
+         y = "grandchild education (C)", 
+         colour = NULL, 
+         fill = NULL, 
+         title = "Grandchild vs. Grandparent Education", 
+         subtitle = "Parents in 45th to 60th centiles are filled circles") + 
+    theme(legend.position = "none")
+```
+
+The filled points are those in the centre of the distribution for $P$: this just makes the effect easier to see. Conditional on knowing $P$, the effect of $G$ is to provide information about $U$. And for a given value of $P$ then the higher $G$ corresponds with a higher probability of living in a bad neighbourhood, and is therefore negatively associated with $C$. The only solution here is to measure $U$ somehow, as below.
+
+```{r}
+b6_12 <- brm(
+    C ~ 1 + G + P + U, 
+    prior = c(prior(normal(0, 1), class = b), 
+              prior(normal(0, 1), class = Intercept), 
+              prior(exponential(1), class = sigma)), 
+    data = d, 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_12"
+)
+
+posterior_summary(b6_12) %>% 
+    round(digits = 2)
+
+stanplot(b6_12, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+Now the model has generated the correct estimates for the simulated data.
+
+## Confronting Confounding
+
+McElreath discusses the issues with confounding, and how to address it.
+
+Confounding arises when information 'leaks' into the model, such that the association between predictor $X$ and outcome $Y$ is not the same as it would have been in a controlled experiment. Four types and the methods for shutting these backdoors are discussed in the book: in all of these $X$ is the predictor and $Y$ the outcome.
+
+### Shutting Backdoors
+
+#### Fork
+
+```{r}
+dagify(X ~ Z, 
+       Y ~ Z, 
+       coords = tibble(
+           name = c("X", "Y", "Z"), 
+           x = c(1, 3, 2), 
+           y = c(1, 1, 1)
+       )) %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+In this case $X \perp Y  | Z$, so if $Z$ is available it can block the path from $X$ to $Y$.
+
+#### Pipe
+
+```{r}
+dagify(Z ~ X, 
+       Y ~ Z, 
+       coords = tibble(
+           name = c("X", "Y", "Z"), 
+           x = c(1, 3, 2), 
+           y = c(1, 1, 1)
+       )) %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+This was the fungus case: the treatment $X$ influences fungus $Z$, which affects growth $Y$. Again conditioning on $Z$ can block the path, but this may not be desirable (particularly when we want to know about the association between $X$ and $Y$, as in the fungus example).
+
+#### Collider
+
+```{r}
+dagify(Z ~ X + Y, 
+       coords = tibble(
+           name = c("X", "Y", "Z"), 
+           x = c(1, 3, 2), 
+           y = c(1, 1, 1)
+       )) %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+Same as the fork but with arrows reversed: now $Z$ is caused by both the others. There will be no association between $X$ and $Y$ _unless_ we condition on $Z$. 
+
+#### Descendent
+
+```{r}
+dagify(Z ~ X, 
+       Y ~ Z, 
+       K ~ Z, 
+       coords = tibble(
+           name = c("X", "Y", "Z", "K"), 
+           x = c(1, 3, 2, 2), 
+           y = c(1, 1, 1, 0)
+       )) %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+$K$ is a descendent of $Z$. Conditioning on a variable's descedent is a weaker form of conditioning on the variable itself. In this case there is a pipe $X \rightarrow Z \rightarrow Y$, so ideally we would condition on $Z$. But conditioning on $K$ would offer some approximation to that, which might be necessary (particularly with observational data).
+
+### Two roads
+
+Can analyse DAGs with the `daggity` package. Consider this DAG.
+
+```{r}
+dag6_1 <- dagify(
+    Y ~ X + C, 
+    X ~ U, 
+    B ~ U, 
+    U ~ A, 
+    C ~ A, 
+    B ~ U + C, 
+    coords = tibble(
+        name = c("A", "B", "C", "U", "X", "Y"), 
+        x = c(2, 2, 3, 1, 1, 3), 
+        y = c(2.5, 1.5, 2, 2, 1, 1)
+    )
+)
+dag6_1 %>% 
+    tidy_dagitty() %>% 
+    ggdag()
+```
+
+In this case want to make some inference about $Y \sim X$. There are two paths available, and for both need to consider whether it is already open (in which case it must be closed), or is closed (and must not be opened).
+
+On this graph the path through $A$ is open, and that with $B$ is closed. Paths with colliders are closed, whereas pipes and forks are open.
+
+`dagitty` will analyse this directly.
+
+```{r}
+adjustmentSets(x = dag6_1, 
+               exposure = "X", 
+               outcome = "Y")
+```
+
+If $U$ is unobserved then the choice would be to condition on $A$ and $C$.
+
+### Backdoor Waffles
+
+An example with the Waffle House data. We want the total causal effect of Waffle Houses on divorce rate. A DAG for this might be:
+
+```{r}
+waffle_dag <- dagify(
+    A ~ S, 
+    D ~ A + M + W, 
+    M ~ A + S, 
+    W ~ S, 
+    coords = tibble(
+        name = c("A", "D", "M", "S", "W"), 
+        x = c(1, 3, 2, 1, 3), 
+        y = c(1, 1, 1.5, 2, 2)
+    )
+)
+
+waffle_dag %>% 
+    tidy_dagitty() %>% 
+    ggdag() + 
+    theme_void() + 
+    labs(caption = paste0("S: Southern US; A: median age of marriage; ", 
+                          "M: marriage rate\nW: number of Waffle Houses; ", 
+                          "D: divorce rate"))
+```
+
+Now get `dagitty` to confirm the right variable on which to condition.
+
+```{r}
+adjustmentSets(waffle_dag, 
+               exposure = "W", 
+               outcome = "D")
+```
+
+The simplest approach would be to condition on just $S$. 
+
+Can also check for the implied conditional independences in the DAG.
+
+```{r}
+impliedConditionalIndependencies(waffle_dag)
+```
+
 
 [BDA_R]: https://github.com/avehtari/BDA_R_demos
 [SKurtz_SR_2ed]: https://github.com/ASKurz/Statistical_Rethinking_with_brms_ggplot2_and_the_tidyverse_2_ed/blob/master/06.Rmd
