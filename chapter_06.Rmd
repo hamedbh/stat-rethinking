@@ -1068,7 +1068,7 @@ Can also check for the implied conditional independences in the DAG.
 impliedConditionalIndependencies(waffle_dag)
 ```
 
-# Practice
+# Practice
 
 ## Hard
 
