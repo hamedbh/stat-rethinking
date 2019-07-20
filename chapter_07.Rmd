@@ -1,0 +1,367 @@
+---
+title: "Chapter 7: Ulysses' Compass"
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(dagitty)
+library(ggdag)
+library(ggrepel)
+```
+
+# Notes
+
+Need to steer between two dangers:
+
+1. **Overfitting**: learning too much from the data.
+2. **Underfitting** learning too little from the data.
+
+Two ways to control this:
+
+1. **Regularising Priors**: somewhat more sceptical priors will tend to help with overfitting.
+2. Using **Information Criteria** to judge the performance of models.
+
+
+## The Problem with Parameters
+
+Adding more parameters will _nearly always_ improve the model fit. Here is a demo using a common measure of model fit: $R^2$. This measures how well the model can retrodict the data. It is commonly described as _variance explained_, and its formula is:
+
+$$
+R^2 = \frac{\text{var(outcome) - var(residuals)}}{\text{var(outcome)}} = 
+1 - \frac{\text{var(residuals)}}{\text{var(outcome)}}
+$$
+
+It will increase as we add parameters even when those parameters are just random noise.
+
+```{r}
+d <- tibble(
+    species = c(
+        "afarensis",
+        "africanus",
+        "habilis",
+        "boisei",
+        "rudolfensis",
+        "ergaster",
+        "sapiens"),
+    brain = c(438, 452, 612, 521, 752, 871, 1350), 
+    mass = c(37.0, 35.5, 34.5, 41.5, 55.5, 61.0, 53.5)
+) %>% 
+    mutate(brain_std = brain/(max(brain)), 
+           mass_std = as.numeric(scale(mass)))
+
+d %>% 
+    ggplot(aes(mass, 
+               brain, 
+               label = species)) + 
+    geom_point(colour = "steelblue", 
+               shape = 21) + 
+    geom_label_repel(size = 3, 
+                     seed = 438) + 
+    coord_cartesian(xlim = c(30, 65)) + 
+    labs(x = "body mass (kg)", 
+         y = "brain volume (cc)") + 
+    theme_bw() + 
+    theme(panel.grid = element_blank())
+```
+
+We could just model the brain size as a function of body mass, or of the log of body mass. But we will fit an increasingly comples series of polynomial models to the data, using the normalised versions of the predictors created above. Start with the simple linear model:
+
+\begin{align}
+b_i & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha + \beta{m_i} \\
+\alpha & \sim & \mathcal{N}(0.5, 1) \\
+\beta & \sim & \mathcal{N}(0, 10) \\
+\sigma & \sim & \text{Lognormal}(0, 1) \\
+\end{align}
+
+These will be done best using McElreath's functions from `{rethinking}`, as it will better illustrate what is happening than using `brms`.
+
+```{r}
+# library(rethinking)
+# create a function for computing R-squared
+R2_is_bad <- function(quap_fit) {
+    s <- rethinking::sim(quap_fit, refresh = 0)
+    r <- apply(s, 2, mean) - d$brain_std
+    1 - rethinking::var2(r)/rethinking::var2(d$brain_std)
+}
+m7_1 <- rethinking::quap(
+    flist = alist(
+        brain_std ~ dnorm(mu, exp(log_sigma)), 
+        mu <- a + b * mass_std, 
+        a ~ dnorm(0.5, 1), 
+        b ~ dnorm(0, 10), 
+        log_sigma ~ dnorm(0, 1)
+    ), 
+    data = d
+)
+R2_is_bad(m7_1)
+```
+
+Now we move on to adding the polynomial terms. The model specification changes slightly: the next shows the quadratic term.
+
+\begin{align}
+b_i & \sim \text{Normal}(\mu_i, \sigma) \\
+\mu_i   & = \alpha + \beta_1 \text{mass_std}_i + \beta_2 \text{mass_std}_i^2 \\
+\alpha  & \sim \text{Normal}(0.5, 1) \\
+\beta_j & \sim \text{Normal}(0, 10) ~~~~~~~~~~~ \text{ for } j = 1..2 \\
+\sigma  & \sim \text{Lognormal}(0, 1)
+\end{align}
+
+We can set up all of the models.
+
+```{r}
+m7_2 <- rethinking::quap(
+    flist = alist(
+        brain_std ~ dnorm(mu, exp(log_sigma)), 
+        mu <- a + 
+            b[1] * mass_std + 
+            b[2] * mass_std^2, 
+        a ~ dnorm(0.5, 1), 
+        b ~ dnorm(0, 10), 
+        log_sigma ~ dnorm(0, 1)
+    ), 
+    data = d, 
+    start = list(b = rep(0, 2))
+)
+
+m7_3 <- rethinking::quap(
+    flist = alist(
+        brain_std ~ dnorm(mu, exp(log_sigma)), 
+        mu <- a + 
+            b[1] * mass_std + 
+            b[2] * mass_std^2 + 
+            b[3] * mass_std^3, 
+        a ~ dnorm(0.5, 1), 
+        b ~ dnorm(0, 10), 
+        log_sigma ~ dnorm(0, 1)
+    ), 
+    data = d, 
+    start = list(b = rep(0, 3))
+)
+
+m7_4 <- rethinking::quap(
+    flist = alist(
+        brain_std ~ dnorm(mu, exp(log_sigma)), 
+        mu <- a + 
+            b[1] * mass_std + 
+            b[2] * mass_std^2 + 
+            b[3] * mass_std^3 + 
+            b[4] * mass_std^4, 
+        a ~ dnorm(0.5, 1), 
+        b ~ dnorm(0, 10), 
+        log_sigma ~ dnorm(0, 1)
+    ), 
+    data = d, 
+    start = list(b = rep(0, 4))
+)
+
+m7_5 <- rethinking::quap(
+    flist = alist(
+        brain_std ~ dnorm(mu, exp(log_sigma)), 
+        mu <- a + 
+            b[1] * mass_std + 
+            b[2] * mass_std^2 + 
+            b[3] * mass_std^3 + 
+            b[4] * mass_std^4 + 
+            b[5] * mass_std^5, 
+        a ~ dnorm(0.5, 1), 
+        b ~ dnorm(0, 10), 
+        log_sigma ~ dnorm(0, 1)
+    ), 
+    data = d, 
+    start = list(b = rep(0, 5))
+)
+```
+
+The last model adds a sixth-order polynomial. In this case the standard deviation must be fixed as $\sigma = 0.001$, for a reason that will become clear soon.
+
+```{r}
+m7_6 <- rethinking::quap(
+    flist = alist(
+        brain_std ~ dnorm(mu, 0.001), 
+        mu <- a + 
+            b[1] * mass_std + 
+            b[2] * mass_std^2 + 
+            b[3] * mass_std^3 + 
+            b[4] * mass_std^4 + 
+            b[5] * mass_std^5 + 
+            b[6] * mass_std^6, 
+        a ~ dnorm(0.5, 1), 
+        b ~ dnorm(0, 10)
+    ), 
+    data = d, 
+    start = list(b = rep(0, 6))
+)
+```
+
+```{r}
+tibble(model_name = str_c("m7_", 1:6)) %>% 
+    mutate(fit = map(model_name, get)) %>% 
+    mutate(R2 = map_dbl(fit, ~ round(R2_is_bad(.x), digits = 2)))
+```
+
+The final model has the best score, but it is not a good model. Because it has as many parameters as there are degrees of freedom it is essentially just a recoding of the dataset. And because it's done through the medium of polynomial coefficients some weird things can happen. Focus just on the plot for the final model to see this.
+
+```{r}
+new_masses <- tibble(key = seq_len(100), 
+                     mass_std = seq(from = min(d$mass_std), 
+                                    to = max(d$mass_std), 
+                                    length.out = 100))
+predictions <- rethinking::link(m7_6, 
+                                data = list(mass_std = new_masses$mass_std)) %>% 
+    as_tibble() %>% 
+    gather(value = "pred") %>% 
+    mutate(key = str_extract(key, "\\d+") %>% 
+               as.integer()) %>% 
+    inner_join(new_masses, 
+               by = "key")
+predictions %>% 
+    mutate(mass = (mass_std * sd(d$mass)) + mean(d$mass, na.rm = TRUE), 
+           brain = pred * max(d$brain, na.rm = TRUE)) %>% 
+    group_by(key, mass) %>% 
+    summarise(mean_pred = mean(brain), 
+              Q5.5 = quantile(brain, 0.055), 
+              Q94.5 = quantile(brain, 0.945)) %>% 
+    ggplot(aes(mass, mean_pred)) + 
+    geom_line() + 
+    geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5), 
+                alpha = 0.5) + 
+    geom_point(data = d, 
+               aes(x = mass, y = brain), 
+               colour = "steelblue", 
+               size = 2, 
+               alpha = 0.7) + 
+    theme_bw() + 
+    geom_hline(yintercept = 0, 
+               size = 1, 
+               linetype = 2) + 
+    labs(y = "brain volume (cc)", 
+         x = "body mass (kg)", 
+         title = "m7_6: R^2 = 1")
+
+```
+
+In order to contort itself to fit the sizth-order polynomial to the data points the model predicts negative brain mass for primates with body mass of c. 59kg.
+
+Going too far the other way can also give a bad model. An intercept-only model would be specified as:
+
+\begin{align}
+b_i & \sim \text{Normal}(\mu, \sigma) \\
+\mu   & = \alpha
+\end{align}
+
+How does it perform?
+
+```{r}
+m7_7 <- rethinking::quap(
+    alist(
+        brain_std ~ dnorm(mu, exp(log_sigma)), 
+        mu <- a, 
+        a ~ dnorm(0.5, 1), 
+        log_sigma ~ dnorm(0, 1)
+    ), 
+    data = d
+)
+
+tibble(model_name = str_c("m7_", 1:7)) %>% 
+    mutate(fit = map(model_name, get)) %>% 
+    mutate(R2 = map_dbl(fit, ~ round(R2_is_bad(.x), digits = 2)))
+```
+
+The negative $R^2$ is just an approximation error from zero. Can plot the results to see how it's worked.
+
+```{r}
+predictions_m7_7 <- 
+    rethinking::link(m7_7, 
+                     data = list(mass_std = new_masses$mass_std)) %>% 
+    as_tibble() %>% 
+    gather(value = "pred") %>% 
+    mutate(key = str_extract(key, "\\d+") %>% 
+               as.integer()) %>% 
+    inner_join(new_masses, 
+               by = "key")
+predictions_m7_7 %>% 
+    mutate(mass = (mass_std * sd(d$mass)) + mean(d$mass, na.rm = TRUE), 
+           brain = pred * max(d$brain, na.rm = TRUE)) %>% 
+    group_by(key, mass) %>% 
+    summarise(mean_pred = mean(brain), 
+              Q5.5 = quantile(brain, 0.055), 
+              Q94.5 = quantile(brain, 0.945)) %>% 
+    ggplot(aes(mass, mean_pred)) + 
+    geom_line() + 
+    geom_ribbon(aes(ymin = Q5.5, ymax = Q94.5), 
+                alpha = 0.5) + 
+    geom_point(data = d, 
+               aes(x = mass, y = brain), 
+               colour = "steelblue", 
+               size = 2, 
+               alpha = 0.7) + 
+    theme_bw() + 
+    labs(y = "brain volume (cc)", 
+         x = "body mass (kg)", 
+         title = "m7_7: R^2 = 0")
+```
+
+This is an example of **underfitting**.
+
+Another way to conceive of overfitting and underfitting are their sensitivity to changes in the data: an overfit model is more sensitive, and undefit model less so.
+
+```{r}
+sensitivity <- tibble(
+    i = 1:2, 
+    n = c(1, 4), 
+    fit = c(m7_1, m7_4)
+) %>% 
+    crossing(dropped_id = 1:7) %>% 
+    pmap_dfr(function(i, n, fit, dropped_id) {
+        
+        tmp <- d[-dropped_id, ]
+        tmp_fit <- rethinking::quap(
+            fit@formula, 
+            data = tmp, 
+            start = list(b = rep(0, n))
+        )
+        
+        rethinking::link(tmp_fit, 
+                         data = list(mass_std = new_masses$mass_std), 
+                         refresh = 0) %>% 
+            as_tibble() %>% 
+            gather(value = "pred") %>% 
+            mutate(key = str_extract(key, "\\d+") %>% 
+                       as.integer()) %>% 
+            inner_join(new_masses, 
+                       by = "key") %>% 
+            mutate(mass = (mass_std * sd(d$mass)) + mean(d$mass, 
+                                                         na.rm = TRUE), 
+                   brain = pred * max(d$brain, 
+                                      na.rm = TRUE), 
+                   dropped_id = dropped_id) %>% 
+            mutate(model_name = str_c("m7_", n)) %>% 
+            group_by(model_name, dropped_id, mass) %>% 
+            summarise(mean_pred = mean(brain)) %>% 
+            ungroup()
+    })
+```
+
+```{r}
+sensitivity %>% 
+    ggplot(aes(x = mass, 
+               y = mean_pred, 
+               group = dropped_id)) + 
+    geom_line(colour = "grey50", 
+              size = 0.3) +  
+    facet_wrap(~ model_name) +
+    geom_point(data = d,
+               aes(x = mass, y = brain),
+               colour = "steelblue", 
+               alpha = 0.7, 
+               inherit.aes = FALSE) +
+    theme_bw() + 
+    labs(y = "brain volume (cc)", 
+         x = "body mass (kg)", 
+         title = "Sensitivity of model to dropping one observation")
+```
+
