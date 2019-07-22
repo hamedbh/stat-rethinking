@@ -67,20 +67,19 @@ d %>%
     theme(panel.grid = element_blank())
 ```
 
-We could just model the brain size as a function of body mass, or of the log of body mass. But we will fit an increasingly comples series of polynomial models to the data, using the normalised versions of the predictors created above. Start with the simple linear model:
+We could just model the brain size as a function of body mass, or of the log of body mass. But we will fit an increasingly complex series of polynomial models to the data, using the normalised versions of the predictors created above. Start with the simple linear model:
 
-\begin{align}
+\begin{eqnarray}
 b_i & \sim & \mathcal{N}(\mu_i, \sigma) \\
 \mu_i & = & \alpha + \beta{m_i} \\
 \alpha & \sim & \mathcal{N}(0.5, 1) \\
 \beta & \sim & \mathcal{N}(0, 10) \\
 \sigma & \sim & \text{Lognormal}(0, 1) \\
-\end{align}
+\end{eqnarray}
 
 These will be done best using McElreath's functions from `{rethinking}`, as it will better illustrate what is happening than using `brms`.
 
 ```{r}
-# library(rethinking)
 # create a function for computing R-squared
 R2_is_bad <- function(quap_fit) {
     s <- rethinking::sim(quap_fit, refresh = 0)
@@ -102,13 +101,13 @@ R2_is_bad(m7_1)
 
 Now we move on to adding the polynomial terms. The model specification changes slightly: the next shows the quadratic term.
 
-\begin{align}
-b_i & \sim \text{Normal}(\mu_i, \sigma) \\
-\mu_i   & = \alpha + \beta_1 \text{mass_std}_i + \beta_2 \text{mass_std}_i^2 \\
-\alpha  & \sim \text{Normal}(0.5, 1) \\
-\beta_j & \sim \text{Normal}(0, 10) ~~~~~~~~~~~ \text{ for } j = 1..2 \\
-\sigma  & \sim \text{Lognormal}(0, 1)
-\end{align}
+\begin{eqnarray}
+b_i & \sim & \text{Normal}(\mu_i, \sigma) \\
+\mu_i   & = & \alpha + \beta_1 \text{mass_std}_i + \beta_2 \text{mass_std}_i^2 \\
+\alpha  & \sim & \text{Normal}(0.5, 1) \\
+\beta_j & \sim & \text{Normal}(0, 10) ~~~~~~~~~~~ \text{ for } j = 1..2 \\
+\sigma  & \sim & \text{Lognormal}(0, 1)
+\end{eqnarray}
 
 We can set up all of the models.
 
@@ -244,7 +243,7 @@ predictions %>%
 
 ```
 
-In order to contort itself to fit the sizth-order polynomial to the data points the model predicts negative brain mass for primates with body mass of c. 59kg.
+In order to contort itself to fit the sixth-order polynomial to the data points the model predicts negative brain mass for primates with body mass of c. 59kg.
 
 Going too far the other way can also give a bad model. An intercept-only model would be specified as:
 
@@ -307,7 +306,7 @@ predictions_m7_7 %>%
 
 This is an example of **underfitting**.
 
-Another way to conceive of overfitting and underfitting are their sensitivity to changes in the data: an overfit model is more sensitive, and undefit model less so.
+Another way to conceive of overfitting and underfitting are their sensitivity to changes in the data: an overfit model is more sensitive, an undefit model less so.
 
 ```{r}
 sensitivity <- tibble(
@@ -363,5 +362,233 @@ sensitivity %>%
     labs(y = "brain volume (cc)", 
          x = "body mass (kg)", 
          title = "Sensitivity of model to dropping one observation")
+```
+
+## Entropy and Accuracy
+
+To walk the line between under- and overfitting we need some sort of criteria for success, and we can get to this via **information theory**, and then setting **out-of-sample deviance** as the measure of distance from the mythical (and impossible) perfect model.
+
+There are two dimensions to consider, bearing in mind also that the right approach is completely context-dependent:
+
+1. _Cost-benefit analysis_: what is the cost of being wrong? What is the payoff when right?
+2. _Accuracy in context_: some prediction tasks are easier than others, so need to account for degree of difficulty.
+
+The book uses the example of two weatherpersons, each of whom predicts the probability of rain. The first one, `WP1`, plays the game 'properly' (i.e. how you'd expect a real-life weatherperson to do it) and changes the prediction each day. `WP2` thinks he can do better just by guessing that there will be no rain at all.
+
+```{r}
+WP <- tibble(
+    day = 1:10, 
+    WP1 = c(rep(1, 3), rep(0.6, 7)), 
+    WP2 = rep(0, 10), 
+    observed = c(rep(1, 3), rep(0, 7))
+)
+WP
+```
+
+How do we measure which is better?
+
+One approach is to use a simple hit rate, or the average chance of a correct prediction.
+
+```{r}
+WP %>% 
+    mutate(WP1_correct = if_else(observed == 1, 
+                                 WP1, 
+                                 1 - WP1), 
+           WP2_correct = if_else(observed == 1, 
+                                 WP2, 
+                                 1 - WP2)) %>% 
+    summarise_at(vars(WP1_correct, WP2_correct), 
+                 mean, 
+                 na.rm = TRUE)
+```
+
+On this measure WP2 is better. But is this a good measure? This doesn't account for the asymetrical costs of being caught in the rain vs. carrying an umbrella. We can assign being caught in the rain a cost of -5, and carrying an umbrella a cost of -1. Suppose that the chance of carrying an umbrella is equal to the probability of rain predicted. We can now calculate a total cost for each weatherperson.
+
+```{r}
+WP %>% 
+    mutate(WP1_cost = if_else(observed == 1,
+                              (-1 * WP1) + (-5 * (1 - WP1)),
+                              (-1 * WP1)),
+           WP2_cost = if_else(observed == 1,
+                              (-1 * WP2) + (-5 * (1 - WP2)),
+                              (-1 * WP2))) %>% 
+    summarise_at(vars(WP1_cost, WP2_cost), 
+                 sum, 
+                 na.rm = TRUE)
+```
+
+WP2's method of blind optimism doesn't look so good anymore. And it looks even worse if we consider the probability of each predicting the exact sequence of rain and sunshine.
+
+```{r}
+WP %>% 
+    mutate(WP1_prob = if_else(observed == 1, 
+                              WP1, 
+                              1 - WP1), 
+           WP2_prob = if_else(observed == 1, 
+                              WP2, 
+                              1 - WP2)) %>% 
+    summarise_at(vars(WP1_prob, WP2_prob), 
+                 prod, 
+                 na.rm = TRUE)
+```
+
+By predicting with total certainty all the time WP2's probability collapses to zero, while WP1 still has a slim chance of getting the exact sequence correct. Compared with hit rate, which was the _average_ probability of a correct prediction, this is the _joint_ probability. Which is better, because it appears as the likelihood in Bayes' theorem.
+
+Now return to the idea from earlier of the degree of difficulty in prediction. The book uses the exaample of archery, and the distance from the target (bullseye). If you were to add an extra dimension, of having to hit the target at the right time, the distance from the best to worst results would increase.
+
+Can boil all of this down to one question:
+
+> How much is our uncertainty reduced by learning an outcome?
+
+So we need a way to quantify the uncertainty in a probability distribution. There are three desirable qualities:
+
+1. _Continuous_, to prevent a situation where a small change in probabilities might cause a jump in uncertainty.
+2. _Increase as number of outcomes increases_: returning to the weatherperson example, the measure of uncertainty would be greater if we added a third type of weather, such as snow, to the possibilities.
+3. _Additive_: if we were to measure the uncertainty about rain/shine, and then uncertainty about hot/cold, the uncertainty over the four combinations should be the same as for the separate ones.
+
+The function that satisfies these is the **Information Entropy**, which we call $H$. For $n$ possible events where each event $i$ has a probability $p_i$, call the vector of probabilities $\vec{p}$.
+
+$$
+H(\vec{p}) = - E \log (p_i) = - \sum_{i = 1}^{n} p_i \log(p_i)
+$$
+
+The information entropy is the average log-probability of an event.
+
+NB. The negative sign at the front of the definition just ensures that entropy is on the interval $[0, \infty)$ instead of $(-\infty, 0]$, and the number increases as entropy does. Also note that $\log(0)$ could pose problems in the sum, so we rely on L'H&ocirc;pital's rule that says $\lim_{p_i \to 0} p_i \log(p_i) = 0$. So it's legit to say that $0 \log(0) = 0$ when computing $H(\vec{p})$, and so those terms just drop out. 
+
+Can illustrate this with an example. Suppose the true probabilities of rain or shine are $p_1 = 0.3$ and $p_2 = 0.7$. Then:
+
+$$
+H(\vec{p}) = - \bigg( \big( 0.3 \times \log(0.3) \big) + \big( 0.7 \times \log(0.7) \big) \bigg)
+$$
+
+
+```{r}
+p <- c(0.3, 0.7)
+-sum(p * log(p))
+```
+
+But if we consider a place like Abu Dhabi where the probabilities are instead $p_1 = 0.01$ and $p_2 = 0.99$ then the entropy changes.
+
+```{r}
+p <- c(0.01, 0.99)
+-sum(p * log(p))
+```
+
+Now there is much less uncertainty about any one day, compared with a place with a 30% chance of rain.
+
+Becomes even more pronounced adding a third weather outcome, snow. 
+
+```{r}
+p <- c(0.7, 0.15, 0.15)
+-sum(p * log(p))
+```
+
+An important application of entropy is **Maximum Entropy**, or finding probability distributions that are most consistent with what we know. Or: given what we know, which is the _least surprising distribution_?
+
+This gives a measure of uncertainty in a particular structure, but we also need to measure the distance between a model and the underlying distribution. For this we use **Divergence**, in particular a measure called _Kullback-Leibler Divergence_.
+
+Let the true probabilities be $p_1 = 0.3$ and $p_2 = 0.7$. We might approximate these with a model that assigns probabilities $q_1 = 0.25$ and $q_2 = 0.75$. Now we need to quantify the additional uncertainty created by using the approximations $\vec{q}$.
+
+$$
+D_{KL}(p, q) = \sum_i p_i \big( \log(p_i) - \log(q_i) \big) 
+             = \sum_i p_i \log \bigg( \frac{p_i}{q_i} \bigg)
+$$
+
+Or: the average distance in log-probability between the target and the model.
+
+As $q$ becomes more different from $p$, then $D_{KL}(p, q)$ will increase. It will reach its minimum when $p = q$. The plot below illustrates this for the example above where $p_1 = 0.3$ and $p_2 = 0.7$.
+
+```{r}
+tibble(p1 = 0.3, 
+       q1 = seq(0.01, 0.99, length.out = 99)) %>% 
+    transmute(p1, 
+              p2 = 1 - p1, 
+              q1, 
+              q2 = 1 - q1) %>% 
+    mutate(D_KL = (p1 * log(p1/q1)) +  (p2 * log(p2/q2))) %>% 
+    ggplot(aes(x = q1, y = D_KL)) + 
+    geom_line(colour = "steelblue") + 
+    geom_vline(xintercept = 0.3, 
+               linetype = 2) + 
+    geom_label(aes(x = 0.35, y = 2.1, label = "q = p")) + 
+    theme_bw() + 
+    labs(title = "KL divergence of q from p", 
+         y = NULL, 
+         x = expression(q[1]))
+```
+
+When $q = p$ then the divergence is zero, but from there it grows. 
+
+Another way to derive the divergence comes from calculating cross-entropy:
+
+$$
+H(p, q) = - \sum_i p_i \log(q_i)
+$$
+
+This averages across $p$ and $q$. $D_{KL}$ is the difference between $H(p, q)$ and $H(p)$. 
+
+\begin{align}
+D_{KL} & = H(p, q) - H(p) \\
+       & = - \sum_i p_i \log(q_i) - \big( - \sum_i p_i \log(p_i) \big) \\
+       & = - \sum_i p_i \big( \log(q_i) - \log(p_i) \big)
+\end{align}
+
+Note that this is asymmetrical: in general $H(p, q) \neq H(q, p)$. Why?
+
+The example in the book is of navigating from the Earth to Mars, and predicting the probability of landing on water or land. A simple model would use the distribution of water and land on the Earth ($q$) to predict the distribution on Mars ($p$), and then we can calculate $D_{E \to M} = D_KL(p, q)$.
+
+```{r}
+q <- c(0.7, 0.3)
+p <- c(0.01, 0.99)
+KL_divergence <- function(p, q) {
+    tmp <- sum(p * log(q/p))
+    tmp[is.infinite(tmp) | is.na(tmp)] <- 0
+    -1 * tmp
+}
+round(KL_divergence(p, q), 2)
+```
+
+But now we can calculate $D_{M \to E} = D_KL(q, p)$ for the return journey.
+
+```{r}
+round(KL_divergence(q, p), 2)
+```
+
+The divergence is higher for the return journey because Mars is almost all land, so it is 'more easily surprised' when it hits water on Earth (as it will 70% of the time). This is the notion of maximum entropy distributions mentioned earlier. So when modelling if we use distributions with high entropy to estimate the true probabilities the distance between the model and the truth will be minimised.
+
+In practice though we do not know the target distribution, $p$. But it doesn't matter, because we are generally only interested in comparing the divergences of different candidate models, e.g $q$ and $r$. The difference would be $D_{KL}(p, q) - D_{KL}(p, r)$. But the terms for $p$ will cancel:
+
+\begin{eqnarray}
+D_{KL}(p, q) - D_{KL}(p, r) & = & 
+    \bigg[- \sum_i p_i \log(q_i) - \big( - \sum_i p_i \log(p_i) \big) \bigg] - 
+    \bigg[- \sum_i p_i \log(r_i) - \big( - \sum_i p_i \log(p_i) \big) \bigg]\\
+    & = & - \sum_i p_i \log(q_i) - \big( - \sum_i p_i \log(r_i) \big) \\
+    & = & \sum_i \log(q_i) - \big(\sum_i \log(r_i) \big) \\
+\end{eqnarray}
+
+So it's not necessary to know $p$ to assess models, as long as we are only interested in comparing them with one another. The value of $\sum_i \log(q_i)$ on its own isn't meaningful.
+
+The convention is to call this the score for a model, summing over all the observations $i$.
+
+$$
+S(q) = \sum_i log(q_i)
+$$
+
+This is just the total score, rather than its expected value.
+
+For Bayesian statistics we need to calculate this score for the whole posterior distribution. We do this by calculating the log of the average probability for each observation, where that average is taken over the whole posterior distribution. This is called the **log-pointwise-predictive density**. For some data $y$ and posterior distribution $\Theta$:
+
+$$
+\text{lppd}(y, \Theta) = \sum_i \log \frac{1}{S} \sum_s p (y_i | \Theta_s)
+$$
+
+This seems simple: compute the probability for each observation, $i$, from each sample, $s$, take the average, then its log, then sum over all observations. It needs some care to do the required arithmetic with precision. Two functions from McElreath's `{rethinking}` package can help:
+```{r}
+# to take the log of the sum of the exponentiated values for a vector in a 
+# numerically stable way
+body(rethinking::log_sum_exp)
+# to calculate the lppd for a quap fit
+body(rethinking::lppd)
 ```
 
