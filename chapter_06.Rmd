@@ -1047,8 +1047,10 @@ waffle_dag %>%
     tidy_dagitty() %>% 
     ggdag() + 
     theme_void() + 
-    labs(caption = paste0("S: Southern US; A: median age of marriage; ", 
-                          "M: marriage rate\nW: number of Waffle Houses; ", 
+    labs(caption = paste0("S: Southern US; ", 
+                          "A: median age of marriage; ", 
+                          "M: marriage rate\n", 
+                          "W: number of Waffle Houses; ", 
                           "D: divorce rate"))
 ```
 
@@ -1074,15 +1076,52 @@ impliedConditionalIndependencies(waffle_dag)
 
 ### 6H1
 
-Analysis above implied two possible DAGs for assessing the total causal influence of Waffle Houses on divorce rate, with the simplest being to condition only on being a Southern state. That would imply a model:
+Analysis above implied two possible DAGs for assessing the total causal influence of Waffle Houses ($W$) on divorce rate ($D$), with the simplest being to condition only on being a Southern state ($S$). That would imply a model:
+
+$$
+\begin{eqnarray}
+D_{i} & \sim & \mathcal{N}(\mu_i, \sigma) \\
+\mu_i & = & \alpha + \beta_W W_i + \beta_S S_i \\
+\alpha_i & \sim & \mathcal{N}(0, 1) \\
+\beta_W & \sim & \mathcal{N}(0, 2) \\
+\beta_S & \sim & \mathcal{N}(0, 2) \\
+\sigma & \sim & \text{Exponential}(1)
+\end{eqnarray}
+$$
 
 ```{r}
 data("WaffleDivorce", package = "rethinking")
 d <- WaffleDivorce %>% 
   as_tibble() %>% 
-  mutate(W = WaffleHouses/Population)
+  transmute(Location, 
+            D = Divorce, 
+            W = WaffleHouses/Population, 
+            S = South)
 head(d)
 ```
+
+```{r}
+b6_13 <- brm(
+    D ~ 1 + W + S, 
+    prior = c(prior(normal(0, 1), class = b),
+              prior(normal(0, 1), class = Intercept), 
+              prior(exponential(1), class = sigma)), 
+    data = d, 
+    iter = 2000, 
+    warmup = 500, 
+    chains = 4, 
+    cores = 4, 
+    file = "Stan/ch_06/b6_13"
+)
+posterior_summary(b6_13) %>% 
+    round(digits = 2)
+
+stanplot(b6_13, 
+         prob_outer = 0.89) + 
+    theme(text = element_text(family = "Avenir"))
+```
+
+
 
 [BDA_R]: https://github.com/avehtari/BDA_R_demos
 [SKurtz_SR_2ed]: https://github.com/ASKurz/Statistical_Rethinking_with_brms_ggplot2_and_the_tidyverse_2_ed/blob/master/06.Rmd
