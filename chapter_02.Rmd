@@ -24,7 +24,9 @@ $p$ after getting $D_{new} \propto$ number of ways $p$ can produce $D_{new} \tim
 
 Which leads to Bayes rule:
 
-$$ P(p | D_{new}) = \frac{P(D_{new} | p) \times P(p)}{P(D_{new})}$$
+$$
+P(p | D_{new}) = \frac{P(D_{new} | p) \times P(p)}{P(D_{new})}
+$$
 
 Method for computing the plausibilities is simply to rescale the counts.
 
@@ -112,7 +114,8 @@ d <- tibble(
     expand(probability, row = c("flat", "stepped", "Laplace")) %>% 
     arrange(row, probability) %>% 
     mutate(prior = ifelse(row == "flat", 1,
-                          ifelse(row == "stepped", rep(0:1, each = 1e3/2),
+                          ifelse(row == "stepped", 
+                                 rep(0:1, each = 1e3/2),
                                  exp(-abs(probability - .5) / .25) / ( 2 * .25))),
            likelihood = dbinom(x = 6, size = 9, prob = probability)) %>% 
     group_by(row) %>% 
