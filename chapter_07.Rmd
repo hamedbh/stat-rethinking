@@ -112,94 +112,76 @@ b_i & \sim & \text{Normal}(\mu_i, \sigma) \\
 We can set up all of the models.
 
 ```{r}
-m7_2 <- rethinking::quap(
-    flist = alist(
-        brain_std ~ dnorm(mu, exp(log_sigma)), 
-        mu <- a + 
-            b[1] * mass_std + 
-            b[2] * mass_std^2, 
-        a ~ dnorm(0.5, 1), 
-        b ~ dnorm(0, 10), 
-        log_sigma ~ dnorm(0, 1)
-    ), 
-    data = d, 
-    start = list(b = rep(0, 2))
-)
-
-m7_3 <- rethinking::quap(
-    flist = alist(
-        brain_std ~ dnorm(mu, exp(log_sigma)), 
-        mu <- a + 
-            b[1] * mass_std + 
-            b[2] * mass_std^2 + 
-            b[3] * mass_std^3, 
-        a ~ dnorm(0.5, 1), 
-        b ~ dnorm(0, 10), 
-        log_sigma ~ dnorm(0, 1)
-    ), 
-    data = d, 
-    start = list(b = rep(0, 3))
-)
-
-m7_4 <- rethinking::quap(
-    flist = alist(
-        brain_std ~ dnorm(mu, exp(log_sigma)), 
-        mu <- a + 
-            b[1] * mass_std + 
-            b[2] * mass_std^2 + 
-            b[3] * mass_std^3 + 
-            b[4] * mass_std^4, 
-        a ~ dnorm(0.5, 1), 
-        b ~ dnorm(0, 10), 
-        log_sigma ~ dnorm(0, 1)
-    ), 
-    data = d, 
-    start = list(b = rep(0, 4))
-)
-
-m7_5 <- rethinking::quap(
-    flist = alist(
-        brain_std ~ dnorm(mu, exp(log_sigma)), 
-        mu <- a + 
-            b[1] * mass_std + 
-            b[2] * mass_std^2 + 
-            b[3] * mass_std^3 + 
-            b[4] * mass_std^4 + 
-            b[5] * mass_std^5, 
-        a ~ dnorm(0.5, 1), 
-        b ~ dnorm(0, 10), 
-        log_sigma ~ dnorm(0, 1)
-    ), 
-    data = d, 
-    start = list(b = rep(0, 5))
-)
+poly_fits <- tibble(degree = 1:6) %>% 
+    mutate(model_name = map_chr(degree, ~ str_c("m7_", .x))) %>% 
+    mutate(
+        formula = list(
+            alist(brain_std ~ dnorm(mu, exp(log_sigma)), 
+                  mu <- a + b * mass_std, 
+                  a ~ dnorm(0.5, 1), 
+                  b ~ dnorm(0, 10), 
+                  log_sigma ~ dnorm(0, 1)), 
+            alist(brain_std ~ dnorm(mu, exp(log_sigma)), 
+                  mu <- a + 
+                      b[1] * mass_std + 
+                      b[2] * mass_std^2, 
+                  a ~ dnorm(0.5, 1), 
+                  b ~ dnorm(0, 10), 
+                  log_sigma ~ dnorm(0, 1)), 
+            alist(brain_std ~ dnorm(mu, exp(log_sigma)), 
+                  mu <- a + 
+                      b[1] * mass_std + 
+                      b[2] * mass_std^2 + 
+                      b[3] * mass_std^3, 
+                  a ~ dnorm(0.5, 1), 
+                  b ~ dnorm(0, 10), 
+                  log_sigma ~ dnorm(0, 1)), 
+            alist(brain_std ~ dnorm(mu, exp(log_sigma)), 
+                  mu <- a + 
+                      b[1] * mass_std + 
+                      b[2] * mass_std^2 + 
+                      b[3] * mass_std^3 + 
+                      b[4] * mass_std^4, 
+                  a ~ dnorm(0.5, 1), 
+                  b ~ dnorm(0, 10), 
+                  log_sigma ~ dnorm(0, 1)), 
+            alist(brain_std ~ dnorm(mu, exp(log_sigma)), 
+                  mu <- a + 
+                      b[1] * mass_std + 
+                      b[2] * mass_std^2 + 
+                      b[3] * mass_std^3 + 
+                      b[4] * mass_std^4 + 
+                      b[5] * mass_std^5, 
+                  a ~ dnorm(0.5, 1), 
+                  b ~ dnorm(0, 10), 
+                  log_sigma ~ dnorm(0, 1)), 
+            alist(brain_std ~ dnorm(mu, 0.001), 
+                  mu <- a + 
+                      b[1] * mass_std + 
+                      b[2] * mass_std^2 + 
+                      b[3] * mass_std^3 + 
+                      b[4] * mass_std^4 + 
+                      b[5] * mass_std^5 + 
+                      b[6] * mass_std^6, 
+                  a ~ dnorm(0.5, 1), 
+                  b ~ dnorm(0, 10)))) %>% 
+    mutate(start = map(degree, 
+                       ~ list(b = rep(0, .x)))) %>% 
+    mutate(quap_fit = map2(formula, 
+                           start, 
+                           ~ rethinking::quap(
+                               flist = .x, 
+                               data = d, 
+                               start = .y)))
+poly_fits
 ```
 
-The last model adds a sixth-order polynomial. In this case the standard deviation must be fixed as $\sigma = 0.001$, for a reason that will become clear soon.
+The last model added a sixth-order polynomial. In that case the standard deviation was fixed as $\sigma = 0.001$, for a reason that will become clear soon.
 
 ```{r}
-m7_6 <- rethinking::quap(
-    flist = alist(
-        brain_std ~ dnorm(mu, 0.001), 
-        mu <- a + 
-            b[1] * mass_std + 
-            b[2] * mass_std^2 + 
-            b[3] * mass_std^3 + 
-            b[4] * mass_std^4 + 
-            b[5] * mass_std^5 + 
-            b[6] * mass_std^6, 
-        a ~ dnorm(0.5, 1), 
-        b ~ dnorm(0, 10)
-    ), 
-    data = d, 
-    start = list(b = rep(0, 6))
-)
-```
-
-```{r}
-tibble(model_name = str_c("m7_", 1:6)) %>% 
-    mutate(fit = map(model_name, get)) %>% 
-    mutate(R2 = map_dbl(fit, ~ round(R2_is_bad(.x), digits = 2)))
+poly_fits %>% 
+    transmute(model_name, 
+              R2 = map_dbl(quap_fit, ~ round(R2_is_bad(.x), digits = 2)))
 ```
 
 The final model has the best score, but it is not a good model. Because it has as many parameters as there are degrees of freedom it is essentially just a recoding of the dataset. And because it's done through the medium of polynomial coefficients some weird things can happen. Focus just on the plot for the final model to see this.
@@ -209,9 +191,10 @@ new_masses <- tibble(key = seq_len(100),
                      mass_std = seq(from = min(d$mass_std), 
                                     to = max(d$mass_std), 
                                     length.out = 100))
-predictions <- rethinking::link(m7_6, 
+
+predictions <- rethinking::link(poly_fits[["quap_fit"]][[6]], 
                                 data = list(mass_std = new_masses$mass_std)) %>% 
-    as_tibble() %>% 
+    as_tibble(.name_repair = "universal") %>% 
     gather(value = "pred") %>% 
     mutate(key = str_extract(key, "\\d+") %>% 
                as.integer()) %>% 
@@ -255,28 +238,32 @@ b_i & \sim \text{Normal}(\mu, \sigma) \\
 How does it perform?
 
 ```{r}
-m7_7 <- rethinking::quap(
-    alist(
-        brain_std ~ dnorm(mu, exp(log_sigma)), 
-        mu <- a, 
-        a ~ dnorm(0.5, 1), 
-        log_sigma ~ dnorm(0, 1)
-    ), 
-    data = d
-)
+m7_7 <- tibble(
+    degree = 0, 
+    model_name = "m7_7", 
+    formula = list(alist(brain_std ~ dnorm(mu, exp(log_sigma)), 
+                         mu <- a, 
+                         a ~ dnorm(0.5, 1), 
+                         log_sigma ~ dnorm(0, 1))), 
+    start = list(b = rep(0, 1))
+) %>% 
+    mutate(quap_fit = map(formula,
+                          ~ rethinking::quap(
+                              flist = .x, 
+                              data = d)))
 
-tibble(model_name = str_c("m7_", 1:7)) %>% 
-    mutate(fit = map(model_name, get)) %>% 
-    mutate(R2 = map_dbl(fit, ~ round(R2_is_bad(.x), digits = 2)))
+bind_rows(poly_fits, 
+          m7_7) %>% 
+    mutate(R2 = map_dbl(quap_fit, ~ round(R2_is_bad(.x), digits = 2)))
 ```
 
 The negative $R^2$ is just an approximation error from zero. Can plot the results to see how it's worked.
 
 ```{r}
 predictions_m7_7 <- 
-    rethinking::link(m7_7, 
+    rethinking::link(m7_7[["quap_fit"]][[1]], 
                      data = list(mass_std = new_masses$mass_std)) %>% 
-    as_tibble() %>% 
+    as_tibble(.name_repair = "universal") %>% 
     gather(value = "pred") %>% 
     mutate(key = str_extract(key, "\\d+") %>% 
                as.integer()) %>% 
@@ -309,19 +296,17 @@ This is an example of **underfitting**.
 Another way to conceive of overfitting and underfitting are their sensitivity to changes in the data: an overfit model is more sensitive, an undefit model less so.
 
 ```{r}
-sensitivity <- tibble(
-    i = 1:2, 
-    n = c(1, 4), 
-    fit = c(m7_1, m7_4)
-) %>% 
+sensitivity <- poly_fits %>% 
+    select(degree, quap_fit) %>% 
+    filter(degree %in% c(1, 4)) %>% 
     crossing(dropped_id = 1:7) %>% 
-    pmap_dfr(function(i, n, fit, dropped_id) {
+    pmap_dfr(function(degree, quap_fit, dropped_id) {
         
         tmp <- d[-dropped_id, ]
         tmp_fit <- rethinking::quap(
-            fit@formula, 
+            quap_fit@formula, 
             data = tmp, 
-            start = list(b = rep(0, n))
+            start = list(b = rep(0, degree))
         )
         
         rethinking::link(tmp_fit, 
@@ -338,7 +323,7 @@ sensitivity <- tibble(
                    brain = pred * max(d$brain, 
                                       na.rm = TRUE), 
                    dropped_id = dropped_id) %>% 
-            mutate(model_name = str_c("m7_", n)) %>% 
+            mutate(model_name = str_c("m7_", degree)) %>% 
             group_by(model_name, dropped_id, mass) %>% 
             summarise(mean_pred = mean(brain)) %>% 
             ungroup()
@@ -584,11 +569,130 @@ $$
 $$
 
 This seems simple: compute the probability for each observation, $i$, from each sample, $s$, take the average, then its log, then sum over all observations. It needs some care to do the required arithmetic with precision. Two functions from McElreath's `{rethinking}` package can help:
+
 ```{r}
 # to take the log of the sum of the exponentiated values for a vector in a 
 # numerically stable way
 body(rethinking::log_sum_exp)
 # to calculate the lppd for a quap fit
 body(rethinking::lppd)
+```
+
+```{r}
+set.seed(1)
+sims <- rethinking::sim(poly_fits[["quap_fit"]][[1]])
+set.seed(1)
+ll <- rethinking::sim(poly_fits[["quap_fit"]][[1]], 
+                      ll = TRUE)
+n <- ncol(ll)
+ns <- nrow(ll)
+f <- function(j) {
+    rethinking::log_sum_exp(ll[, j]) - log(ns)
+}
+sum(sapply(seq_len(n), f))
+sum(rethinking::lppd(poly_fits[["quap_fit"]][[1]]))
+```
+
+```{r}
+log_lik(read_rds("Stan/ch_07/b7_1.rds"))
+apply(log_lik(read_rds("Stan/ch_07/b7_1.rds")), 
+      2, 
+      function(x) log_sum_exp(x) - log(length(x)))
+```
+
+```{r}
+poly_fits %>% 
+    select(model_name, 
+           quap_fit) %>% 
+    mutate(lppd = map_dbl(quap_fit, 
+                          ~ rethinking::lppd(.x, n = 1e4) %>% 
+                              sum()
+                          ))
+```
+
+Creating a `log_sum_exp()` function is straightforward enough, and to work with `{brms}` models we can build on the `brms::log_lik()` function, which does the same as `rethinking::sim()`.
+
+```{r}
+log_sum_exp <- function(x) {
+    xmax <- max(x)
+    xsum <- sum(exp(x - xmax))
+    xmax + log(xsum)
+    # max(x) + log(sum(exp(x - max(x))))
+}
+
+lppd <- function(fit, ...) {
+    ll <- brms::log_lik(fit, ...)
+    purrr::map_dbl(
+        seq_len(ncol(ll)), 
+        ~ rethinking::log_sum_exp(ll[, .x]) - log(nrow(ll))
+    )
+}
+
+# lppd(b7_1)
+brms::loo(b7_1)
+# log_lik(b7_1, pointwise = TRUE)
+```
+
+```{r}
+b7_1 <- read_rds("Stan/ch_07/b7_1.rds")
+b7_2 <- read_rds("Stan/ch_07/b7_2.rds")
+b7_3 <- read_rds("Stan/ch_07/b7_3.rds")
+b7_4 <- read_rds("Stan/ch_07/b7_4.rds")
+b7_5 <- read_rds("Stan/ch_07/b7_5.rds")
+b7_6 <- read_rds("Stan/ch_07/b7_6.rds")
+```
+
+```{r}
+tibble(fit = list(b7_1, 
+       b7_2, 
+       b7_3, 
+       b7_4, 
+       b7_5, 
+       b7_6)) %>% 
+    mutate(WAIC = map(fit, WAIC))
+```
+
+```{r}
+WAIC(b7_1)
+brms::loo(b7_1)
+```
+
+```{r}
+ll <- b7_3 %>% 
+    log_lik() %>% 
+    as_tibble(.name_repair = ~ d$species)
+
+glimpse(ll)
+```
+
+```{r}
+ll %>% 
+    mutate(sums = rowSums(.)) %>% 
+    mutate(deviance = -2 * sums) %>% 
+    ggplot(aes(x = deviance, y = 0)) + 
+    geom_halfeyeh(fill = "grey50", 
+                  colour = "grey30", 
+                  point_interval = median_qi, 
+                  .width = 0.89) + 
+    scale_x_continuous(breaks = quantile(.data$deviance, c(0.055, 
+                                                           0.5, 
+                                                           0.945)), 
+                       labels = quantile(.data$deviance, c(0.055, 
+                                                           0.5, 
+                                                           0.945)) %>% 
+                           round(2))
+```
+
+b7_2
+b7_3
+b7_4
+b7_5
+b7_6
+
+```{r}
+map(seq_len(4), 
+    ~ list(Intercept = mean(d$brain),
+           mass_s    = 0,
+              sigma     = sd(d$brain)))
 ```
 
