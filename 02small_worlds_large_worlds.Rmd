@@ -1,0 +1,308 @@
+---
+title: "Small Worlds and Large Worlds"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rethinking)
+library(tidyverse)
+```
+
+We must distinguish between: 
+
+- **Small World**: the self-contained world of the model.
+- **Large World**: the 'real' world where you deploy the model.
+
+## The garden of forking data
+
+Bayesian inference considers all the possible ways that the data _could_ have been generated, and weighs the relative probability of each.
+
+Start with simple counts, then add prior information, finally start working with probabilities instead of counts.
+
+The example starts by counting the blue and white marbles, then representing these with symbols. So $p$ is the proportion of the marbles that are blue (i.e. the probability of any randomly chosen marble being blue), and $D_{new}$ is the sequence of marbles drawn from the bag. Then: 
+
+plausibility of $p$ after getting $D_{new} \propto$ number of ways $p$ can produce $D_{new} \times$ prior for $p$
+
+Which leads to standardising that result via Bayes rule:
+
+$$
+\text{P}(p | D_{new}) = \frac{\text{P}(D_{new} | p) \times \text{P}(p)}{\text{P}(D_{new})}
+$$
+
+Method for computing the plausibilities is simply to rescale the counts.
+
+```{r}
+# these are the numbers of ways D_new could have been generated for each 
+# possible composition of marbles, each having 0:4 blue marbles
+ways <- c(0, 3, 8, 9, 0)
+# normalise them to sum to 1
+(ways/sum(ways)) %>% 
+    set_names(0:4)
+```
+
+The names for the components of Bayes rule are:
+
+- $p$ is the **parameter**, conjecture for proportion of blue marbles;
+- relative number of ways that $p$ can produce the data is the **likelihood**;
+- prior plausibility of any specific $p$ is the **prior probability**;
+- updated plausibility of any specific $p$ is the **posterior probability**.
+
+## Building a Model
+
+The next example shown is a binomial, using repeated tests of a toy globe to estimate the proportion of water on its surface. The data generated are:
+
+_W L W W W L W L W_
+
+Then work through three steps for designing the Bayesian model: 
+
+1. Set up a _data story_; 
+2. _Update_ the model with data; 
+3. _Evaluate_ the model (possibly looping back to revise the model).
+
+### Data story
+
+In this case the story is simply that each toss of the globe has probability $p$ of landing on water, where $p$ is the true proportion of water on the globe, and that each toss is independent of the others. 
+
+### Updating
+
+We start out (in this case) knowing nothing about the value of $p$, so it could be any value on $[0, 1]$. At each step the result changes which values of $p$ are most plausible. 
+
+```{r}
+# 1 denotes water
+tosses <- c(1, 0, 1, 1, 1, 0, 1, 0, 1)
+
+tibble(
+    n_trials = seq_along(tosses), 
+    result = tosses
+) %>% 
+    mutate(
+        water = cumsum(result)
+    ) %>% 
+    expand(
+        nesting(n_trials, result, water), 
+        p = seq(0, 1, length.out = 100)
+    ) %>% 
+    group_by(p) %>% 
+    mutate(
+        lagged_n_trials = lag(n_trials), 
+        lagged_water = lag(water)
+    ) %>% 
+    ungroup() %>% 
+    mutate(prior = if_else(n_trials == 1, 
+                           0.5, 
+                           dbinom(x = lagged_water,
+                                  size = lagged_n_trials, 
+                                  prob = p)), 
+           likelihood = dbinom(x = water, 
+                               size = n_trials, 
+                               prob = p), 
+           label = str_c("n = ", n_trials)) %>% 
+    group_by(n_trials) %>% 
+    mutate(prior = prior/sum(prior), 
+           likelihood = likelihood/sum(likelihood)) %>% 
+    ungroup() %>% 
+    ggplot(aes(x = p)) + 
+    geom_line(aes(y = likelihood)) + 
+    geom_line(aes(y = prior), lty = 2) + 
+    facet_wrap(~ label, ncol = 3, scales = "free_y") + 
+    labs(
+        x = "proportion of water", 
+        y = "plausibility"
+    ) + 
+    theme_bw() + 
+    theme(
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        panel.grid = element_blank()
+    )
+```
+
+### Evaluate
+
+Conditional on the model assumptions being correct this is flawless, but that's quite a condition! For example, shuffling the order of the tosses leads to the same final curve, and therefore estimate of plausibility for $p$, because of the assumption that the tosses are independent. If that assumption is wrong then dependence between the tosses would have to be accounted for in the model. 
+
+## Components of the model
+
+### Variables
+
+Unobserved variables, such as $p$ in this model, are normally called **parameters**. We infer $p$ based on observations. 
+
+### Definitions
+
+#### Observed variables
+
+In this case the results of the tosses, _W_ or _L_, are the observed variables. The distribution of the plausibility for any combination of these is the **Likelihood**. In this case the assumptions of independence between the tosses and a constant probability of getting a _W_ mean that the likelihood follows the binomial distribution. 
+
+$$
+\text{P}(W, L | p) = {W + L \choose W}p^{W}(1-p)^{L}
+$$
+Where the binomial coefficient at the front is given by:
+
+$$
+{W + L \choose W} =  \frac{(W + L)!}{W!L!}
+$$
+
+Calculating this for any given values of $p$, $W$, and $L$ is trivial: 
+
+```{r}
+dbinom(
+    x = 6, # this is the value of W
+    size = 9, # W + L
+    prob = 0.5 # p
+)
+```
+
+#### Unobserved variables
+
+In this model $p$ is the unobserved variable, or **parameter**. It is inferred from the observed variables and the statistical structure we build in the model. For any parameter we also need a **prior**. Choices for priors are contentious, but this will be covered fully later in the book. 
+
+### A model is born
+
+McElreath shows a particular grammar for specifying models: 
+
+$$
+W \sim \text{Binomial}(N, p) \\
+$$
+
+where 
+
+$$
+N = W + L
+$$
+
+and 
+
+$$
+p \sim \text{Uniform}(0, 1)
+$$
+## Making the model go
+
+Once the model is specified then we can generate the posterior distribution, or $\text{P}(p|W, L)$: how likely is a given value of $p$, conditional on seeing the data?
+
+### Bayes' theorem
+
+Can derive the theorem from the definitions of joint and conditional probability. The joint probability for all variables is: 
+
+$$
+\text{P}(W, L, p) = \text{P}(W, L|p)\text{P}(p)
+$$
+
+We could equally separate out the unconditional probability of $W$ and $L$: 
+
+$$
+\text{P}(W, L, p) = \text{P}(p|W, L)\text{P}(W, L)
+$$
+The two right-hand sides are equal, and a bit of arithmetic gives: 
+
+$$
+\text{P}(p|W, L) = \frac{\text{P}(W, L|p)\text{P}(p)}{\text{P}(W, L)}
+$$
+
+To generalise: 
+
+$$
+Posterior = \frac{Likelihood \times Prior}{Average \; Likelihood}
+$$
+
+The denominator is often the trickiest part. It's called the average likelihood, but it's essentially the unconditional probability of $W, L$. Since we normally only see the conditional distribution that means taking its expectation: 
+
+$$
+\text{P}(W, L) = 
+    \text{E}(\text{P}(W, L|p)) = 
+    \int \text{P}(W, L|p) \, \text{P}(p) \, dp
+$$
+
+To compare different posteriors it can be enough to get the answer only up to a constant, which means we can ditch the tricky denominator (sometimes) and compute only the rest. 
+
+$$
+\text{Posterior} \propto \text{Likelihood} \times \text{Prior}
+$$
+```{r}
+d <- tibble(
+    probability = seq(0, 1, length.out = 1e3)
+) %>% 
+    expand(probability, row = c("flat", "stepped", "Laplace")) %>% 
+    arrange(row, probability) %>% 
+    mutate(prior = ifelse(row == "flat", 1,
+                          ifelse(row == "stepped", 
+                                 rep(0:1, each = 1e3/2),
+                                 exp(-abs(probability - .5) / .25) / ( 2 * .25))),
+           likelihood = dbinom(x = 6, size = 9, prob = probability)) %>% 
+    group_by(row) %>% 
+    mutate(posterior = (prior * likelihood)/(sum(prior * likelihood))) %>% 
+    gather(key, value, -probability, -row) %>% 
+    ungroup() %>% 
+    mutate(key = factor(key, levels = c("prior", "likelihood", "posterior")),
+           row = factor(row, levels = c("flat", "stepped", "Laplace")))
+
+plots <- map(levels(d$key), 
+             ~ return(d %>%
+                          filter(key == .x) %>% 
+                          ggplot(aes(x = probability, y = value)) +
+                          geom_line() +
+                          scale_x_continuous(NULL, breaks = c(0, .5, 1)) +
+                          scale_y_continuous(NULL, breaks = NULL) +
+                          labs(subtitle = .x) +
+                          theme_light() + 
+                          theme(panel.grid       = element_blank(),
+                                strip.background = element_blank(),
+                                strip.text       = element_blank()) +
+                          facet_wrap(row ~ ., scales = "free_y", ncol = 1)))
+
+gridExtra::grid.arrange(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
+```
+
+### Motors
+
+Sometimes there is an analytical solution to Bayes theorem, but most often we need some sort of numerical solution. McElreath will cover three methods (engines) for this: 
+
+1. Grid approximation; 
+2. Quadratic approximation; 
+3. Markov chain Monte Carlo (MCMC). 
+
+### Grid approximation
+
+Start with grid approximation: essentially this changes a continuous problem to a discrete one by picking grid points at which to estimate the parameters.
+
+```{r}
+globe_grid <- function(grid_size) {
+    d <- tibble(
+        p_grid = seq(from = 0,
+                     to = 1,
+                     length.out = grid_size), 
+        prior = 1) %>% 
+        mutate(likelihood = dbinom(6, size = 9, prob = p_grid)) %>%
+        mutate(unstd_posterior = prior * likelihood) %>%
+        mutate(posterior = unstd_posterior/sum(unstd_posterior))
+    
+    max_posterior <- d %>% 
+        top_n(n = 1, posterior) %>% 
+        pull(p_grid)
+    
+    g <- d %>%
+        ggplot(aes(x = p_grid, y = posterior)) +
+        geom_point() +
+        geom_line() +
+        geom_vline(xintercept = max_posterior, 
+                   colour = "blue") +
+        ggtitle(paste(grid_size, "Points")) +
+        labs(x = "probability of water", 
+             y = "posterior probability") +
+        scale_x_continuous(breaks = seq(0, 1, by = 0.1),
+                           minor_breaks = NULL) + 
+        theme_light()
+    plot(g)
+}
+globe_grid(20)
+```
+
+Try again with different grid sizes.
+
+```{r}
+walk(c(5, 20, 100, 1000), globe_grid)
+```
+
