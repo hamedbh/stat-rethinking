@@ -8,7 +8,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-library(rethinking)
 library(tidyverse)
 ```
 
@@ -304,5 +303,137 @@ Try again with different grid sizes.
 
 ```{r}
 walk(c(5, 20, 100, 1000), globe_grid)
+```
+
+### Quadratic approximation
+
+Grid approximation is OK with a small number of parameters, but the complexity explodes (for a grid of $x$ values of $n$ parameters the computation increases $O(x^n)$). Instead can take advantage of the log of a Gaussian distribution being a quadratic, so we can approximate the Gaussian distribution curve that way. 
+
+This has two steps: 
+
+1. Find the posterior mode (peak); 
+2. Estimate the curve at that point. 
+
+```{r}
+library(rethinking)
+```
+
+```{r}
+globe_qa_9 <- quap(
+    flist = alist(
+        W ~ dbinom(W + L, p), # binomial likelihood
+        p ~ dunif(0, 1)       # uniform prior
+    ),
+    data = list(W = 6, L = 3)
+)
+
+precis(globe_qa_9)
+```
+
+Because the structure of this model is simple can compare directly to the analytical solution.
+
+```{r}
+# analytical calculation
+w <- 6
+n <- 9
+g_9 <- tibble(x = seq(0, 1, length.out = 100)) %>% 
+    ggplot(aes(x, ..y..)) + 
+    stat_function(fun = dbeta, 
+                  n = 100, 
+                  args = list(shape1 = w + 1, 
+                              shape2 = n - w + 1)) + 
+    stat_function(fun = dnorm, 
+                  n = 100, 
+                  colour = "blue", 
+                  args = list(mean = 0.67, 
+                              sd = 0.16)) + 
+    labs(x = "probability of water", y = "posterior") + 
+    theme_light()
+g_9
+```
+
+Try again with $n = 18$ and $n = 36$.
+
+```{r}
+globe_qa_18 <-
+  quap(
+    alist(
+      w ~ dbinom(9 * 2, p),
+      p ~ dunif(0, 1)
+    ), data = list(w = 6 * 2))
+
+globe_qa_36 <-
+  quap(
+    alist(
+      w ~ dbinom(9 * 4, p),
+      p ~ dunif(0, 1)
+    ), data = list(w = 6 * 4))
+
+precis(globe_qa_18)
+precis(globe_qa_36)
+```
+
+Now plot them altogether to see that the approximation improves. 
+
+```{r}
+g <- purrr::map(
+    c(9, 18, 36), 
+    function(num_tosses) {
+        quap_obj <- get(paste0("globe_qa_", num_tosses))
+        w <- 2/3 * (num_tosses)
+        n <- num_tosses
+        post_mode <- precis(quap_obj)@.Data[[1]]
+        post_sd   <- precis(quap_obj)@.Data[[2]]
+        tibble(x = seq(0, 1, length.out = 100)) %>% 
+            ggplot(aes(x, ..y..)) + 
+            stat_function(fun = dbeta, 
+                          n = 100, 
+                          args = list(shape1 = w + 1, 
+                                      shape2 = n - w + 1)) + 
+            stat_function(fun = dnorm, 
+                          n = 100, 
+                          colour = "blue", 
+                          args = list(mean = post_mode, 
+                                      sd = post_sd)) + 
+            labs(x = "probability of water", y = "posterior") + 
+            theme_light()
+    }
+)
+gridExtra::grid.arrange(g[[1]], g[[2]], g[[3]], nrow = 1)
+```
+
+### Markov chain Monte Carlo
+
+Quadratic approximation won't suffice for some model types, such as multilevel models. (Anything with multimodal distributions will be hard in this way.)
+
+Markov chain Monte Carlo (MCMC) is the most popular technique for model fitting. It's the combination of MCMC and affordable computing power that enables much of modern Bayesian statistics. 
+
+We can fit a simple model for the globe tossing example using MCMC. 
+
+```{r}
+n_samples <- 1000
+p <- double(n_samples)
+p[1] <- 0.5
+W <- 6
+L <- 3
+for (i in 2:n_samples) {
+    p_new <- rnorm(1 , p[i - 1] , 0.1)
+    if (p_new < 0)
+        p_new <- abs(p_new)
+    if (p_new > 1)
+        p_new <- 2 - p_new
+    q0 <- dbinom(W , W + L , p[i - 1])
+    q1 <- dbinom(W , W + L , p_new)
+    p[i] <- ifelse(runif(1) < q1 / q0 , p_new , p[i - 1])
+}
+tibble(p) %>% 
+    ggplot(aes(p)) + 
+    geom_density() + 
+    stat_function(fun = dbeta, 
+                  n = 100, 
+                  args = list(shape1 = w + 1, 
+                              shape2 = n - w + 1), 
+                  lty = 2) + 
+    theme_light()
 ```
 
