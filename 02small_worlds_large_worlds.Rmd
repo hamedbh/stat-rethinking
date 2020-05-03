@@ -437,3 +437,29 @@ tibble(p) %>%
     theme_light()
 ```
 
+## Summary
+
+Everything is set up now for the rest of the book. I'll be using tidyverse packages for data manipulation and plotting, but will stick with `{rethinking}` for the model fitting. 
+
+## Practice
+
+### Easy 
+
+2E1. Which of the expressions below correspond to the statement: the probability of rain on Monday?
+
+$Pr(rain|Monday)$
+
+2E2. Which of the following statements corresponds to the expression: $Pr(Monday|rain)$?
+
+The probability that it is Monday, given that it is raining. 
+
+2E3. Which of the expressions below correspond to the statement: the probability that it is Monday, given that it is raining?
+
+$Pr(Monday|rain)$
+
+2E4. … What does it mean to say "the probability of water is 0.7"?
+
+This depends on our perspective. Using a Bayesian framework this statement means "based on our prior beliefs and evidence gathered the most plausible value for the proportion of water on the globe is 0.7". 
+
+### Medium
+
