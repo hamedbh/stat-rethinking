@@ -238,19 +238,19 @@ d <- tibble(
     mutate(key = factor(key, levels = c("prior", "likelihood", "posterior")),
            row = factor(row, levels = c("flat", "stepped", "Laplace")))
 
-plots <- map(levels(d$key), 
-             ~ return(d %>%
-                          filter(key == .x) %>% 
-                          ggplot(aes(x = probability, y = value)) +
-                          geom_line() +
-                          scale_x_continuous(NULL, breaks = c(0, .5, 1)) +
-                          scale_y_continuous(NULL, breaks = NULL) +
-                          labs(subtitle = .x) +
-                          theme_light() + 
-                          theme(panel.grid       = element_blank(),
-                                strip.background = element_blank(),
-                                strip.text       = element_blank()) +
-                          facet_wrap(row ~ ., scales = "free_y", ncol = 1)))
+plots <- purrr::map(levels(d$key), 
+                    ~ return(d %>%
+                                 filter(key == .x) %>% 
+                                 ggplot(aes(x = probability, y = value)) +
+                                 geom_line() +
+                                 scale_x_continuous(NULL, breaks = c(0, .5, 1)) +
+                                 scale_y_continuous(NULL, breaks = NULL) +
+                                 labs(subtitle = .x) +
+                                 theme_light() + 
+                                 theme(panel.grid       = element_blank(),
+                                       strip.background = element_blank(),
+                                       strip.text       = element_blank()) +
+                                 facet_wrap(row ~ ., scales = "free_y", ncol = 1)))
 
 gridExtra::grid.arrange(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
 ```
@@ -462,4 +462,185 @@ $Pr(Monday|rain)$
 This depends on our perspective. Using a Bayesian framework this statement means "based on our prior beliefs and evidence gathered the most plausible value for the proportion of water on the globe is 0.7". 
 
 ### Medium
+
+2M1.1
+
+```{r}
+# set up a function to make the computation simpler for the rest of the example
+globe_grid_unif <- function(grid_size = 100, N, W) {
+    d <- tibble(
+        p = seq(from = 0, 
+                to = 1, 
+                length.out = grid_size), 
+        prior = 1
+    ) %>% 
+        mutate(likelihood = dbinom(x = W, 
+                                   size = N, 
+                                   prob = p)) %>% 
+        mutate(posterior = (likelihood * prior)/sum(likelihood * prior))
+    max_post <- d %>% 
+        top_n(n = 1, posterior) %>% 
+        pull(p)
+    g <- d %>%
+        ggplot(aes(x = p, y = posterior)) +
+        geom_point() +
+        geom_line() +
+        geom_vline(xintercept = max_post, 
+                   colour = "blue") +
+        labs(x = "probability of water", 
+             y = "posterior probability", 
+             title = sprintf("Grid approximation for N = %s, W = %s", N, W), 
+             subtitle = sprintf("%s points", grid_size)) +
+        scale_x_continuous(breaks = seq(0, 1, by = 0.1),
+                           minor_breaks = NULL) + 
+        theme_light()
+    plot(g)
+}
+globe_grid_unif(N = 3, W = 3)
+```
+
+2M1.2
+
+```{r}
+globe_grid_unif(N = 4, W = 3)
+```
+
+2M1.3
+
+```{r}
+globe_grid_unif(N = 7, W = 5)
+```
+
+2M2.1
+
+```{r}
+# change the function for the new prior
+globe_grid_step <- function(grid_size = 100, N, W) {
+    d <- tibble(
+        p = seq(from = 0, 
+                to = 1, 
+                length.out = grid_size)
+    ) %>% 
+        mutate(prior = if_else(p < 0.5, 0, 1)) %>% 
+        mutate(likelihood = dbinom(x = W, 
+                                   size = N, 
+                                   prob = p)) %>% 
+        mutate(posterior = (likelihood * prior)/sum(likelihood * prior))
+    max_post <- d %>% 
+        top_n(n = 1, posterior) %>% 
+        pull(p)
+    g <- d %>%
+        ggplot(aes(x = p, y = posterior)) +
+        geom_point() +
+        geom_line() +
+        geom_vline(xintercept = max_post, 
+                   colour = "blue") +
+        labs(x = "probability of water", 
+             y = "posterior probability", 
+             title = sprintf("Grid approximation for N = %s, W = %s", N, W), 
+             subtitle = sprintf("%s points", grid_size)) +
+        scale_x_continuous(breaks = seq(0, 1, by = 0.1),
+                           minor_breaks = NULL) + 
+        theme_light()
+    plot(g)
+}
+
+globe_grid_step(N = 3, W = 3)
+```
+
+2M2.2
+
+```{r}
+globe_grid_step(N = 4, W = 3)
+```
+
+2M2.3
+
+```{r}
+globe_grid_step(N = 7, W = 5)
+```
+
+2M3. 
+
+Set up the computation in Bayes' theorem: 
+
+$$
+\text{P}(\text{Earth}|\text{land}) = 
+    \frac{\text{P}(\text{land}|\text{Earth}) \text{P}(\text{Earth})}
+        {\text{P}(\text{land})}
+$$
+
+We get from the question that $\text{P}(\text{land}|\text{Earth}) = 0.3$. Absent any other information about which globe was tossed we can assume that $\text{P}(\text{Earth}) = 0.5$. By the law of total probability: 
+
+$$
+\text{P}(\text{land}) = 
+    \text{P}(\text{land}|\text{Earth})\text{P}(\text{Earth})
+    + 
+    \text{P}(\text{land}|\text{Mars})\text{P}(\text{Mars}) = 
+    \big(0.3 \times 0.5 \big) + \big(1 \times 0.5 \big)
+$$
+
+```{r}
+round((0.3 * 0.5)/((0.3 * 0.5) + (1 * 0.5)), 2)
+```
+2M4. 
+
+Call the cards by how many black sides they have: 0B, 1B, 2B. We want $\text{P}(2B)$.
+
+| Conjecture | Ways to show black side up |
+| :--------: | :------------------------: |
+|     0B     |              0             |
+|     1B     |              1             |
+|     2B     |              2             |
+
+Can discount the 0B row and just consider the others: there are three ways that I can have a black side facing up, of which two have a black side down, which implies the probability of $2/3$.
+
+2M5. 
+
+Use a similar structure but add a prior with the appropriate weight (whereas there was an implicit uniform prior in 2M4). 
+
+By Bayes rule:
+
+$$
+\text{P}(2B \; | \; 1B) = 
+    \frac {\text{P}(1B \; | \; 2B) \; \text{P}(2B)} 
+        {\text{P}(1B)}
+$$
+
+```{r}
+# set up a function for the next couple of questions
+bayes_rule <- function(likelihood, 
+                       prior, 
+                       avg_likelihood) {
+    (likelihood * prior) / avg_likelihood
+}
+
+bayes_rule(likelihood = 1, 
+           prior = 1/2, 
+           avg_likelihood = 5/8)
+```
+
+2M6. 
+
+Use same as before, but multiply each by the new prior (i.e. probability of drawing the card, or $\text{P}(2B)$).
+
+| Conjecture | Ways to show black side up | Ways to draw the card |
+| :--------: | :------------------------: | :-------------------: |
+|     0B     |              0             |           3           |
+|     1B     |              1             |           2           |
+|     2B     |              2             |           1           |
+
+This reweights the 1B row, so that the 2 ways to have a black side down in the 2B row are now 2/4 of the ways to have a black side up.
+
+2M7. 
+
+We want to get $\text{P}(2B | 1B, 1W)$. Use the counting method as suggested.
+
+| Conjecture | Ways to show black, first card | Ways to show white, second card |
+| :--------: | :----------------------------: | :-----------------------------: |
+|     0B     |                  0             |                  0              |
+|     1B     |                  1             |                  2              |
+|     2B     |                  2             |                  3              |
+
+Multiply the ways to show black on the first card by the ways to show white on the second card to give 2 for $1B$, and 6 for $2B$, so $\text{P}(2B | 1B, 1W) = 0.75$.
 
