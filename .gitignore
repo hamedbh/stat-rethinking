@@ -5,3 +5,7 @@
 *.html
 scratch.R
 Stan/
+_publish.R
+_book
+_bookdown_files
+rsconnect
