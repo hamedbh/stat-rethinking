@@ -1,0 +1,173 @@
+---
+title: "Sampling the Imaginary"
+output: html_document
+---
+
+```{r}
+library(rethinking)
+library(tidyverse)
+# set up the theme
+theme_set(theme_light())
+```
+
+The chapter starts with a new take on a popular way to introduce Bayesian inference: a blood test for detecting vampires with 95% accuracy, so $\text{P}(\text{positive test}|\text{vampire}) = 0.95$. Occasionally it returns false positives, so $\text{P}(\text{positive test}|\text{mortal}) = 0.01$. And vampires are generally pretty rare, so $\text{P}(\text{vampire}) = 0.001$ If a person tests positive, how likely is it that they are actually a vampire?
+
+$$
+\begin{align}
+\text{P}(\text{vampire}|\text{positive test})& = 
+    \frac{\text{P}(\text{positive test}|\text{vampire})\text{P}(\text{vampire})}
+    {\text{P}(\text{positive test})} \\
+
+\text{P}(\text{vampire}|\text{positive test})& = 
+    \frac{\text{P}(\text{positive test}|\text{vampire})\text{P}(\text{vampire})}
+    {\text{P}(\text{positive test}|\text{vampire})\text{P}(\text{vampire}) + 
+        \text{P}(\text{positive test}|\text{mortal})\text{P}(\text{mortal})} \\
+
+& = \frac{0.95 \times 0.001}{(0.95 \times 0.001) + (0.01 \times 0.999)} \\
+& \approx 0.087
+\end{align}
+$$
+
+So there's about an 8.7% chance of the person being a vampire. 
+
+NB. This is almost a ninety-fold increase in the probability from prior to posterior, so the test is really informative. Even that sort of increase still only gets the number to 8.7%.
+
+McElreath then reframes this in a more explicitly Bayesian way with frequencies instead of probabilities.
+
+1. Of 100,000 people there are 100 vampires; 
+2. Of the 100 who are vampires, 95 will test positive; 
+3. Of the 99,900 mortals, 999 of them will test positive. 
+
+Then it's just arithmetic: 
+
+$$
+\begin{align}
+\text{P}(\text{vampire}|\text{positive test})& = \frac{95}{95 + 999} \\
+& = \frac{95}{1094} \\
+& \approx 0.087
+\end{align}
+$$
+
+That presentation is called the _natural frequencies_, and can be easier than working with the probabilities. This moves us on to sampling from distributions: once we have a reasonable number of samples we can convert them to probabilities. 
+
+## Sampling from a grid-approximate posterior
+
+First set up the probability grid (using the globe-tossing example). 
+
+```{r}
+d01 <- tibble(
+    p = seq(0, 1, length.out = 1000), 
+    prior = 1
+) %>% 
+    mutate(likelihood = dbinom(6, 9, prob = p)) %>% 
+    mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
+d01
+```
+
+Now draw samples from `p` using the `posterior` probabilities. 
+
+```{r}
+set.seed(1411)
+N <- 1e4
+samples01 <- tibble(
+    index = seq_len(N), 
+    p_sample = sample(
+        d01$p, 
+        size = N, 
+        replace = TRUE, 
+        prob = d01$posterior
+    )
+)
+samples01
+```
+
+Can plot this in a couple of ways. 
+
+```{r}
+# Plot by index, McElreath describes this as looking down on the posterior 
+# from above
+samples01 %>% 
+    ggplot(aes(index, p_sample)) + 
+    geom_point(alpha = 0.3, colour = "steelblue") + 
+    coord_cartesian(ylim = c(0, 1)) + 
+    labs(
+        x = "sample number", 
+        y = "proportion water (p)"
+    )
+```
+
+
+```{r}
+# and then a density plot
+samples01 %>% 
+    ggplot(aes(p_sample)) + 
+    geom_density(bw = 0.008, 
+                 fill = "steelblue", 
+                 colour = "black", 
+                 alpha = 0.4) + 
+    labs(
+        x = "proportion water (p)"
+    )
+```
+
+## Sampling to summarise
+
+Now we can use the posterior to answer interesting questions. 
+
+### Intervals of defined boundaries
+
+How probable is it that $p < 0.5$?
+
+We have the answer available from the probability grid: 
+
+```{r}
+d01 %>% 
+    filter(p < 0.5) %>% 
+    summarise(prob = sum(posterior))
+```
+
+But we can also get this from the samples (and in other cases this may be the only way to do it). 
+
+```{r}
+samples01 %>% 
+    summarise(prob = mean(p_sample < 0.5))
+```
+
+Now ask how probable is it that $0.5 < p < 0.75$?
+
+```{r}
+samples01 %>% 
+    summarise(prob = mean(0.5 < p_sample & p_sample < 0.75))
+```
+
+### Intervals of defined mass
+
+Now we invert the previous question: we want to know which interval of values of $p$ will have a given posterior probability? McElreath calls this a _Compatibility Interval_ (to avoid the problematic terms "confidence" and "credibility"). 
+
+This is straightforward if we want the interval to start/finish at specific points. 
+
+```{r}
+# find the lower 80% posterior probability
+samples01 %>% 
+    summarise(q_0 = 0, 
+              q_80 = quantile(p_sample, 0.8))
+
+# find the middle 80% posterior probability
+samples01 %>% 
+    summarise(q_10 = quantile(p_sample, 0.1), 
+              q_90 = quantile(p_sample, 0.9))
+```
+
+But there are many intervals that would contain 80%. A more useful interval is the narrowest one containing 80% of the posterior probability. For that we use `rethinking::HPDI()`. 
+
+```{r}
+HPDI(samples01$p_sample, prob = 0.8)
+```
+
+Highest Posterior Density Interval (HPDI) is perhaps more informative, but it has a couple of drawbacks: 
+
+1. More computationally expensive; 
+2. Suffers from _simulation variance_, i.e. it's more sensitive to the size of the sample. 
+
+
+
