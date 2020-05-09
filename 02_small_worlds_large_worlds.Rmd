@@ -644,3 +644,144 @@ We want to get $\text{P}(2B | 1B, 1W)$. Use the counting method as suggested.
 
 Multiply the ways to show black on the first card by the ways to show white on the second card to give 2 for $1B$, and 6 for $2B$, so $\text{P}(2B | 1B, 1W) = 0.75$.
 
+### Hard 
+
+2H1. 
+
+We want $\text{P}(2T|T)$. We get some info from the question: 
+
+$$
+\begin{align}
+\text{P}(T|A)& = 0.1 \\
+\text{P}(T|B)& = 0.2 \\
+\text{P}(A)& = \text{P}(A) = 0.5
+\end{align}
+$$
+
+We can use that to calculate $\text{P}(T)$. 
+
+$$
+\begin{align}
+\text{P}(T)& = \text{P}(T|A)\text{P}(A) = \text{P}(T|B)\text{P}(B) \\
+& = (0.1 \times 0.5) \; + \; (0.2 \times 0.5) \\
+& = 0.15
+\end{align}
+$$
+Now use this to update $\text{P}(A)$ and $\text{P}(B)$ to $\text{P}(A|T)$ and $\text{P}(B|T)$. 
+
+$$
+\begin{align}
+\text{P}(A|T)& = \frac{\text{P}(T|A)\text{P}(A)}{\text{P}(T)} \\
+& = \frac{0.1 \times 0.5}{0.15} \\
+& = \frac{1}{3} \\
+\text{P}(B|T)& = \frac{\text{P}(T|B)\text{P}(B)}{\text{P}(T)} \\
+& = \frac{0.2 \times 0.5}{0.15} \\
+& = \frac{2}{3} \\
+\end{align}
+$$
+
+Since we know that $T$ occurred we can use those values as the updated values for $\text{P}(A)$ and $\text{P}(B)$, and then update $\text{P}(T)$ to $\text{P}(2T|T)$. Everything is conditional on $T$ so leave that out of the notation for simplicity.
+
+$$
+\begin{align}
+\text{P}(2T)& = \text{P}(2T|A)\text{P}(A) + \text{P}(2T|B)\text{P}(B) \\
+& = (0.1 \times 1/3) \; + \; (0.2 \times 2/3) \\
+& = \frac{1}{6} \\
+& \approx 0.17
+\end{align}
+$$
+
+2H2. 
+
+We want $\text{P}(A|T)$. Already computed that as part of the last question: 
+
+$$
+\begin{align}
+\text{P}(A|T)& = \frac{\text{P}(T|A)\text{P}(A)}{\text{P}(T)} \\
+& = \frac{0.1 \times 0.5}{0.15} \\
+& = \frac{1}{3}
+\end{align}
+$$
+
+2H3. 
+
+Everything in this question is conditional on the first birth being twins, so we can leave that out of the equations for simplicity. 
+
+$$
+\begin{align}
+\text{P}(A|Singleton)& = \frac{\text{P}(Singleton|A)\text{P}(A)}
+    {\text{P}(Singleton)} \\
+
+& = \frac{9/10 \times 1/3}{\text{P}(Singleton)}
+\end{align}
+$$
+
+The missing ingredient is $\text{P}(Singleton)$. 
+
+$$
+\begin{align}
+\text{P}(Singleton)& = \text{P}(Singleton|A)\text{A} + 
+    \text{P}(Singleton|B)\text{B} \\
+& = (9/10 \times 1/3) \; + \; (8/10 \times 2/3) \\
+& = 5/6
+\end{align}
+$$
+
+Now compute the answer: 
+
+$$
+\begin{align}
+\text{P}(A|Singleton)& = \frac{\text{P}(Singleton|A)\text{P}(A)}
+    {\text{P}(Singleton)} \\
+
+& = \frac{9/10 \times 1/3}{5/6} \\
+& = 9/25 \\
+& = 0.36
+\end{align}
+$$
+
+2H4. 
+
+Call the event that the test asserts that panda is species $A$ $Test_A$. First compute $\text{P}(A|Test_A)$ without the birth data, then again with it. 
+
+Can state the new info given in this question a bit more clearly (including the complements, which we'll need): 
+
+$$
+\begin{align}
+\text{P}(Test_A|A)& = 0.8 \\
+\text{P}(Test_B|A)& = 0.2 \\
+\\
+\text{P}(Test_B|B)& = 0.65 \\
+\text{P}(Test_A|B)& = 0.35
+\end{align}
+$$
+
+Without the birth data we go back and use the probabilities given at the start. That gives us: 
+
+$$
+\begin{align}
+\text{P}(A|Test_A)& = \frac{\text{P}(Test_A|A)\text{P}(A)}{\text{P}(Test_A)} \\
+& = \frac{0.8 \times 0.5}{\text{P}(Test_A)} \\
+& = \frac{0.4}{\text{P}(Test_A|A)\text{P}(A) + \text{P}(Test_A|B)\text{P}(B)} \\
+& = \frac{0.4}{(0.8 \times 0.5) + (0.35 \times 0.5)} \\
+& = \frac{0.4}{0.575} \\
+& \approx 0.7
+\end{align}
+$$
+
+To do this with the birth data we need only replace $\text{P}(A)$ with the posterior from the births, or 0.36. 
+
+$$
+\begin{align}
+\text{P}(A|Test_A)& = \frac{\text{P}(Test_A|A)\text{P}(A)}{\text{P}(Test_A)} \\
+
+& = \frac{\text{P}(Test_A|A)\text{P}(A)}
+    {\text{P}(Test_A|A)\text{P}(A) + \text{P}(Test_A|B)\text{P}(B)} \\
+
+
+& = \frac{0.8 \times 0.36}
+    {(0.8 \times 0.36) + (0.35 \times 0.64)} \\
+    
+& = 0.5625
+\end{align}
+$$
