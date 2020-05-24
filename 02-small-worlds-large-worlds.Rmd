@@ -211,8 +211,8 @@ The denominator is often the trickiest part. It's called the average likelihood,
 
 $$
 \text{P}(W, L) = 
-    \text{E}(\text{P}(W, L|p)) = 
-    \int \text{P}(W, L|p) \, \text{P}(p) \, dp
+\text{E}(\text{P}(W, L|p)) = 
+\int \text{P}(W, L|p) \, \text{P}(p) \, dp
 $$
 
 To compare different posteriors it can be enough to get the answer only up to a constant, which means we can ditch the tricky denominator (sometimes) and compute only the rest. 
@@ -356,18 +356,18 @@ Try again with $n = 18$ and $n = 36$.
 
 ```{r}
 globe_qa_18 <-
-  quap(
-    alist(
-      w ~ dbinom(9 * 2, p),
-      p ~ dunif(0, 1)
-    ), data = list(w = 6 * 2))
+    quap(
+        alist(
+            w ~ dbinom(9 * 2, p),
+            p ~ dunif(0, 1)
+        ), data = list(w = 6 * 2))
 
 globe_qa_36 <-
-  quap(
-    alist(
-      w ~ dbinom(9 * 4, p),
-      p ~ dunif(0, 1)
-    ), data = list(w = 6 * 4))
+    quap(
+        alist(
+            w ~ dbinom(9 * 4, p),
+            p ~ dunif(0, 1)
+        ), data = list(w = 6 * 4))
 
 precis(globe_qa_18)
 precis(globe_qa_36)
@@ -468,7 +468,7 @@ This depends on our perspective. Using a Bayesian framework this statement means
 ```{r}
 # set up a function to make the computation simpler for the rest of the example
 globe_grid_unif <- function(grid_size = 100, N, W) {
-    d <- tibble(
+    tibble(
         p = seq(from = 0, 
                 to = 1, 
                 length.out = grid_size), 
@@ -478,6 +478,11 @@ globe_grid_unif <- function(grid_size = 100, N, W) {
                                    size = N, 
                                    prob = p)) %>% 
         mutate(posterior = (likelihood * prior)/sum(likelihood * prior))
+}
+
+plot_globe_grid_unif <- function(grid_size = 100, N, W) {
+    d <- globe_grid_unif(grid_size, N, W)
+    
     max_post <- d %>% 
         top_n(n = 1, posterior) %>% 
         pull(p)
@@ -496,19 +501,19 @@ globe_grid_unif <- function(grid_size = 100, N, W) {
         theme_light()
     plot(g)
 }
-globe_grid_unif(N = 3, W = 3)
+plot_globe_grid_unif(N = 3, W = 3)
 ```
 
 2M1.2
 
 ```{r}
-globe_grid_unif(N = 4, W = 3)
+plot_globe_grid_unif(N = 4, W = 3)
 ```
 
 2M1.3
 
 ```{r}
-globe_grid_unif(N = 7, W = 5)
+plot_globe_grid_unif(N = 7, W = 5)
 ```
 
 2M2.1
@@ -526,6 +531,10 @@ globe_grid_step <- function(grid_size = 100, N, W) {
                                    size = N, 
                                    prob = p)) %>% 
         mutate(posterior = (likelihood * prior)/sum(likelihood * prior))
+}
+
+plot_globe_grid_step <- function(grid_size = 100, N, W) {
+    d <- globe_grid_step(grid_size, N, W)
     max_post <- d %>% 
         top_n(n = 1, posterior) %>% 
         pull(p)
@@ -545,19 +554,19 @@ globe_grid_step <- function(grid_size = 100, N, W) {
     plot(g)
 }
 
-globe_grid_step(N = 3, W = 3)
+plot_globe_grid_step(N = 3, W = 3)
 ```
 
 2M2.2
 
 ```{r}
-globe_grid_step(N = 4, W = 3)
+plot_globe_grid_step(N = 4, W = 3)
 ```
 
 2M2.3
 
 ```{r}
-globe_grid_step(N = 7, W = 5)
+plot_globe_grid_step(N = 7, W = 5)
 ```
 
 2M3. 
@@ -567,15 +576,14 @@ Set up the computation in Bayes' theorem:
 $$
 \text{P}(\text{Earth}|\text{land}) = 
     \frac{\text{P}(\text{land}|\text{Earth}) \text{P}(\text{Earth})}
-        {\text{P}(\text{land})}
+    {\text{P}(\text{land})}
 $$
 
 We get from the question that $\text{P}(\text{land}|\text{Earth}) = 0.3$. Absent any other information about which globe was tossed we can assume that $\text{P}(\text{Earth}) = 0.5$. By the law of total probability: 
 
 $$
 \text{P}(\text{land}) = 
-    \text{P}(\text{land}|\text{Earth})\text{P}(\text{Earth})
-    + 
+    \text{P}(\text{land}|\text{Earth})\text{P}(\text{Earth}) + 
     \text{P}(\text{land}|\text{Mars})\text{P}(\text{Mars}) = 
     \big(0.3 \times 0.5 \big) + \big(1 \times 0.5 \big)
 $$
@@ -603,8 +611,8 @@ By Bayes rule:
 
 $$
 \text{P}(2B \; | \; 1B) = 
-    \frac {\text{P}(1B \; | \; 2B) \; \text{P}(2B)} 
-        {\text{P}(1B)}
+    \frac {\text{P}(1B \; | \; 2B) \; \text{P}(2B)}
+    {\text{P}(1B)}
 $$
 
 ```{r}
@@ -732,7 +740,7 @@ Now compute the answer:
 $$
 \begin{align}
 \text{P}(A|Singleton)& = \frac{\text{P}(Singleton|A)\text{P}(A)}
-    {\text{P}(Singleton)} \\
+{\text{P}(Singleton)} \\
 
 & = \frac{9/10 \times 1/3}{5/6} \\
 & = 9/25 \\
@@ -781,7 +789,7 @@ $$
 
 & = \frac{0.8 \times 0.36}
     {(0.8 \times 0.36) + (0.35 \times 0.64)} \\
-    
+
 & = 0.5625
 \end{align}
 $$
