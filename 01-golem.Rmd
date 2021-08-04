@@ -9,9 +9,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Statistical golems
 
-This opening chapter sets up the philosophy of the book. The metaphor of statistical models as golems is a good one: they are powerful but have no wisdom or judgement of their own. That must come from the user. McElreath includes an example of a decision trees for picking statistical tests: a means of delegating the judgement entirely. As well as oversimplifying statistics to following a set of rules, then using the designated golem, it's also confusing. You have to remember the specific rules and conditions for each (when it's valid etc.), and the tools are inflexible.
+This opening chapter sets up the philosophy of the book. The metaphor of statistical models as golems is a good one: they are powerful but have no wisdom or judgement of their own. That must come from the user. McElreath (hereafter RM) includes an example of a decision trees for picking statistical tests: a means of delegating the judgement entirely. As well as oversimplifying statistics to following a set of rules, then using the designated golem, it's also confusing. You have to remember the specific rules and conditions for each (when it's valid etc.), and the tools are inflexible.
 
-McElreath proposes a more generalised approach to statistical modelling. The cost is that you can't just run `PROC TTEST`, instead need to invest time in understanding things more deeply. The payoff is being able to build up models that can deal with a much wider range of problems, including greater complexity. (He gives _Fisher's exact test_ as an example, stating that "aside from Fisher’s original use of it, [he has] never seen it used appropriately.")
+RM proposes a more generalised approach to statistical modelling. The cost is that you can't just run `PROC TTEST`, instead need to invest time in understanding things more deeply. The payoff is being able to build up models that can deal with a much wider range of problems, including greater complexity. (He gives _Fisher's exact test_ as an example, stating that "aside from Fisher’s original use of it, I have never seen it used appropriately.")
 
 ## Statistical rethinking
 
@@ -22,7 +22,7 @@ The next section includes a critique of "folk Popperism": falsely equating Poppe
 
 There's an excellent diagram on page 6 showing the relations between hypotheses, process models, and statistical models. 
 
-McElreath also points out that interesting hypotheses are not of the form "all swans are black", but rather "black swans are rare". In that case falsification will not resolve the matter, instead a process of good measurement and sound probabilistic comparisons. 
+RM also points out that interesting hypotheses are not of the form "all swans are black", but rather "black swans are rare" or "80% of swans are white". In that case falsification will not resolve the matter, instead a process of good measurement and sound probabilistic comparisons. 
 
 ## Tools for golem engineering
 
@@ -35,13 +35,23 @@ The four tools for doing this work are:
 
 ### Bayesian data analysis
 
-Plenty of good reasons given for preferring this approach, including a quick comparison with frequentist stats. Bayesian data analysis does not rest upon an imaginary repeated sampling: the randomness is in the information, not the measurement. The example of Galileo observing fuzzy blobs around Saturn that turn out to be the rings is useful: repeated measurement would give the same result, but it's the shape of the planet and rings that generating the uncertainty, not the measurement. 
+Neat summary of what this means: 
+
+> Count all the ways data can happen, according to assumptions. 
+> 
+> Assumptions with more ways that are consistent with data are more plausible. 
+
+Plenty of good reasons given for preferring this approach, including a quick comparison with frequentist stats. Bayesian data analysis does not rest upon an imaginary repeated sampling: **the randomness is in the information, not the measurement**. The example of Galileo observing fuzzy blobs around Saturn that turn out to be the rings is useful: repeated measurement would give the same result, but it's the shape of the planet and rings that generating the uncertainty, not the measurement. 
 
 Bayesian results are more consistent with the intuitive understanding of statistical results: the way that many people interpret p-values is really the definition of a Bayesian posterior probability. 
 
 ### Model comparison
 
-Using tools such as cross-validation and information criteria helps to build models that make better predictions. As McElreath says: "fitting is easy, prediction is hard". This leads to discussion of overfitting and how it can undermine the predictive power of our models. 
+Using tools such as cross-validation and information criteria helps to build models that make better predictions. As RM says: "**fitting is easy, prediction is hard**". This leads to discussion of overfitting and how it can undermine the predictive power of our models. 
+
+Quote from the lecture: 
+
+> Most ways of training a model on data lead the model to really love your sample, but not to love the world. 
 
 ### Multilevel models
 
@@ -49,7 +59,7 @@ Also known as hierarchical, random effects, varying effects, or mixed effects mo
 
 The key element is partial pooling, or sharing information across observations depending on their shared characteristics. 
 
-McElreath wants this to be the default form of regression, and the book works to make that case. 
+RM wants this to be the default form of regression, and the book works to make that case. 
 
 ### Graphical causal models
 
@@ -59,4 +69,4 @@ This gets to another paradox in prediction (overfitting being the first), which 
 
 > Models that are causally incorrect can make better predictions than those that are causally correct.
 
-If we want to stay in the realm of pure prediction this may not matter so much, but otherwise we need to work on understanding these causes. McElreath will use [Directed Acyclic Graphs](https://en.wikipedia.org/wiki/Directed_acyclic_graph) (DAGs) as a tool for this. 
+If we want to stay in the realm of pure prediction this may not matter so much, but otherwise we need to work on understanding these causes. RM will use [Directed Acyclic Graphs](https://en.wikipedia.org/wiki/Directed_acyclic_graph) (DAGs) as a tool for this. 
