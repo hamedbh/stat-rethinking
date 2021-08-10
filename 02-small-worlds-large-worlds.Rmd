@@ -55,9 +55,9 @@ _W L W W W L W L W_
 
 Then work through three steps for designing the Bayesian model: 
 
-1. Set up a _data story_; 
-2. _Update_ the model with data; 
-3. _Evaluate_ the model (possibly looping back to revise the model).
+1. _Design_ the model (data story); 
+2. _Condition_ on the data (update); 
+3. _Evaluate_ the model (critique, possibly looping back to revise the model).
 
 ### Data story
 
@@ -71,52 +71,51 @@ We start out (in this case) knowing nothing about the value of $p$, so it could 
 # 1 denotes water
 tosses <- c(1, 0, 1, 1, 1, 0, 1, 0, 1)
 
-tibble(
-    n_trials = seq_along(tosses), 
-    result = tosses
-) %>% 
-    mutate(
-        water = cumsum(result)
-    ) %>% 
-    expand(
-        nesting(n_trials, result, water), 
-        p = seq(0, 1, length.out = 100)
-    ) %>% 
-    group_by(p) %>% 
-    mutate(
-        lagged_n_trials = lag(n_trials), 
-        lagged_water = lag(water)
-    ) %>% 
-    ungroup() %>% 
-    mutate(prior = if_else(n_trials == 1, 
-                           0.5, 
-                           dbinom(x = lagged_water,
-                                  size = lagged_n_trials, 
-                                  prob = p)), 
-           likelihood = dbinom(x = water, 
-                               size = n_trials, 
-                               prob = p), 
-           label = str_c("n = ", n_trials)) %>% 
-    group_by(n_trials) %>% 
-    mutate(prior = prior/sum(prior), 
-           likelihood = likelihood/sum(likelihood)) %>% 
-    ungroup() %>% 
-    ggplot(aes(x = p)) + 
-    geom_line(aes(y = likelihood)) + 
-    geom_line(aes(y = prior), lty = 2) + 
-    facet_wrap(~ label, ncol = 3, scales = "free_y") + 
-    labs(
-        x = "proportion of water", 
-        y = "plausibility"
-    ) + 
-    theme_bw() + 
-    theme(
-        axis.text.y = element_blank(), 
-        axis.ticks.y = element_blank(), 
-        panel.grid = element_blank()
-    )
+tibble(n_trials = seq_along(tosses), result = tosses) %>% 
+  mutate(water = cumsum(result)) %>% 
+  expand(
+    nesting(n_trials, result, water), 
+    p = seq(0, 1, length.out = 100)
+  ) %>% 
+  group_by(p) %>% 
+  mutate(
+    lagged_n_trials = lag(n_trials), 
+    lagged_water = lag(water)
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    prior = if_else(
+      n_trials == 1, 
+      0.5, 
+      dbinom(x = lagged_water, size = lagged_n_trials, prob = p)
+    ), 
+    likelihood = dbinom(x = water, size = n_trials, prob = p), 
+    label = str_c("n = ", n_trials)
+  ) %>% 
+  group_by(n_trials) %>% 
+  mutate(
+    prior = prior/sum(prior), 
+    likelihood = likelihood/sum(likelihood)
+  ) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = p)) + 
+  geom_line(aes(y = likelihood)) + 
+  geom_line(aes(y = prior), lty = 2) + 
+  scale_x_continuous(breaks = c(0, 0.5, 1), minor_breaks = NULL) + 
+  facet_wrap(~ label, ncol = 3, scales = "free_y") + 
+  labs(
+    x = "proportion water", 
+    y = "plausibility"
+  ) + 
+  theme_light() + 
+  theme(
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(), 
+    panel.grid = element_blank()
+  )
 ```
 
+The order of the tosses makes no difference in this case. May not be true in general. 
 ### Evaluate
 
 Conditional on the model assumptions being correct this is flawless, but that's quite a condition! For example, shuffling the order of the tosses leads to the same final curve, and therefore estimate of plausibility for $p$, because of the assumption that the tosses are independent. If that assumption is wrong then dependence between the tosses would have to be accounted for in the model. 
@@ -158,7 +157,7 @@ In this model $p$ is the unobserved variable, or **parameter**. It is inferred f
 
 ### A model is born
 
-McElreath shows a particular grammar for specifying models: 
+RM shows a particular grammar for specifying models: 
 
 $$
 W \sim \text{Binomial}(N, p) \\
@@ -218,43 +217,49 @@ $$
 \text{Posterior} \propto \text{Likelihood} \times \text{Prior}
 $$
 ```{r}
-d <- tibble(
-    probability = seq(0, 1, length.out = 1e3)
-) %>% 
-    expand(probability, row = c("flat", "stepped", "Laplace")) %>% 
-    arrange(row, probability) %>% 
-    mutate(prior = ifelse(row == "flat", 1,
-                          ifelse(row == "stepped", 
-                                 rep(0:1, each = 1e3/2),
-                                 exp(-abs(probability - .5) / .25) / ( 2 * .25))),
-           likelihood = dbinom(x = 6, size = 9, prob = probability)) %>% 
-    group_by(row) %>% 
-    mutate(posterior = (prior * likelihood)/(sum(prior * likelihood))) %>% 
-    gather(key, value, -probability, -row) %>% 
-    ungroup() %>% 
-    mutate(key = factor(key, levels = c("prior", "likelihood", "posterior")),
-           row = factor(row, levels = c("flat", "stepped", "Laplace")))
+prior_example_d <- tibble(prob = seq(0, 1, length.out = 1000)) %>% 
+  mutate(
+    flat = 1, 
+    stepped = rep(0:1, each = 1e3/2), 
+    Laplace = exp(-abs(prob - .5) / .25) / ( 2 * .25),
+    likelihood = dbinom(x = 6, size = 9, prob = prob)
+  ) %>% 
+  pivot_longer(-c(prob, likelihood), names_to = "row", values_to = "prior") %>% 
+  group_by(row) %>% 
+  mutate(posterior = (prior * likelihood)/(sum(prior * likelihood))) %>% 
+  ungroup() %>% 
+  pivot_longer(-c(prob, row)) %>% 
+  mutate(
+    name = factor(name, levels = c("prior", "likelihood", "posterior")),
+    row = factor(row, levels = c("flat", "stepped", "Laplace"))
+  )
 
-plots <- purrr::map(levels(d$key), 
-                    ~ return(d %>%
-                                 filter(key == .x) %>% 
-                                 ggplot(aes(x = probability, y = value)) +
-                                 geom_line() +
-                                 scale_x_continuous(NULL, breaks = c(0, .5, 1)) +
-                                 scale_y_continuous(NULL, breaks = NULL) +
-                                 labs(subtitle = .x) +
-                                 theme_light() + 
-                                 theme(panel.grid       = element_blank(),
-                                       strip.background = element_blank(),
-                                       strip.text       = element_blank()) +
-                                 facet_wrap(row ~ ., scales = "free_y", ncol = 1)))
+plots <- purrr::map(
+  levels(prior_example_d[["name"]]), 
+  ~ return(
+    prior_example_d %>%
+      filter(name == .x) %>% 
+      ggplot(aes(x = prob, y = value)) +
+      geom_line() +
+      scale_x_continuous(NULL, breaks = c(0, .5, 1)) +
+      scale_y_continuous(NULL, breaks = NULL) +
+      labs(subtitle = .x) +
+      theme_light() + 
+      theme(
+        panel.grid       = element_blank(),
+        strip.background = element_blank(),
+        strip.text       = element_blank()
+      ) +
+      facet_wrap(row ~ ., scales = "free_y", ncol = 1)
+  )
+)
 
 gridExtra::grid.arrange(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
 ```
 
 ### Motors
 
-Sometimes there is an analytical solution to Bayes theorem, but most often we need some sort of numerical solution. McElreath will cover three methods (engines) for this: 
+Sometimes there is an analytical solution to Bayes theorem, but most often we need some sort of numerical solution. RM will cover three methods (engines) for this: 
 
 1. Grid approximation; 
 2. Quadratic approximation; 
@@ -266,32 +271,29 @@ Start with grid approximation: essentially this changes a continuous problem to 
 
 ```{r}
 globe_grid <- function(grid_size) {
-    d <- tibble(
-        p_grid = seq(from = 0,
-                     to = 1,
-                     length.out = grid_size), 
-        prior = 1) %>% 
-        mutate(likelihood = dbinom(6, size = 9, prob = p_grid)) %>%
-        mutate(unstd_posterior = prior * likelihood) %>%
-        mutate(posterior = unstd_posterior/sum(unstd_posterior))
-    
-    max_posterior <- d %>% 
-        top_n(n = 1, posterior) %>% 
-        pull(p_grid)
-    
-    g <- d %>%
-        ggplot(aes(x = p_grid, y = posterior)) +
-        geom_point() +
-        geom_line() +
-        geom_vline(xintercept = max_posterior, 
-                   colour = "blue") +
-        ggtitle(paste(grid_size, "Points")) +
-        labs(x = "probability of water", 
-             y = "posterior probability") +
-        scale_x_continuous(breaks = seq(0, 1, by = 0.1),
-                           minor_breaks = NULL) + 
-        theme_light()
-    plot(g)
+  d <- tibble(
+    p_grid = seq(from = 0, to = 1, length.out = grid_size), 
+    prior = 1
+  ) %>% 
+    mutate(likelihood = dbinom(6, size = 9, prob = p_grid)) %>%
+    mutate(unstd_posterior = prior * likelihood) %>%
+    mutate(posterior = unstd_posterior/sum(unstd_posterior))
+  
+  max_posterior <- d[["p_grid"]][which.max(d[["posterior"]])]
+  
+  g <- d %>%
+    ggplot(aes(x = p_grid, y = posterior)) +
+    geom_point(size = 0.7) +
+    geom_line() +
+    geom_vline(xintercept = max_posterior, 
+               colour = "blue") +
+    ggtitle(paste(grid_size, "Points")) +
+    labs(x = "probability of water", 
+         y = "posterior probability") +
+    scale_x_continuous(breaks = seq(0, 1, by = 0.1),
+                       minor_breaks = NULL) + 
+    theme_light()
+  plot(g)
 }
 globe_grid(20)
 ```
@@ -344,7 +346,10 @@ g_9 <- tibble(x = seq(0, 1, length.out = 100)) %>%
                   colour = "blue", 
                   args = list(mean = 0.67, 
                               sd = 0.16)) + 
-    labs(x = "probability of water", y = "posterior") + 
+    labs(
+      title = "Comparing normal approximation to exact solution", 
+      subtitle = "Exant solution in black, normal in blue", 
+      x = "probability of water", y = "posterior") + 
     theme_light()
 g_9
 ```
@@ -452,11 +457,11 @@ The probability that it is Monday, given that it is raining.
 
 2E3. Which of the expressions below correspond to the statement: the probability that it is Monday, given that it is raining?
 
-$Pr(Monday|rain)$
+Numbers 1 ($Pr(Monday|rain)$) and 4 ($Pr(rain|Monday)Pr(Monday)/Pr(rain)$).
 
 2E4. … What does it mean to say "the probability of water is 0.7"?
 
-This depends on our perspective. Using a Bayesian framework this statement means "based on our prior beliefs and evidence gathered the most plausible value for the proportion of water on the globe is 0.7". 
+This depends on our perspective. Using a Bayesian framework this statement means "based on our prior beliefs and evidence gathered the most plausible value for the proportion of water on the globe is 0.7". For a frequentist it would mean "if we were to sample the proportion of water infinitely many times our expected value would be 0.7". 
 
 ### Medium
 
@@ -588,6 +593,7 @@ $$
 ```{r}
 round((0.3 * 0.5)/((0.3 * 0.5) + (1 * 0.5)), 2)
 ```
+
 2M4. 
 
 Call the cards by how many black sides they have: 0B, 1B, 2B. We want $\text{P}(2B)$.
@@ -599,6 +605,19 @@ Call the cards by how many black sides they have: 0B, 1B, 2B. We want $\text{P}(
 |     2B     |              2             |
 
 Can discount the 0B row and just consider the others: there are three ways that I can have a black side facing up, of which two have a black side down, which implies the probability of $2/3$.
+
+2M5. 
+
+Same table as above, just with an extra row. 
+
+| Conjecture | Ways to show black side up |
+| :--------: | :------------------------: |
+|     0B     |              0             |
+|     1B     |              1             |
+|     2B     |              2             |
+|     2B     |              2             |
+
+Either of the last two rows will give the required answer, so the probability that the other side is black is $(2 + 2)/(2 + 2 + 1) = 0.8$.
 
 2M5. 
 
@@ -629,23 +648,23 @@ bayes_rule(likelihood = 1,
 
 Use same as before, but multiply each by the new prior (i.e. probability of drawing the card, or $\text{P}(2B)$).
 
-| Conjecture | Ways to show black side up | Ways to draw the card |
-| :--------: | :------------------------: | :-------------------: |
-|     0B     |              0             |           3           |
-|     1B     |              1             |           2           |
-|     2B     |              2             |           1           |
+| Conjecture | Ways to show black side up | Ways to draw the card |  Product | 
+| :--------: | :------------------------: | :-------------------: |  :-----: |
+|     0B     |              0             |           3           |     0    |
+|     1B     |              1             |           2           |     2    |
+|     2B     |              2             |           1           |     2    |
 
-This reweights the 1B row, so that the 2 ways to have a black side down in the 2B row are now 2/4 of the ways to have a black side up.
+This reweights the 1B row, so that the 2B row is now 2/4 of the ways to have a black side up.
 
 2M7. 
 
 We want to get $\text{P}(2B | 1B, 1W)$. Use the counting method as suggested.
 
-| Conjecture | Ways to show black, first card | Ways to show white, second card |
-| :--------: | :----------------------------: | :-----------------------------: |
-|     0B     |                  0             |                  0              |
-|     1B     |                  1             |                  2              |
-|     2B     |                  2             |                  3              |
+| Conjecture | Ways to show black, first card | Ways to show white, second card |  Product |
+| :--------: | :----------------------------: | :-----------------------------: |  :-----: |
+|     0B     |                  0             |                  0              |     0    |
+|     1B     |                  1             |                  2              |     2    |
+|     2B     |                  2             |                  3              |     6    |
 
 Multiply the ways to show black on the first card by the ways to show white on the second card to give 2 for $1B$, and 6 for $2B$, so $\text{P}(2B | 1B, 1W) = 0.75$.
 
@@ -657,9 +676,9 @@ We want $\text{P}(2T|T)$. We get some info from the question:
 
 $$
 \begin{align}
-\text{P}(T|A)& = 0.1 \\
-\text{P}(T|B)& = 0.2 \\
-\text{P}(A)& = \text{P}(A) = 0.5
+\text{P}(T|A) & = 0.1 \\
+\text{P}(T|B) & = 0.2 \\
+\text{P}(A)   & = \text{P}(A) = 0.5
 \end{align}
 $$
 
@@ -672,27 +691,27 @@ $$
 & = 0.15
 \end{align}
 $$
-Now use this to update $\text{P}(A)$ and $\text{P}(B)$ to $\text{P}(A|T)$ and $\text{P}(B|T)$. 
+We know that $T$ has occurred, so our strategy is to update our priors for $\text{P}(A)$ and $\text{P}(B)$, then use those in calculating the probability of a twin birth. 
 
 $$
 \begin{align}
-\text{P}(A|T)& = \frac{\text{P}(T|A)\text{P}(A)}{\text{P}(T)} \\
-& = \frac{0.1 \times 0.5}{0.15} \\
-& = \frac{1}{3} \\
-\text{P}(B|T)& = \frac{\text{P}(T|B)\text{P}(B)}{\text{P}(T)} \\
-& = \frac{0.2 \times 0.5}{0.15} \\
-& = \frac{2}{3} \\
+\text{P}(A|T) & = \frac{\text{P}(T|A)\text{P}(A)}{\text{P}(T)} \\
+              & = \frac{0.1 \times 0.5}{0.15} \\
+              & = \frac{1}{3} \\
+\text{P}(B|T) & = \frac{\text{P}(T|B)\text{P}(B)}{\text{P}(T)} \\
+              & = \frac{0.2 \times 0.5}{0.15} \\
+              & = \frac{2}{3} \\
 \end{align}
 $$
 
-Since we know that $T$ occurred we can use those values as the updated values for $\text{P}(A)$ and $\text{P}(B)$, and then update $\text{P}(T)$ to $\text{P}(2T|T)$. Everything is conditional on $T$ so leave that out of the notation for simplicity.
+Now we calculate the twin birth probability. Everything is conditional on $T$ so leave that out of the notation for simplicity.
 
 $$
 \begin{align}
-\text{P}(2T)& = \text{P}(2T|A)\text{P}(A) + \text{P}(2T|B)\text{P}(B) \\
-& = (0.1 \times 1/3) \; + \; (0.2 \times 2/3) \\
-& = \frac{1}{6} \\
-& \approx 0.17
+\text{P}(2T) & = \text{P}(2T|A)\text{P}(A) + \text{P}(2T|B)\text{P}(B) \\
+             & = (0.1 \times 1/3) \; + \; (0.2 \times 2/3) \\
+             & = \frac{1}{6} \\
+             & \approx 0.17
 \end{align}
 $$
 
@@ -714,10 +733,10 @@ Everything in this question is conditional on the first birth being twins, so we
 
 $$
 \begin{align}
-\text{P}(A|Singleton)& = \frac{\text{P}(Singleton|A)\text{P}(A)}
+\text{P}(A|Singleton) & = \frac{\text{P}(Singleton|A)\text{P}(A)}
     {\text{P}(Singleton)} \\
 
-& = \frac{9/10 \times 1/3}{\text{P}(Singleton)}
+                      & = \frac{9/10 \times 1/3}{\text{P}(Singleton)}
 \end{align}
 $$
 
@@ -753,11 +772,11 @@ Can state the new info given in this question a bit more clearly (including the 
 
 $$
 \begin{align}
-\text{P}(Test_A|A)& = 0.8 \\
-\text{P}(Test_B|A)& = 0.2 \\
+\text{P}(Test_A|A) & = 0.8 \\
+\text{P}(Test_B|A) & = 0.2 \\
 \\
-\text{P}(Test_B|B)& = 0.65 \\
-\text{P}(Test_A|B)& = 0.35
+\text{P}(Test_B|B) & = 0.65 \\
+\text{P}(Test_A|B) & = 0.35
 \end{align}
 $$
 
@@ -765,16 +784,17 @@ Without the birth data we go back and use the probabilities given at the start. 
 
 $$
 \begin{align}
-\text{P}(A|Test_A)& = \frac{\text{P}(Test_A|A)\text{P}(A)}{\text{P}(Test_A)} \\
-& = \frac{0.8 \times 0.5}{\text{P}(Test_A)} \\
-& = \frac{0.4}{\text{P}(Test_A|A)\text{P}(A) + \text{P}(Test_A|B)\text{P}(B)} \\
-& = \frac{0.4}{(0.8 \times 0.5) + (0.35 \times 0.5)} \\
-& = \frac{0.4}{0.575} \\
-& \approx 0.7
+\text{P}(A|Test_A) & = \frac{\text{P}(Test_A|A)\text{P}(A)}{\text{P}(Test_A)} \\
+                   & = \frac{0.8 \times 0.5}{\text{P}(Test_A)} \\
+                   & = \frac{0.4}{\text{P}(Test_A|A)\text{P}(A) + 
+                     \text{P}(Test_A|B)\text{P}(B)} \\
+                   & = \frac{0.4}{(0.8 \times 0.5) + (0.35 \times 0.5)} \\
+                   & = \frac{0.4}{0.575} \\
+                   & \approx 0.7
 \end{align}
 $$
 
-To do this with the birth data we need only replace $\text{P}(A)$ with the posterior from the births, or 0.36. 
+To do this with the birth data we need only replace $\text{P}(A)$ and $\text{P}(B)$ with the posterior from the births (0.36 and 0.64). 
 
 $$
 \begin{align}
