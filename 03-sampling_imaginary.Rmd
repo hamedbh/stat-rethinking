@@ -3,7 +3,7 @@ title: "Sampling the Imaginary"
 output: html_document
 ---
 
-```{r}
+```{r setup}
 library(rethinking)
 library(tidyverse)
 # set up the theme
@@ -32,7 +32,7 @@ So there's about an 8.7% chance of the person being a vampire.
 
 NB. This is almost a ninety-fold increase in the probability from prior to posterior, so the test is really informative. Even that sort of increase still only gets the number to 8.7%.
 
-McElreath then reframes this in a more explicitly Bayesian way with frequencies instead of probabilities.
+RM then reframes this in a more explicitly Bayesian way with frequencies instead of probabilities.
 
 1. Of 100,000 people there are 100 vampires; 
 2. Of the 100 who are vampires, 95 will test positive; 
@@ -84,7 +84,7 @@ samples01
 Can plot this in a couple of ways. 
 
 ```{r}
-# Plot by index, McElreath describes this as looking down on the posterior 
+# Plot by index, RM describes this as looking down on the posterior 
 # from above
 samples01 %>% 
     ggplot(aes(index, p_sample)) + 
@@ -102,8 +102,7 @@ samples01 %>%
 samples01 %>% 
     ggplot(aes(p_sample)) + 
     geom_density(bw = 0.008, 
-                 fill = "steelblue", 
-                 colour = "black", 
+                 colour = "steelblue", 
                  alpha = 0.4) + 
     labs(
         x = "proportion water (p)"
@@ -142,7 +141,7 @@ samples01 %>%
 
 ### Intervals of defined mass
 
-Now we invert the previous question: we want to know which interval of values of $p$ will have a given posterior probability? McElreath calls this a _Compatibility Interval_ (to avoid the problematic terms "confidence" and "credibility"). 
+Now we invert the previous question: we want to know which interval of values of $p$ will have a given posterior probability? RM calls this a _Compatibility Interval_ (to avoid the problematic terms "confidence" and "credibility"). 
 
 This is straightforward if we want the interval to start/finish at specific points. 
 
@@ -169,5 +168,333 @@ Highest Posterior Density Interval (HPDI) is perhaps more informative, but it ha
 1. More computationally expensive; 
 2. Suffers from _simulation variance_, i.e. it's more sensitive to the size of the sample. 
 
+Useful quote from RM: 
+
+> Overall, if the choice of interval type makes a big difference, then you shouldn't be using intervals to summarise the posterior. 
+
+### Point estimates
+
+RM describes this as "hardly ever necessary and often harmful. It discards information."
+
+## Sampliong to simulate prediction
+
+Several good reasons given for sampling:
+
+1. Model design; 
+2. Model checking; 
+3. Software validation;
+4. Research design;
+5. Forecasting.
+
+### Dummy data
+
+Back to the globe-tossing example. Can easily generate dummy data for the binomial with various parameters (i.e. $n$ and $p$ in the binomial likelihood).
+
+```{r}
+set.seed(1401)
+N <- 1e5
+dummy_w <- tibble(draws = rbinom(N, size = 9, prob = 0.7))
+dummy_w
+```
 
 
+```{r}
+dummy_w %>%
+    count(draws) %>% 
+    mutate(draws = factor(draws)) %>% 
+    ggplot(aes(draws, n)) + 
+    geom_col(width = 0.08) + 
+    scale_y_continuous(labels = scales::label_comma()) + 
+    labs(x = "dummy water count", y = "Frequency")
+```
+
+### Model checking
+
+Two considerations: 
+
+#### Did the software work?
+
+RM discusses _retrodiction_: how well do the model outputs correspond to the data used to produce them?
+
+#### Is the model adequate?
+
+For this we need the _Posterior Predictive Distribution_. RM describes "propagating the uncertainty" through the model. Example shows the difference between generating samples based on a single value of $p$ (e.g. the MAP estimate of 0.6 or 0.7) or sampling from all the possible values of $p$ proportionately according to their posterior probability. 
+
+```{r}
+ppd <- samples01 %>% 
+  mutate(
+    w_PPD = rbinom(n = nrow(.), size = 9, prob = p_sample), 
+    w_MAP = rbinom(n = nrow(.), size = 9, prob = 0.67)  
+  )
+ppd
+```
+
+```{r}
+ppd %>% 
+  select(starts_with("w_")) %>% 
+  pivot_longer(cols = everything()) %>% 
+  mutate(name = str_sub(name, 3L)) %>% 
+  mutate(across(.fns = factor)) %>% 
+  group_by(name) %>% 
+  count(value) %>% 
+  ggplot(aes(value, n, fill = name)) + 
+  geom_col(width = 0.12, position = position_dodge()) + 
+  scale_y_continuous(labels = scales::label_comma()) + 
+  scale_fill_manual(values = c("steelblue", "firebrick")) + 
+  labs(
+    title = "Different uncertainty in samples", 
+    subtitle = "Comparing PPD samples with those using MAP estimate of p", 
+    x = "Water count", 
+    y = "Frequency", 
+    fill = NULL
+  )
+```
+
+## Summary
+
+Some useful insights here, especially the emphasis on PPD checks to understand whether we have something useful in our model. 
+
+## Practice
+
+Need to set up a specific set of samples to use in the practice problems. 
+
+```{r}
+p_grid <- seq(0, 1, length.out = 1000)
+prior <- rep(1, 1000)
+likelihood <- dbinom(6, size = 9, prob = p_grid)
+posterior <- (likelihood * prior) / sum(likelihood * prior)
+set.seed(100)
+hw_samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+```
+
+### Easy
+
+```{r}
+# 3E1
+mean(hw_samples < 0.2)
+
+# 3E2
+mean(hw_samples > 0.8)
+
+# 3E2
+mean(hw_samples > 0.8)
+
+# 3E3
+mean(hw_samples > 0.2 & hw_samples < 0.8)
+
+# 3E4 and 3E5
+quantile(hw_samples, c(0.2, 0.8))
+
+# 3E6
+HPDI(hw_samples, prob = 0.66)
+
+# 3E7
+PI(hw_samples, prob = 0.66)
+```
+
+### Medium
+
+3M1. 
+
+```{r}
+hw_m_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) %>%
+  mutate(likelihood = dbinom(8, 15, prob = p)) %>% 
+  mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
+```
+
+3M2. 
+
+```{r}
+hw_m_samples <- hw_m_post %>% 
+    sample_n(size = 1e4, replace = TRUE, weight = posterior) %>% 
+    select(p)
+
+HPDI(hw_m_samples$p, 0.9)
+```
+
+3M3. 
+
+```{r}
+hw_m_ppd <- hw_m_samples %>% 
+  mutate(w_PPD = rbinom(n = nrow(.), size = 15, prob = p))
+
+hw_m_ppd_summary <- hw_m_ppd %>% 
+  count(w_PPD) %>% 
+  mutate(prob = n / sum(n))
+
+sprintf(
+  "Probability of seeing exactly 8 water in 15 tosses is %.2f", 
+  hw_m_ppd_summary %>% 
+    filter(w_PPD == 8L) %>% 
+    pull(prob)
+  )
+```
+
+Useful to plot it also. 
+
+```{r}
+hw_m_ppd_summary %>% 
+  mutate(w_PPD = factor(w_PPD)) %>% 
+  ggplot(aes(w_PPD, n)) + 
+  geom_col(width = 0.08) + 
+  scale_y_continuous(labels = scales::label_comma()) + 
+  labs(x = "Water count", y = "Frequency")
+```
+
+3M4. 
+
+```{r}
+hw_m_samples %>% 
+  mutate(draws = rbinom(nrow(.), size = 9, prob = p)) %>% 
+  summarise(answer = mean(draws == 6L))
+```
+
+3M5. 
+
+```{r}
+# Start again with the better prior
+hw_m_post_step <- tibble(p = seq(0, 1, length.out = 1000)) %>% 
+  mutate(prior = as.integer(p >= 0.5)) %>%
+  mutate(likelihood = dbinom(8, 15, prob = p)) %>% 
+  mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
+
+# Now draw samples and calculate the HPDI
+hw_m_samples_step <- hw_m_post_step %>% 
+    sample_n(size = 1e4, replace = TRUE, weight = posterior) %>% 
+    select(p)
+
+HPDI(hw_m_samples_step$p, 0.9)
+
+# Do the PPD check, including the plot
+hw_m_ppd_step <- hw_m_samples_step %>% 
+  mutate(w_PPD = rbinom(n = nrow(.), size = 15, prob = p))
+
+hw_m_ppd_summary_step <- hw_m_ppd_step %>% 
+  count(w_PPD) %>% 
+  mutate(prob = n / sum(n))
+
+sprintf(
+  "Probability of seeing exactly 8 water in 15 tosses is %.2f", 
+  hw_m_ppd_summary_step %>% 
+    filter(w_PPD == 8L) %>% 
+    pull(prob)
+  )
+
+hw_m_ppd_summary_step %>% 
+  mutate(w_PPD = factor(w_PPD)) %>% 
+  ggplot(aes(w_PPD, n)) + 
+  geom_col(width = 0.08) + 
+  scale_y_continuous(labels = scales::label_comma()) + 
+  labs(x = "Water count", y = "Frequency")
+
+# Use these data to check probability of 6 water in 9 tosses
+hw_m_samples_step %>% 
+  mutate(draws = rbinom(nrow(.), size = 9, prob = p)) %>% 
+  summarise(answer = mean(draws == 6L))
+```
+
+The main difference between the inferences is that the better prior discounts the possibility of seeing less than 50% water. 
+
+3M6. 
+
+Our strategy will be to use some approximations and analysis to narrow down the range, and then test it with simulation. 
+
+We know that when the number of trials, $n$, is large the normal approximation to the binomial will be quite accurate. So we would expect 99% of the posterior probability to be within $\pm 3\sigma$, where $\sigma$ is the standard deviation of that normal distribution. So we will want $\sigma = 1/120$.
+
+The binomial posterior distribution has a closed form when we use a beta prior, so we will need to set that. We will also need to specify the mean so that we can solve for the variance, so let's use the results from the first globe-tossing experiment as our prior, i.e. $p \sim \text{Beta}(6, 3)$. We know that the posterior distribution for $p$ given some number of $W$ and $L$ tosses will be $p | W, L \sim \text{Beta}(W + 6, L + 3)$. Its mean will be $a/(a + b)$, and variance $\frac{ab}{(a + b)^2 (a + b + 1)}$ (where $a$ and $b$ are the updated parameters after the new experiment). We can then solve for the parameters $a = 2133$ and $b = 1066$, which implies c. 3,200 tosses. 
+
+Now we verify with simulation. 
+
+```{r}
+estimate_post_width <- function(n) {
+  W <- round(2 * n / 3)
+  hw_m_post_acc <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) %>%
+    mutate(likelihood = dbinom(W, n, prob = p)) %>% 
+    mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
+  
+  # Now draw samples, calculate the PI, and get its width
+  hw_m_samples_acc <- hw_m_post_acc %>% 
+    sample_n(size = 1e4, replace = TRUE, weight = posterior) %>% 
+    select(p)
+  
+  PI(hw_m_samples_acc$p, 0.99) %>% 
+    reduce(~ .y - .x)
+}
+
+tibble(n = seq(2000, 4000, by = 100)) %>% 
+  mutate(width = map_dbl(n, estimate_post_width))
+```
+
+It seems that 3,200 tosses is rather more than is required, as we get the desired width in the posterior 99% interval somewhere between 2,200 and 2,300. 
+
+### Hard
+
+Need to load up the births data. 
+
+```{r}
+data(homeworkch3)
+head(birth1)
+head(birth2)
+```
+
+3H1. 
+
+```{r}
+boys <- sum(birth1 + birth2)
+births <- length(birth1) + length(birth2)
+hw_h_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) %>%
+  mutate(likelihood = dbinom(boys, births, prob = p)) %>% 
+  mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
+hw_h_post %>% 
+  slice_max(posterior) %>% 
+  select(answer = p)
+```
+
+Compare to the frequentist MLE:
+
+```{r}
+(hw_h_post %>% slice_max(posterior) %>% pull(p)) - (boys / births)
+```
+
+3H2. 
+
+```{r}
+hw_h_samples <- hw_h_post %>% 
+  sample_n(size = 1e4, weight = posterior, replace = TRUE) %>% 
+  select(p)
+map(c(0.5, 0.89, 0.97), ~ HPDI(hw_h_samples$p, .x))
+```
+
+3H3. 
+
+```{r}
+tibble(draws = rbinom(1e4, 200, prob = hw_h_samples$p)) %>% 
+  ggplot(aes(draws)) + 
+  geom_density() + 
+  geom_vline(xintercept = boys, colour = "red")
+```
+
+It seems an OK match for the data: its peak is at/near 111, most of the mass is near that point, fairly symmetrical. There's perhaps more mass than we would expect out in the tails. 
+
+3H4. 
+
+```{r}
+tibble(draws = rbinom(1e4, 100, prob = hw_h_samples$p)) %>% 
+  ggplot(aes(draws)) + 
+  geom_density() + 
+  geom_vline(xintercept = sum(birth1), colour = "red")
+```
+
+This is no longer performing that well, putting most of the density well above the value seen in the data. 
+
+3H5. 
+
+```{r}
+boy_after_girl <- birth2[birth1 == 0L]
+tibble(draws = rbinom(1e4, length(boy_after_girl), prob = hw_h_samples$p)) %>% 
+  ggplot(aes(draws)) + 
+  geom_density() + 
+  geom_vline(xintercept = sum(boy_after_girl), colour = "red")
+```
+
+Our model expects far fewer boys to be born than we actually see. Possibly this is because our assumption of independence between the first and second births is faulty. 
