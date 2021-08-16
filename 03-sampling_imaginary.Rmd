@@ -276,9 +276,6 @@ mean(hw_samples < 0.2)
 # 3E2
 mean(hw_samples > 0.8)
 
-# 3E2
-mean(hw_samples > 0.8)
-
 # 3E3
 mean(hw_samples > 0.2 & hw_samples < 0.8)
 
@@ -425,7 +422,7 @@ tibble(n = seq(2000, 4000, by = 100)) %>%
   mutate(width = map_dbl(n, estimate_post_width))
 ```
 
-It seems that 3,200 tosses is rather more than is required, as we get the desired width in the posterior 99% interval somewhere between 2,200 and 2,300. 
+It seems that 3,200 tosses is rather more than is required, as we get the desired width in the posterior 99% interval somewhere between 2,400 and 2,500. 
 
 ### Hard
 

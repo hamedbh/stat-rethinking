@@ -619,31 +619,6 @@ Same table as above, just with an extra row.
 
 Either of the last two rows will give the required answer, so the probability that the other side is black is $(2 + 2)/(2 + 2 + 1) = 0.8$.
 
-2M5. 
-
-Use a similar structure but add a prior with the appropriate weight (whereas there was an implicit uniform prior in 2M4). 
-
-By Bayes rule:
-
-$$
-\text{P}(2B \; | \; 1B) = 
-    \frac {\text{P}(1B \; | \; 2B) \; \text{P}(2B)}
-    {\text{P}(1B)}
-$$
-
-```{r}
-# set up a function for the next couple of questions
-bayes_rule <- function(likelihood, 
-                       prior, 
-                       avg_likelihood) {
-    (likelihood * prior) / avg_likelihood
-}
-
-bayes_rule(likelihood = 1, 
-           prior = 1/2, 
-           avg_likelihood = 5/8)
-```
-
 2M6. 
 
 Use same as before, but multiply each by the new prior (i.e. probability of drawing the card, or $\text{P}(2B)$).
@@ -678,7 +653,7 @@ $$
 \begin{align}
 \text{P}(T|A) & = 0.1 \\
 \text{P}(T|B) & = 0.2 \\
-\text{P}(A)   & = \text{P}(A) = 0.5
+\text{P}(A)   & = \text{P}(B) = 0.5
 \end{align}
 $$
 
