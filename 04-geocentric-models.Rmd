@@ -1,0 +1,952 @@
+---
+title: "Geocentric Models"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+library(tidyverse)
+library(splines)
+# set up the theme
+theme_set(theme_light())
+```
+
+## Why normal distributions are normal
+
+RM illustrates some of the reasons why the normal distribution is so common. 
+
+### Normal by addition
+
+Gives the example of flipping coins, then of a random walk. 
+
+```{r}
+set.seed(1116)
+rand_walk <- tibble(
+  person_id = rep(seq_len(1000), each = 17), 
+  step_id = rep(seq(0, 16), 1000)
+) %>% 
+  mutate(rand = sign(step_id) * runif(17 * 1000, -1, 1)) %>% 
+  group_by(person_id) %>% 
+  mutate(x = cumsum(rand)) %>% 
+  ungroup()
+```
+
+```{r}
+rand_walk %>% 
+  ggplot(aes(step_id, x)) + 
+  geom_path(colour = "steelblue", alpha = 0.3) + 
+  labs(x = "Step number", y = "Position")
+```
+
+```{r}
+rand_walk %>% 
+  filter(step_id %in% c(4L, 8L, 16L)) %>% 
+  mutate(
+    grp = factor(sprintf("Steps = %s", step_id)) %>% 
+      fct_inorder()
+  ) %>% 
+  ggplot(aes(x)) + 
+  geom_density(colour = "steelblue", bw = 0.2) + 
+  facet_wrap(~ grp, scales = "free_y") + 
+  labs(x = "Position", caption = "Gaussian kernel with sd = 0.2")
+```
+
+### Normal by multiplication
+
+```{r}
+set.seed(1458)
+growth_deviations <- tibble(
+  id = rep(seq_len(10000), each = 12), 
+  big = runif(10000 * 12, 1, 1.5), 
+  medium = runif(10000 * 12, 1, 1.1), 
+  small = runif(10000 * 12, 1, 1.01)
+)
+
+growth_deviations %>% 
+  pivot_longer(cols = -id, names_to = "grp") %>% 
+  mutate(grp = factor(grp, levels = c("big", "medium", "small"))) %>%
+  group_by(id, grp) %>% 
+  summarise(x = prod(value), .groups = "drop") %>% 
+  ggplot(aes(x)) + 
+  geom_density(colour = "steelblue") + 
+  facet_wrap(~ grp, scales = "free")
+```
+
+### Normal by log-multiplication
+
+Can take the `big` deviations from the last example, which didn't give a very Gaussian shape, and plot them on a log scale. 
+
+```{r}
+log_growth <- growth_deviations %>% 
+  select(id, big) %>% 
+  group_by(id) %>% 
+  summarise(x = log(prod(big)), .groups = "drop")
+
+log_growth %>% 
+  ggplot(aes(x)) + 
+  geom_density(colour = "steelblue") + 
+  stat_function(
+    colour = "firebrick", 
+    fun = dnorm, 
+    args = list(mean = mean(log_growth$x), sd = sd(log_growth$x))
+  )
+```
+
+### Using Gaussian distributions
+
+In the Rethinking box RM points out that in some domains Gaussian distributions are not safe, e.g. in financial time series: in the short-term fluctuations look Gaussian, but over longer periods this will not hold. 
+
+## A language for describing models
+
+RM lays out the process for specifying models: 
+
+1. Define a set of _variables_ (observed variables are _data_, unobserved variables are _parameters_); 
+2. Define those variables in relation to one another and/or in terms of a probability distribution; 
+3. The combination of variables and distributions gives a _joint generative model_. 
+
+The layout will be something like: 
+
+$$
+\begin{align}
+y_i   &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &=    \beta x_i \\
+\beta &\sim \mathcal{N}(0, 10) \\
+\sigma &\sim \text{Exponential}(1) \\
+x_i &\sim \mathcal{N}(0, 1) \\
+\end{align}
+$$
+
+## Gaussian model of height
+
+### The data
+
+Start building up a model with the !Kung data, using only adults for the moment. 
+
+```{r}
+data("Howell1")
+d <- Howell1 %>% 
+  as_tibble()
+adult_kung <- d %>% 
+  filter(age >= 18)
+adult_kung
+```
+
+```{r}
+precis(adult_kung)
+```
+
+### The model
+
+Plot the heights. 
+
+```{r}
+adult_kung %>% 
+  ggplot(aes(height)) + 
+  geom_density(colour = "steelblue", bw = 1)
+```
+
+We specify our model of height as: 
+
+$$
+\begin{align}
+h_i    &\sim \mathcal{N}(\mu, \sigma) \\
+\mu    &\sim \mathcal{N}(178, 20) \\
+\sigma &\sim \text{Uniform}(0, 50)
+\end{align}
+$$
+
+The first line is the likelihood, the other two are priors. 
+
+RM notes in the Rethinking box that this model assumes the $h_i$ are independent and identically distributed, which is almost certainly untrue (e.g. of family members). However in practice the assumption is not really a physical assumption, rather an _onotological_ one. In short: absent some knowledge about the structure of the correlations, the iid assumption ends up being OK. 
+
+We can learn more about our priors with plots, starting with the prior on $\mu$.
+
+```{r}
+ggplot(data = tibble(x = c(100, 250)), aes(x)) + 
+  stat_function(fun = dnorm, args = list(mean = 178, sd = 20)) + 
+  labs(
+    title = paste(expression(mu), "~", expression(dnorm(178, 20))), 
+    x = expression(mu), 
+    y = "Density"
+  )
+```
+
+Now on $\sigma$. 
+
+```{r}
+ggplot(data = tibble(x = c(-10, 60)), aes(x)) + 
+  stat_function(fun = dunif, args = list(min = 0, max = 50)) + 
+  labs(
+    title = paste(expression(sigma), "~", expression(dunif(0, 50))), 
+    x = expression(sigma), 
+    y = "Density"
+  )
+```
+
+It's only really possible to understand the implications once we do some _Prior Predictive Simulation_. 
+
+```{r}
+set.seed(1817)
+N <- 1e4
+pp_heights <- tibble(
+  mu = rnorm(N, 178, 20), 
+  sigma = runif(N, 0, 50)
+) %>% 
+  mutate(prior_h = rnorm(N, mean = mu, sd = sigma))
+
+pp_heights %>% 
+  ggplot(aes(prior_h)) + 
+  geom_density(colour = "steelblue") + 
+  labs(
+    title = paste(expression(h), "~", expression(dnorm(mu, sigma)))
+  )
+```
+
+Can illustrate what happens with a bad prior also, where $\mu \sim \mathcal{N}(178, 100)$. 
+
+```{r}
+set.seed(1826)
+N <- 1e4
+pp_heights_wide <- tibble(
+  mu = rnorm(N, 178, 100), 
+  sigma = runif(N, 0, 50)
+) %>% 
+  mutate(prior_h = rnorm(N, mean = mu, sd = sigma))
+
+pp_heights_wide %>% 
+  ggplot(aes(prior_h)) + 
+  geom_density(colour = "steelblue") + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  labs(title = paste(expression(h), "~", expression(dnorm(mu, sigma))))
+```
+
+Our model now expects to see many people with heights greater than any recorded. More worrying: c. `scales::percent(mean(pp_heights_wide$prior_h <= 0))` of the probability mass is below 0. 
+
+### Grid approximation of the posterior distribution
+
+This technique won't last much longer, but we use it here. 
+
+```{r}
+post_height <- expand_grid(
+  mu = seq(150, 160, length.out = 100), 
+  sigma = seq(7, 9, length.out = 100)
+) %>% 
+  mutate(
+    LL = map2_dbl(
+      mu, 
+      sigma, 
+      ~ sum(dnorm(adult_kung$height, .x, .y, log = TRUE)
+      )
+    )
+  ) %>% 
+  mutate(
+    prod = LL + dnorm(mu, 178, 20, log = TRUE) + dunif(sigma, 0, 50, TRUE)
+  ) %>% 
+  mutate(prob = exp(prod - max(prod)))
+```
+
+Can get a contour plot:
+
+```{r}
+post_height %>% 
+  ggplot(aes(x = mu, y = sigma, z = prob)) + 
+  geom_contour() + 
+  coord_cartesian(xlim = c(150, 160), ylim = c(7, 9)) + 
+  labs(x = expression(mu), y = expression(sigma))
+```
+
+Or a heatmap. 
+
+```{r}
+post_height %>% 
+  ggplot(aes(x = mu, y = sigma, fill = prob)) + 
+  geom_raster(interpolate = TRUE) + 
+  scale_fill_viridis_c() + 
+  coord_cartesian(xlim = c(150, 160), ylim = c(7, 9)) + 
+  labs(x = expression(mu), y = expression(sigma))
+```
+
+### Sampling from the posterior
+
+Similar approach to before, made easier by using tidyverse. 
+
+```{r}
+set.seed(1853)
+post_samples <- post_height %>% 
+  sample_n(size = 1e4, replace = TRUE, weight = prob)
+
+post_samples %>% 
+  ggplot(aes(mu, sigma)) + 
+  geom_point(colour = "steelblue", alpha = 0.3)
+```
+
+Can also plot the densities. 
+
+```{r}
+post_samples %>% 
+  select(mu, sigma) %>% 
+  pivot_longer(everything(), names_to = "parameter") %>% 
+  ggplot(aes(value)) + 
+  geom_density(colour = "steelblue") + 
+  facet_wrap(~ parameter, scales = "free")
+```
+
+More skew on $\sigma$, which makes sense: it is bounded below by 0, so there is more freedom for it to vary up than down. 
+
+### Finding the posterior distribution with `quap`
+
+Goodbye grid approximation. We use the `adult_kung` data again. 
+
+```{r}
+flist_4_1 <- alist(
+  height ~ dnorm(mu, sigma), 
+  mu ~ dnorm(178, 20), 
+  sigma ~ dunif(0, 50)
+)
+
+m4_1 <- quap(flist = flist_4_1, data = adult_kung)
+```
+
+```{r}
+precis(m4_1)
+```
+
+Can set start values, which also highlights the difference between `alist()` and `list()`: only in the latter are the arguments evaluated. 
+
+```{r}
+m4_1 <- quap(
+  flist = flist_4_1, 
+  data = adult_kung, 
+  start = list(
+    mu = mean(adult_kung$height), 
+    sigma = sd(adult_kung$height)
+  )
+)
+
+precis(m4_1)
+```
+
+Now we try again with a more informative prior: nothing changes but the standard deviation on $\mu$.
+
+```{r}
+flist_4_2 <- alist(
+  height ~ dnorm(mu, sigma), 
+  mu ~ dnorm(178, 0.1), 
+  sigma ~ dunif(0, 50)
+)
+
+m4_2 <- quap(flist = flist_4_2, data = adult_kung)
+
+precis(m4_2)
+```
+
+The posterior estimate for $\mu$ is near-identical to the prior. Because of this the estimate for $\sigma$ has increased dramatically. 
+
+### Sampling from a `quap`
+
+The key step is understanding that the result from `quap()` is a set of quadratic approximations to the posteriors of each of the parameters, which is just a multivariate normal distribution. So we can sample from them jointly to get samples. We can extract the covariance matrix for a `quap()` result easily. 
+
+```{r}
+vcov(m4_1)
+```
+
+RM shows that the components of this matrix (viz. the variances on the diagonal and the correlation matrix) may be easier to work with directly. 
+
+```{r}
+diag(vcov(m4_1))
+cov2cor(vcov(m4_1))
+```
+
+Extracting samples from the posterior estimate is easy with RM's package. 
+
+```{r}
+set.seed(1141)
+quap_post <- extract.samples(m4_1, n = 1e4) %>% 
+  as_tibble()
+precis(quap_post)
+```
+
+## Linear prediction
+
+Now we add a predictor variable to the mix. Weight seems a good choice. 
+
+```{r}
+adult_kung %>% 
+  ggplot(aes(weight, height)) + 
+  geom_point(alpha = 0.4, colour = "steelblue")
+```
+
+### The linear model strategy
+
+We modify the previous model thus: 
+
+$$
+\begin{align}
+h_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i  &= \alpha + \beta(x_i - \bar{x}) \\
+\alpha &\sim \mathcal{N}(178, 20) \\
+\beta &\sim \mathcal{N}(0, 10) \\
+\sigma &\sim \text{Uniform}(0, 50)
+\end{align}
+$$
+
+Here $x_i$ is the weight of the i'th person, and $\bar{x}$ is the mean weight across all people. Subtracting the mean (i.e. centering) is important here because it means that $\alpha$ now has the interpretation as the expected height of a person when they have the mean weight. 
+
+#### Priors
+
+We want to sample from our priors: do they give reasonable results?
+
+```{r}
+set.seed(2971)
+tibble(id = seq_len(100), a = rnorm(100, 178, 20), b = rnorm(100, 0, 10)) %>% 
+  expand(nesting(id, a, b), weight = range(adult_kung$weight)) %>% 
+  mutate(height = a + (b * (weight - mean(adult_kung$weight)))) %>% 
+  ggplot(aes(x = weight, y = height, group = id)) + 
+  geom_line(alpha = 0.2) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_hline(yintercept = 272)
+```
+
+The dashed line is at zero, and the solid line is the height of the tallest person in history. The prior model makes many predictions that are impossible. We can do better simply by constraining the $\beta$ parameter to be non-negative: it doesn't make sense that weight would have a negative association with height. 
+
+Updated model is: 
+
+$$
+\begin{align}
+h_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i  &= \alpha + \beta(x_i - \bar{x}) \\
+\alpha &\sim \mathcal{N}(178, 20) \\
+\beta &\sim \text{Lognormal}(0, 1) \\
+\sigma &\sim \text{Uniform}(0, 50)
+\end{align}
+$$
+
+Now redo the prior predictive simulation. 
+
+```{r}
+set.seed(2971)
+tibble(id = seq_len(100), a = rnorm(100, 178, 20), b = rlnorm(100, 0, 1)) %>% 
+  expand(nesting(id, a, b), weight = range(adult_kung$weight)) %>% 
+  mutate(height = a + (b * (weight - mean(adult_kung$weight)))) %>% 
+  ggplot(aes(x = weight, y = height, group = id)) + 
+  geom_line(alpha = 0.2) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_hline(yintercept = 272)
+```
+
+There are a few very tall people predicted, but no-one with negative height. 
+
+### Finding the posterior distribution
+
+Fit the model again with `quap()`, using the new prior. 
+
+```{r}
+xbar <- mean(adult_kung$weight)
+flist_4_3 <- alist(
+  height ~ dnorm(mu, sigma), 
+  mu <- a + (b * (weight - xbar)), 
+  a ~ dnorm(178, 20), 
+  b ~ dlnorm(0, 1), 
+  sigma ~ dunif(0, 50)
+)
+
+m4_3 <- quap(flist = flist_4_3, data = adult_kung)
+```
+
+### Interpreting the posterior distribution
+
+Most often we will need to plot simulations to understand our posterior distribution. But we start off looking at tables of numbers. 
+
+#### Tables of marginal distributions
+
+```{r}
+precis(m4_3)
+```
+
+How to interpret these parameters? `b` is the expected change in height for a unit change in weight. The 89% estimate for `b` is all close to 1, from which we can infer that there is likely to be a positive association between height and weight. RM points out that this **does not** say that height and weight have a linear relationship, only that these are the most plausible linear relationships consistent with the data. 
+
+To understand the full model we need the covariance matrix. 
+
+```{r}
+round(vcov(m4_3), 3)
+```
+
+There is v little covariance between the parameters. Can get this in plots with: 
+
+```{r}
+pairs(m4_3)
+```
+
+#### Plotting posterior inference against the data
+
+Start off just plotting the mean posterior estimate with the raw data. 
+
+```{r}
+set.seed(1413)
+post_4_3 <- extract.samples(m4_3) %>% 
+  as_tibble()
+
+adult_kung %>% 
+  ggplot(aes(weight, height)) + 
+  geom_point(alpha = 0.3, colour = "steelblue") + 
+  geom_line(
+    data = tibble(
+      x = seq(min(adult_kung$weight), max(adult_kung$weight), length.out = 100)
+    ) %>% 
+      mutate(height = mean(post_4_3$a) + mean(post_4_3$b) * (x - xbar)), 
+    aes(x = x, y = height)
+  )
+```
+
+#### Adding uncertainty around the mean
+
+That overstates how sure we are about the association, so we can add uncertainty. RM goes through the process of building this up for different numbers of observations. Here I just cut to the end, plotting 20 of the lines with all 352 observations. 
+
+```{r}
+set.seed(1457)
+
+adult_kung %>% 
+  ggplot(aes(weight, height)) + 
+  geom_point(alpha = 0.3, colour = "steelblue") + 
+  geom_line(
+    data = post_4_3 %>% 
+      sample_n(size = 20) %>% 
+      rowid_to_column() %>% 
+      select(rowid, a, b) %>% 
+      expand(
+        nesting(rowid, a, b), 
+        x = seq(min(adult_kung$weight), max(adult_kung$weight), length.out = 100)
+      ) %>% 
+      transmute(
+        rowid, 
+        x, 
+        height = a + b * (x - xbar)
+      ), 
+    aes(x, height, group = rowid), 
+    alpha = 0.2
+  )
+```
+
+#### Plotting regression intervals and contours
+
+First we can generate samples for $\mu$ at each possible value of weight, then plot these to illustrate the uncertainty in our posterior. 
+
+```{r}
+set.seed(722)
+mu <- link(m4_3, data = tibble(weight = seq(25, 70))) %>% 
+  as_tibble(.name_repair = "unique") %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = (str_sub(weight, 4L) %>% as.integer()) + 24L)
+```
+
+```{r}
+mu %>% 
+  ggplot(aes(weight, height)) + 
+  geom_point(alpha = 0.3, colour = "steelblue")
+```
+
+Can also plot the raw data with the 89% PI overlaid. First create a helper function to get PI summaries 
+
+```{r}
+get_89_PI <- function(x) {
+  tibble(x = PI(x), bound = c("lower", "upper"))
+}
+```
+
+```{r}
+mu_summary <- mu %>% 
+  group_by(weight) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x) %>% 
+  mutate(height = mean(post_4_3$a) + mean(post_4_3$b) * (weight - xbar))
+
+adult_kung %>% 
+  ggplot(aes(weight, height)) + 
+  geom_point(alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu_summary, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(adult_kung$weight))
+```
+
+#### Prediction intervals
+
+The next step beyond is to propagate the uncertainty about both $\mu$ and $\sigma$ through and make predictions about our quantity of interest, height. RM has a function to do this also, called `sim()`.
+
+```{r}
+set.seed(758)
+sim_heights <- sim(m4_3, data = tibble(weight = seq(25, 70))) %>% 
+  as_tibble(.name_repair = "unique") %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = (str_sub(weight, 4L) %>% as.integer()) + 24L)
+
+sim_heights
+```
+
+Can summarise the PI for the heights at each weight. 
+
+```{r}
+height_PI <- sim_heights %>% 
+  group_by(weight) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x)
+height_PI
+```
+
+Now put everything into a plot. 
+
+```{r}
+adult_kung %>% 
+  ggplot(aes(x = weight)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = height_PI, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu_summary, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(adult_kung$weight))
+```
+
+## Curves from lines
+
+We now consider fitting curves: first with polynomial regression and then with splines. 
+
+### Polynomial regression
+
+Try fitting the model with a square term in height. The model is below. To make the notation simpler, $x_i$ now refers to the standardised weight (i.e. with the mean subtracted and divided by the standard deviation). 
+
+$$
+\begin{align}
+h_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i  &= \alpha + \beta_1 x_i + \beta_2 x_i^2 \\
+\alpha &\sim \mathcal{N}(178, 20) \\
+\beta_1 &\sim \text{Lognormal}(0, 1) \\
+\beta_2 &\sim \mathcal{N}(0, 1) \\
+\sigma &\sim \text{Uniform}(0, 50)
+\end{align}
+$$
+
+Note that the coefficient on the square term is not constrained to be non-negative: there isn't any physical interpretation for the square of a person's weight, so there's no good reason to set such a constraint in the prior. 
+
+Now we can fit the model. 
+
+```{r}
+d <- Howell1 %>% 
+  as_tibble() %>% 
+  mutate(weight_s = scale(weight)) %>% 
+  mutate(weight_s2 = weight_s^2)
+
+m4_5 <- quap(
+  flist = alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (b1 * weight_s) + (b2 * weight_s2), 
+    a ~ dnorm(178, 20), 
+    b1 ~ dlnorm(0, 1), 
+    b2 ~ dnorm(0, 1), 
+    sigma ~ dunif(0, 50)
+  ), 
+  data = d
+)
+precis(m4_5)
+```
+
+Can redo the late plot from above, using this new fit. 
+
+```{r}
+set.seed(929)
+weight_seq <- seq(-2.2, 2.2, length.out = 30)
+mu2_summary <- link(
+  m4_5, 
+  data = tibble(weight_s = weight_seq, weight_s2 = weight_seq^2)
+) %>% 
+  as_tibble(.name_repair = "unique") %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(
+    weight_s = map_dbl(
+      weight, 
+      ~ weight_seq[(str_sub(.x, 4L) %>% as.integer())]
+    ), 
+    weight_s2 = weight_s^2
+  ) %>%
+  group_by(weight_s, weight_s2) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x) %>% 
+  mutate(
+    height = coef(m4_5)[["a"]] + (coef(m4_5)[["b1"]] * weight_s) + 
+      (coef(m4_5)[["b2"]] * weight_s2)
+  )
+
+sim_heights2 <- sim(
+  m4_5, 
+  data = tibble(weight_s = weight_seq, weight_s2 = weight_seq^2)
+) %>% 
+  as_tibble(.name_repair = "unique") %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  transmute(
+    .id, 
+    weight_s = map_dbl(
+      weight, 
+      ~ weight_seq[(str_sub(.x, 4L) %>% as.integer())]
+    ), 
+    weight_s2 = weight_s^2, 
+    height
+  )
+
+height_PI2 <- sim_heights2 %>% 
+  group_by(weight_s, weight_s2) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x)
+
+d %>% 
+  ggplot(aes(x = weight_s)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = height_PI2, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu2_summary, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(d$weight_s))
+```
+
+RM goes further and does a cubic model. 
+
+```{r}
+set.seed(1019)
+d_cubic <- d %>% 
+  mutate(weight_s3 = weight_s^3)
+
+m4_6 <- quap(
+  flist = alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (b1 * weight_s) + (b2 * weight_s2) + (b3 * weight_s3), 
+    a ~ dnorm(178, 20), 
+    b1 ~ dlnorm(0, 1), 
+    b2 ~ dnorm(0, 1), 
+    b3 ~ dnorm(0, 1), 
+    sigma ~ dunif(0, 50)
+  ), 
+  data = d_cubic
+)
+
+mu_summary_cubic <- link(
+  m4_6, 
+  data = tibble(
+    weight_s = weight_seq, 
+    weight_s2 = weight_seq^2, 
+    weight_s3 = weight_seq^3
+  )
+) %>% 
+  as_tibble(.name_repair = "unique") %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(
+    weight_s = map_dbl(
+      weight, 
+      ~ weight_seq[(str_sub(.x, 4L) %>% as.integer())]
+    ), 
+    weight_s2 = weight_s^2, 
+    weight_s3 = weight_s^3
+  ) %>%
+  group_by(weight_s, weight_s2, weight_s3) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x) %>% 
+  mutate(
+    height = coef(m4_6)[["a"]] + 
+      (coef(m4_6)[["b1"]] * weight_s) + 
+      (coef(m4_6)[["b2"]] * weight_s2) + 
+      (coef(m4_6)[["b3"]] * weight_s3)
+  )
+
+sim_heights_cubic <- sim(
+  m4_6, 
+  data = tibble(
+    weight_s = weight_seq, 
+    weight_s2 = weight_seq^2, 
+    weight_s3 = weight_seq^3
+  )
+) %>% 
+  as_tibble(.name_repair = "unique") %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  transmute(
+    .id, 
+    weight_s = map_dbl(
+      weight, 
+      ~ weight_seq[(str_sub(.x, 4L) %>% as.integer())]
+    ), 
+    weight_s2 = weight_s^2, 
+    weight_s3 = weight_s^3, 
+    height
+  )
+
+height_PI_cubic <- sim_heights_cubic %>% 
+  group_by(weight_s, weight_s2, weight_s3) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x)
+
+d_cubic %>% 
+  ggplot(aes(x = weight_s)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = height_PI_cubic, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu_summary_cubic, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  scale_x_continuous(
+    trans = 
+  ) + 
+  coord_cartesian(xlim = range(d_cubic$weight_s))
+```
+
+### Splines
+
+We use the cherry blossom data for this. 
+
+```{r}
+data("cherry_blossoms")
+cherry <- cherry_blossoms %>% 
+  as_tibble()
+precis(cherry)
+```
+
+```{r}
+cherry_full <- cherry %>% 
+  filter(!is.na(doy))
+
+knot_list <- cherry_full %>% 
+  summarise(knots = quantile(year, probs = seq(0, 1, length.out = 15))) %>% 
+  rowid_to_column("id")
+
+B <- bs(
+  cherry_full[["year"]], 
+  knots = knot_list %>% filter(!(id %in% c(1L, 15L))) %>% pull(knots), 
+  degree = 3, 
+  intercept = TRUE
+)
+head(B)
+```
+
+Now we can plot these basis splines on their own. The dashed blue line at the year 1200 is there as it was in RM's plot, showing that there are four non-zero values at that value. 
+
+```{r}
+B %>% 
+  as_tibble() %>% 
+  mutate(year = cherry_full[["year"]]) %>% 
+  pivot_longer(-year, names_to = "basis_num") %>% 
+  # Need this to change the values to just a double vector, rather than having 
+  # class bs/basis/matrix
+  mutate(value = as.double(value)) %>% 
+  mutate(dot_val = (year == 1200L) * value) %>% 
+  ggplot(aes(year, value, group = basis_num)) + 
+  geom_line(size = 1, alpha = 0.5) + 
+  geom_vline(xintercept = 1200, linetype = 2, colour = "steelblue", size = 1) + 
+  scale_y_continuous("basis value", breaks = c(0, 1), minor_breaks = NULL)
+```
+
+Now create the `quap()` model using the splines. Before that though, the model definition. 
+
+$$
+\begin{align}
+D_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i  &=    \alpha + \sum_{k = 1}^K w_k B_{k, i} \\
+\alpha &\sim \mathcal{N}(100, 10) \\
+w_k    &\sim \mathcal{N}(0, 10) \\
+\sigma &\sim \text{Exponential}(1)
+\end{align}
+$$
+
+```{r}
+m4_7 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (B %*% w), 
+    a ~ dnorm(100, 10), 
+    w ~ dnorm(0, 10), 
+    sigma ~ dexp(1)
+  ), 
+  data = list(D = cherry_full[["doy"]], B = B), 
+  start = list(w = rep(0, ncol(B)))
+)
+```
+
+We don't get much from `precis()`. 
+
+```{r}
+precis(m4_7, depth = 2)
+```
+
+Hard to interpret this: what should we make of the `w[10]` coefficient? Need to plot really. 
+
+```{r}
+set.seed(733)
+# Don't coerce the result to a tibble because it's already a list, including 
+# vectors/matrices for each parameter separately.
+cherry_post <- extract.samples(m4_7)
+
+# In general this section is made a bit easier by waiting to turn this into
+# tibbles, do a tiny bit of matrix maths first. 
+w <- colMeans(cherry_post$w)
+
+(t(w * t(B))) %>% 
+  as_tibble() %>% 
+  mutate(year = cherry_full$year) %>% 
+  pivot_longer(-year, names_to = "basis_num") %>% 
+  ggplot(aes(year, value, group = basis_num)) + 
+  geom_line(size = 1, alpha = 0.5) + 
+  geom_vline(xintercept = 1200, linetype = 2, colour = "steelblue", size = 1) + 
+  scale_y_continuous("basis value", breaks = 0, minor_breaks = NULL) + 
+  coord_cartesian(ylim = c(-6, 6))
+```
+
+Then we can plot the 97% interval for $\mu$, with the original data points. 
+
+```{r}
+set.seed(821)
+cherry_mu <- link(m4_7) %>% 
+  as_tibble(.name_repair = ~ str_c("yr_", cherry_full$year)) %>% 
+  pivot_longer(everything(), names_to = "year", names_prefix = "yr_") %>% 
+  mutate(year = as.integer(year))
+
+cherry_mu_PI <- cherry_mu %>% 
+  group_by(year) %>% 
+  summarise(
+    tibble(x = PI(value, prob = 0.97), bound = c("lower", "upper")), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(names_from = "bound", values_from = "x")
+
+cherry_full %>% 
+  ggplot(aes(x = year)) + 
+  geom_point(aes(y = doy), colour = "steelblue", alpha = 0.3) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = cherry_mu_PI, 
+    alpha = 0.5
+  )
+```
+
