@@ -6,7 +6,9 @@ output: html_document
 ```{r setup}
 library(rethinking)
 library(tidyverse)
+library(patchwork)
 library(splines)
+library(zeallot)
 # set up the theme
 theme_set(theme_light())
 ```
@@ -175,11 +177,16 @@ Now on $\sigma$.
 
 ```{r}
 ggplot(data = tibble(x = c(-10, 60)), aes(x)) + 
-  stat_function(fun = dunif, args = list(min = 0, max = 50)) + 
+  stat_function(fun = dunif, args = list(min = 0, max = 50), n = 1001) + 
   labs(
     title = paste(expression(sigma), "~", expression(dunif(0, 50))), 
     x = expression(sigma), 
-    y = "Density"
+    y = NULL
+  ) + 
+  theme(
+    panel.grid = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank()
   )
 ```
 
@@ -383,9 +390,9 @@ We modify the previous model thus:
 $$
 \begin{align}
 h_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
-\mu_i  &= \alpha + \beta(x_i - \bar{x}) \\
+\mu_i  &=    \alpha + \beta(x_i - \bar{x}) \\
 \alpha &\sim \mathcal{N}(178, 20) \\
-\beta &\sim \mathcal{N}(0, 10) \\
+\beta  &\sim \mathcal{N}(0, 10) \\
 \sigma &\sim \text{Uniform}(0, 50)
 \end{align}
 $$
@@ -644,7 +651,7 @@ Now we can fit the model.
 ```{r}
 d <- Howell1 %>% 
   as_tibble() %>% 
-  mutate(weight_s = scale(weight)) %>% 
+  mutate(weight_s = scale(weight) %>% as.double()) %>% 
   mutate(weight_s2 = weight_s^2)
 
 m4_5 <- quap(
@@ -940,7 +947,7 @@ cherry_mu_PI <- cherry_mu %>%
   ) %>% 
   pivot_wider(names_from = "bound", values_from = "x")
 
-cherry_full %>% 
+cherry_p <- cherry_full %>% 
   ggplot(aes(x = year)) + 
   geom_point(aes(y = doy), colour = "steelblue", alpha = 0.3) + 
   geom_ribbon(
@@ -948,5 +955,805 @@ cherry_full %>%
     data = cherry_mu_PI, 
     alpha = 0.5
   )
+cherry_p
 ```
 
+## Practice
+
+### Easy
+
+4E1. 
+
+The likelihood is $y_i \sim \mathcal{N}(\mu, \sigma)$. The other two lines are priors on the $\mu$ and $\sigma$ parameters. 
+
+4E2. 
+
+Two: $\mu$ and $\sigma$. 
+
+4E3. 
+
+$$
+\text{P}(\mu, \sigma | y) = 
+  \frac
+    { \mathcal{N}(y|\mu, \sigma) \mathcal{N}(\mu|0, 10) \text{Expo}(\sigma|1) }
+    {\int \int \mathcal{N}(y|\mu, \sigma) \mathcal{N}(\mu|0, 10) \text{Expo}(\sigma|1) d\mu d\sigma }
+$$
+
+4E4. 
+
+The second line, $\mu_i = \alpha + \beta x_i$. 
+
+4E5. 
+
+Three parameters: $\alpha$, $\beta$, and $\sigma$. 
+
+### Medium
+
+4M1. 
+
+```{r}
+y <- rnorm(N, mean = rnorm(N, 0, 10), sd = rexp(N, 1))
+```
+
+
+4M2. 
+
+The associated formula for `quap()`. 
+
+```{r}
+hw_4m2_formula <- alist(
+  y ~ dnorm(mu, sigma), 
+  mu ~ dnorm(0, 10), 
+  sigma ~ dexp(1)
+)
+hw_4m2_formula
+```
+
+4M3. 
+
+$$
+\begin{align}
+y_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i  &=    \alpha + \beta x_i \\
+\alpha &\sim \mathcal{N}(0, 10) \\
+\beta  &\sim \text{Uniform}(0, 1) \\
+\sigma &\sim \text{Expo}(1)
+\end{align}
+$$
+
+4M4. 
+
+$$
+\begin{align}
+h_i &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta y_i \\
+\alpha &\sim \mathcal{N}(100, 10) \\
+\beta &\sim \text{Expo}(1) \\
+\sigma &\sim \text{Expo}(1/5)
+\end{align}
+$$
+
+The prior on $\beta$ ensures that children cannot shrink in a year. Other than that the model is quite basic. 
+
+4M5. 
+
+Every student getting taller was already in the model via $\beta \sim \text{Expo}(1)$. 
+
+4M6. 
+
+The parameter that governs the variance is $\sigma$, so we need to set this to keep the variance under 64cm. Could achieve this by changing the prior to $\sigma \sim \text{Uniform}(0, 8)$. 
+
+4M7. 
+
+Start by fitting the model again and then drawing posterior samples. 
+
+```{r}
+set.seed(1815)
+m4_3_hw <- quap(
+  flist = alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (b * (weight)), 
+    a ~ dnorm(178, 20), 
+    b ~ dlnorm(0, 1), 
+    sigma ~ dunif(0, 50)
+  ), 
+  data = adult_kung
+)
+
+
+post_4_3_hw <- extract.samples(m4_3_hw) %>% 
+  as_tibble()
+```
+
+Compares the covariance between the predictors now to what we saw in the original model. 
+
+```{r}
+round(vcov(m4_3_hw), 3)
+
+round(vcov(m4_3), 3)
+```
+
+There is now some covariance between the predictors where there was almost none before. Easier to compare as correlations. 
+
+```{r}
+round(cov2cor(vcov(m4_3_hw)), 3)
+round(cov2cor(vcov(m4_3)), 3)
+```
+
+There is now a strong negative correlation between `a` and `b`. What does that mean? As one increases the other goes down by the same amount. This makes some sense: if we increase our estimate for one part of the linear term in our model the other must go down to compensate. 
+
+We can generate predictions from the posterior and compare these to the original model. 
+
+```{r}
+set.seed(1828)
+mu_hw <- link(m4_3_hw, data = tibble(weight = seq(25, 70))) %>% 
+  as_tibble(.name_repair = ~ str_c(seq(25, 70))) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = as.integer(weight))
+
+mu_summary_hw <- mu_hw %>% 
+  group_by(weight) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x) %>% 
+  mutate(height = mean(post_4_3$a) + mean(post_4_3$b) * (weight - xbar))
+
+sim_heights_hw <- sim(m4_3_hw, data = tibble(weight = seq(25, 70))) %>% 
+  as_tibble(.name_repair = ~ str_c(seq(25, 70))) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = as.integer(weight))
+
+height_PI_hw <- sim_heights_hw %>% 
+  group_by(weight) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x)
+
+hw_4m7_p1 <- adult_kung %>% 
+  ggplot(aes(x = weight)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = height_PI_hw, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu_summary_hw, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(adult_kung$weight))
+```
+
+
+```{r}
+hw_4m7_p2 <- adult_kung %>% 
+  ggplot(aes(x = weight)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = height_PI, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu_summary, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(adult_kung$weight))
+```
+
+```{r}
+hw_4m7_p1 + hw_4m7_p2
+```
+
+We get near-identical predictions. The main thing that changes is the interpretation of $\alpha$: instead of being the expected height of a person of average weight, it's the expected height of a person weighing nothing. 
+
+4M8.
+
+It will speed things up to functionalise the process. 
+
+```{r}
+hw_plot_cherry <- function(k, w_sd) {
+  knot_list <- cherry_full %>% 
+    summarise(knots = quantile(year, probs = seq(0, 1, length.out = k))) %>% 
+    rowid_to_column("id")
+  
+  B <- bs(
+    cherry_full[["year"]], 
+    knots = knot_list %>% filter(!(id %in% c(1L, 15L))) %>% pull(knots), 
+    degree = 3, 
+    intercept = TRUE
+  )
+  
+  quap_fit <- quap(
+    flist = alist(
+      D ~ dnorm(mu, sigma), 
+      mu <- a + (B %*% w), 
+      a ~ dnorm(100, 10), 
+      w ~ dnorm(0, w_sd), 
+      sigma ~ dexp(1)
+    ), 
+    data = list(D = cherry_full[["doy"]], B = B, w_sd = w_sd), 
+    start = list(w = rep(0, ncol(B)))
+  )
+  
+  set.seed(733)
+  # Don't coerce the result to a tibble because it's already a list, including 
+  # vectors/matrices for each parameter separately.
+  cherry_post <- extract.samples(quap_fit)
+  
+  # In general this section is made a bit easier by waiting to turn this into
+  # tibbles, do a tiny bit of matrix maths first. 
+  w <- colMeans(cherry_post$w)
+  
+  cherry_mu <- link(quap_fit) %>% 
+    as_tibble(.name_repair = ~ str_c("yr_", cherry_full$year)) %>% 
+    pivot_longer(everything(), names_to = "year", names_prefix = "yr_") %>% 
+    mutate(year = as.integer(year))
+  
+  cherry_mu_PI <- cherry_mu %>% 
+    group_by(year) %>% 
+    summarise(
+      tibble(x = PI(value, prob = 0.97), bound = c("lower", "upper")), 
+      .groups = "drop"
+    ) %>% 
+    pivot_wider(names_from = "bound", values_from = "x")
+  
+  cherry_full %>% 
+    ggplot(aes(x = year)) + 
+    geom_point(aes(y = doy), colour = "steelblue", alpha = 0.3) + 
+    geom_ribbon(
+      aes(ymin = lower, ymax = upper), 
+      data = cherry_mu_PI, 
+      alpha = 0.5
+    ) + 
+    labs(
+      title = sprintf("Spline fit with %s knots, sd = %s", k, w_sd)
+    )
+}
+```
+
+```{r}
+hw_plot_cherry(20, 1)
+```
+
+```{r}
+hw_plot_cherry(20, 10)
+```
+
+
+```{r}
+hw_plot_cherry(20, 20)
+```
+
+```{r}
+hw_plot_cherry(50, 1)
+```
+
+```{r}
+hw_plot_cherry(50, 10)
+```
+
+
+```{r}
+hw_plot_cherry(50, 20)
+```
+
+Together the number of knots and the prior on the weights control the wiggliness of the curve, either by limiting the number of different splines being fit or by allowing the weights to vary more. 
+
+### Hard
+
+4H1. 
+
+Our weights are: 
+
+```{r}
+hw_new_weights <- tibble(
+  weight = c(46.95, 43.72, 64.78, 32.59, 54.63)
+)
+hw_new_weights
+```
+
+First check: are all of these weights in the range for adults?
+
+```{r}
+hw_new_weights %>% 
+  filter(weight < min(adult_kung$weight))
+```
+
+There are none below the minimum adult weight. 
+
+```{r}
+hw_new_weights %>% 
+  mutate(excess = pmax(0, weight - max(adult_kung$weight)))
+```
+
+There's one of these weights that is slightly above the heaviest person in our dataset, but it's close enough that we can work with it. Can reuse `m4_3` from earlier to generate the predictions. 
+
+```{r}
+set.seed(1112)
+sim(m4_3, data = hw_new_weights) %>% 
+  as_tibble(.name_repair = ~ str_c("wt_", seq_len(5))) %>% 
+  pivot_longer(everything()) %>% 
+  group_by(name) %>% 
+  summarise(
+    across(
+      value, 
+      .fns = list(
+        mean = mean, 
+        PI_lower = ~ PI(.x)[1], 
+        PI_upper = ~ PI(.x)[2]
+      ), 
+      .names = "{.fn}"
+    )
+  )
+```
+
+4H2. 
+
+```{r}
+child_kung <- Howell1 %>% 
+  as_tibble() %>% 
+  filter(age < 18)
+
+child_xbar <- mean(child_kung$weight)
+
+hw_m4h2 <- quap(
+  flist = alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (b * (weight - child_xbar)), 
+    a ~ dnorm(140, 20), 
+    b ~ dlnorm(0, 1), 
+    sigma ~ dunif(0, 50)
+  ), 
+  data = child_kung
+)
+```
+
+
+```{r}
+precis(hw_m4h2)
+```
+
+The MAP estimate for `b` is 2.72: for every 1 unit of weight we expect height to increase by 2.72. For part (b) we can plot the posterior with the raw data to get a better idea of how good the model is. 
+
+```{r}
+set.seed(1236)
+hw_4h2_weights <- seq(0, ceiling(max(child_kung$weight)), by = 0.5)
+
+post_hw4h2 <- extract.samples(hw_m4h2) %>% 
+  as_tibble()
+
+mu_hw4h2 <- link(hw_m4h2, data = tibble(weight = hw_4h2_weights)) %>% 
+  as_tibble(.name_repair = ~ paste(hw_4h2_weights)) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = as.double(weight))
+
+mu_summary_hw4h2 <- mu_hw4h2 %>% 
+  group_by(weight) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x) %>% 
+  mutate(
+    height = mean(post_hw4h2$a) + mean(post_hw4h2$b) * (weight - child_xbar)
+  )
+
+sim_heights_hw4h2 <- sim(hw_m4h2, data = tibble(weight = hw_4h2_weights)) %>% 
+  as_tibble(.name_repair = ~ paste(hw_4h2_weights)) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = as.double(weight))
+
+height_PI_hw4h2 <- sim_heights_hw4h2 %>% 
+  group_by(weight) %>% 
+  summarise(get_89_PI(height), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x)
+
+child_kung %>% 
+  ggplot(aes(x = weight)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = height_PI_hw4h2, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu_summary_hw4h2, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(child_kung$weight))
+```
+
+The model seems a poor fit: we have many observations outside the 89% interval. Our model overestimates height for very light and heavy children, and underestimates it for those in the middle. This suggests that our assumption of a linear relationship isn't sound. 
+
+4H3.
+
+For part (a) we just fit the model. 
+
+```{r}
+all_kung <- Howell1 %>% 
+  as_tibble()
+
+hw_m4h3 <- quap(
+  flist = alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (b * log(weight)), 
+    a ~ dnorm(178, 20), 
+    b ~ dlnorm(0, 1), 
+    sigma ~ dunif(0, 50)
+  ), 
+  data = all_kung
+)
+```
+
+Inspect the results. 
+
+```{r}
+precis(hw_m4h3)
+```
+
+Now for part (b) we plot it. 
+
+```{r}
+set.seed(1236)
+hw_4h3_weights <- seq(0, ceiling(max(all_kung$weight)), by = 0.5)
+
+post_hw4h3 <- extract.samples(hw_m4h3) %>% 
+  as_tibble()
+
+mu_hw4h3 <- link(hw_m4h3, data = tibble(weight = hw_4h3_weights)) %>% 
+  as_tibble(.name_repair = ~ paste(hw_4h3_weights)) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = as.double(weight))
+
+mu_summary_hw4h3 <- mu_hw4h3 %>% 
+  group_by(weight) %>% 
+  summarise(
+    tibble(x = PI(height, prob = 0.97), bound = c("lower", "upper")), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(names_from = "bound", values_from = x) %>% 
+  mutate(
+    height = mean(post_hw4h3$a) + mean(post_hw4h3$b) * log(weight)
+  )
+
+sim_heights_hw4h3 <- sim(hw_m4h3, data = tibble(weight = hw_4h3_weights)) %>% 
+  as_tibble(.name_repair = ~ paste(hw_4h3_weights)) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "weight", values_to = "height") %>% 
+  mutate(weight = as.double(weight))
+
+height_PI_hw4h3 <- sim_heights_hw4h3 %>% 
+  group_by(weight) %>% 
+  summarise(
+    tibble(x = PI(height, prob = 0.97), bound = c("lower", "upper")), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(names_from = "bound", values_from = x)
+
+all_kung %>% 
+  ggplot(aes(x = weight)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = height_PI_hw4h3, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = height, ymin = lower, ymax = upper), 
+    data = mu_summary_hw4h3, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(all_kung$weight))
+```
+
+The fit is much better, although there are still observations outside the interval. Far fewer than before though, and we expect that there should be some exceptional people in the sample. 
+
+The fit is log-linear, so we get this logarithmic curve when plotting with the raw data. 
+
+4H4.
+
+```{r}
+m4_5 <- quap(
+  flist = alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (b1 * weight_s) + (b2 * weight_s2), 
+    a ~ dnorm(178, 20), 
+    b1 ~ dlnorm(0, 1), 
+    b2 ~ dnorm(0, 1), 
+    sigma ~ dunif(0, 50)
+  ), 
+  data = d
+)
+precis(m4_5)
+```
+
+```{r}
+hw4h4_plot_prior <- function(N, 
+                             mu_a, 
+                             sd_a, 
+                             mu_b1, 
+                             sd_b1, 
+                             mu_b2, 
+                             sd_b2) {
+  set.seed(2971)
+  tibble(
+    id = seq_len(N), 
+    a = rnorm(N, mu_a, sd_a), 
+    b1 = rnorm(N, mu_b1, sd_b1), 
+    b2 = rnorm(N, mu_b2, sd_b2)
+  ) %>% 
+    expand(
+      nesting(id, a, b1, b2), 
+      weight_s = seq(-2.2, 2.2, length.out = 100)
+    ) %>% 
+    mutate(weight_s2 = weight_s^2) %>% 
+    mutate(height = a + (b1 * weight_s) + (b2 * weight_s2)) %>% 
+    ggplot(aes(x = weight_s, y = height, group = id)) + 
+    geom_line(alpha = 0.2) + 
+    geom_hline(yintercept = 0, linetype = 2) + 
+    geom_hline(yintercept = 272)
+}
+```
+
+Let's start with the prior from earlier. 
+
+```{r}
+hw4h4_plot_prior(100, 178, 20, 0, 10, 0, 10)
+```
+
+We get quite a few impossible heights, mostly because they are too high. Let's try making the prior for the square term tighter. 
+
+```{r}
+hw4h4_plot_prior(100, 178, 20, 0, 10, 0, sd_b2 = 5)
+```
+
+This does a lot better. We do have a fair number of positive parabolas, which doesn't make sense. We can try setting the mean for the prior on `b2` to be negative. Also tighten the variance on `b2`.
+
+```{r}
+hw4h4_plot_prior(100, 178, 20, 0, 10, mu_b2 = -1, sd_b2 = 3)
+```
+
+These look more reasonable. It's still a bit troubling that highest prediction for height comes at the lowest weight, but this is a weakness of parabolic regression. 
+
+4H5. 
+
+Let's start with a simple linear model to see how well we do. Let $y$ by the blossom date and $x$ be the March temperature. 
+
+$$
+\begin{align}
+y_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i  &=    \alpha + \beta x_i \\
+\alpha &\sim \mathcal{N}(100, 10) \\
+\beta  &\sim \mathcal{N}(0, 5) \\
+\sigma &\sim \text{Expo}(5)
+\end{align}
+$$
+
+
+```{r}
+cherry_hw <- cherry %>% 
+  filter(!(is.na(doy) | is.na(temp)))
+hw_m4h5 <- quap(
+  flist = alist(
+    doy ~ dnorm(mean = mu, sd = sigma), 
+    mu <- a + (b * temp), 
+    a ~ dnorm(mean = 100, sd = 10), 
+    b ~ dnorm(mean = 0, sd = 10), 
+    sigma ~ dexp(1)
+  ), 
+  data = cherry_hw
+)
+precis(hw_m4h5)
+```
+
+```{r}
+set.seed(1236)
+hw_4h5_temps <- seq(4.5, 8.5, by = 0.1)
+
+post_hw4h5 <- extract.samples(hw_m4h5) %>% 
+  as_tibble()
+
+mu_hw4h5 <- link(hw_m4h5, data = tibble(temp = hw_4h5_temps)) %>% 
+  as_tibble(.name_repair = ~ paste(hw_4h5_temps)) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "temp", values_to = "doy") %>% 
+  mutate(temp = as.double(temp))
+
+mu_summary_hw4h5 <- mu_hw4h5 %>% 
+  group_by(temp) %>% 
+  summarise(get_89_PI(doy), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x) %>% 
+  mutate(
+    doy = mean(post_hw4h5$a) + mean(post_hw4h5$b) * temp
+  )
+
+sim_doy_hw4h5 <- sim(hw_m4h5, data = tibble(temp = hw_4h5_temps)) %>% 
+  as_tibble(.name_repair = ~ paste(hw_4h5_temps)) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_to = "temp", values_to = "doy") %>% 
+  mutate(temp = as.double(temp))
+
+doy_PI_hw4h5 <- sim_doy_hw4h5 %>% 
+  group_by(temp) %>% 
+  summarise(get_89_PI(doy), .groups = "drop") %>% 
+  pivot_wider(names_from = "bound", values_from = x)
+
+cherry_hw %>% 
+  ggplot(aes(x = temp)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = doy_PI_hw4h5, 
+    alpha = 0.3
+  ) + 
+  geom_point(aes(y = doy), alpha = 0.3, colour = "steelblue") + 
+  geom_smooth(
+    aes(y = doy, ymin = lower, ymax = upper), 
+    data = mu_summary_hw4h5, 
+    stat = "identity", 
+    colour = "grey25"
+  ) + 
+  coord_cartesian(xlim = range(cherry_hw$temp))
+```
+
+There does seem to be a negative association between `temp` and `doy` (i.e. as temperature rises the blossom date is lower), which makes intuitive sense: warmer temperatures should mean earlier blossom. 
+
+4H6. 
+
+This question sort of follows on from 4M8, where we established that the prior on the weights will control the wiggliness of the curves. Let's look at the prior predictive simulation from the model to get the whole picture. 
+
+```{r}
+# Limit the number of simulations to 100 so that the plot renders within a
+# reasonable time. 
+prior_pred_cherry <- function(model, B, N = 100) {
+  set.seed(1640)
+  
+  c(alpha, sigma, W) %<-% extract.prior(model, n = 100)
+  
+  lines <- apply(W, 1, function(x) B %*% matrix(x, ncol = 1)) %>% 
+    t() %>% 
+    as_tibble(.name_repair = ~ str_c(1:827)) %>% 
+    rowid_to_column(".id") %>% 
+    mutate(alpha = alpha, sigma = sigma) %>% 
+    pivot_longer(-c(.id, alpha, sigma), names_to = "spline_num") %>% 
+    mutate(mu = alpha + value) %>% 
+    mutate(y = rnorm(n = nrow(.), mean = mu, sd = sigma)) %>% 
+    mutate(year = rep(cherry_full$year, 100))
+  
+  summary <- lines %>% 
+    group_by(year) %>% 
+    summarise(
+      across(
+        y, 
+        .fns = list(
+          avg = mean, 
+          lower = ~ quantile(.x, 0.055), 
+          upper = ~ quantile(.x, 0.945)
+        ), 
+        .names = "{.fn}"
+      )
+    )
+  
+  lines %>% 
+    ggplot(aes(x = year)) + 
+    geom_line(aes(y = y, group = .id), alpha = 0.3, colour = "grey50") + 
+    geom_ribbon(
+      aes(ymin = lower, ymax = upper), 
+      data = summary, 
+      alpha = 0.4, 
+      fill = "steelblue"
+    ) + 
+    geom_line(aes(y = avg), data = summary, colour = "steelblue") + 
+    labs(
+      title = "Prior predictive simulation", 
+      subtitle = sprintf(
+        "89pct interval ranges from %.1f to %.1f", 
+        min(summary$lower), 
+        min(summary$upper)
+      )
+    )
+}
+prior_pred_cherry(m4_7, B)
+```
+
+We can try running this again with tighter priors on the weights. 
+
+```{r}
+prior_pred_cherry(
+  quap(
+    flist = alist(
+      D ~ dnorm(mu, sigma), 
+      mu <- a + (B %*% w), 
+      a ~ dnorm(100, 10), 
+      w ~ dnorm(0, 1), 
+      sigma ~ dexp(1)
+    ), 
+    data = list(D = cherry_full[["doy"]], B = B), 
+    start = list(w = rep(0, ncol(B)))
+  ), 
+  B
+)
+```
+
+Not only are the predictions much closer to one another (note the values on the y axis) but the lines themselves are much flatter, with smaller fluctuations from year to year. Try again now with a wider prior. 
+
+```{r}
+prior_pred_cherry(
+  quap(
+    flist = alist(
+      D ~ dnorm(mu, sigma), 
+      mu <- a + (B %*% w), 
+      a ~ dnorm(100, 10), 
+      w ~ dnorm(0, 15), 
+      sigma ~ dexp(1)
+    ), 
+    data = list(D = cherry_full[["doy"]], B = B), 
+    start = list(w = rep(0, ncol(B)))
+  ), 
+  B
+)
+```
+
+The overall range and the wiggliness have increased. 
+
+4H8. 
+
+```{r}
+hw_m4h8 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- B %*% w, # removed `a + ` from before the spline term
+    # a ~ dnorm(100, 10), Don't need this line at all, this was the prior on the 
+    #                     intercept. 
+    w ~ dnorm(0, 10), 
+    sigma ~ dexp(1)
+  ), 
+  data = list(D = cherry_full[["doy"]], B = B), 
+  start = list(w = rep(0, ncol(B)))
+)
+precis(hw_m4h8)
+```
+
+```{r}
+set.seed(733)
+# Don't coerce the result to a tibble because it's already a list, including 
+# vectors/matrices for each parameter separately.
+hw_cherry_post <- extract.samples(hw_m4h8)
+
+hw_cherry_mu <- link(hw_m4h8) %>% 
+  as_tibble(.name_repair = ~ str_c("yr_", cherry_full$year)) %>% 
+  pivot_longer(everything(), names_to = "year", names_prefix = "yr_") %>% 
+  mutate(year = as.integer(year))
+
+hw_cherry_mu_PI <- hw_cherry_mu %>% 
+  group_by(year) %>% 
+  summarise(
+    tibble(x = PI(value, prob = 0.97), bound = c("lower", "upper")), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(names_from = "bound", values_from = "x")
+
+cherry_full %>% 
+  ggplot(aes(x = year)) + 
+  geom_point(aes(y = doy), colour = "steelblue", alpha = 0.3) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = hw_cherry_mu_PI, 
+    alpha = 0.5
+  )
+```
+
+Compare with the same plot for the original model. 
+
+```{r}
+cherry_p
+```
+
+The non-intercept model fits worse at the ends, but then is almost indistinguishable from the intercept model for the rest of the range. 
