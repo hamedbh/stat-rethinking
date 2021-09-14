@@ -1617,8 +1617,7 @@ prior_pred_cherry <- function(model, B, N = 100) {
   
   c(alpha, sigma, W) %<-% extract.prior(model, n = 100)
   
-  lines <- apply(W, 1, function(x) B %*% matrix(x, ncol = 1)) %>% 
-    t() %>% 
+  lines <- (W %*% t(B)) %>% 
     as_tibble(.name_repair = ~ str_c(1:827)) %>% 
     rowid_to_column(".id") %>% 
     mutate(alpha = alpha, sigma = sigma) %>% 
