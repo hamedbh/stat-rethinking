@@ -1,0 +1,1228 @@
+---
+title: "The Many Variables & The Spurious Waffles"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+library(patchwork)
+library(zeallot)
+# library(dagitty)
+library(ggdag)
+library(ggrepel)
+library(magrittr)
+library(tidyverse)
+# set up the theme
+theme_set(theme_light())
+```
+
+Revealing the spurious association between the presence of Waffle Houses and divorce rates. We can plot it to see that there is some association between them. 
+
+```{r}
+data("WaffleDivorce")
+d <- WaffleDivorce %>% 
+  as_tibble() %>% 
+  mutate(
+    D = standardize(Divorce), 
+    M = standardize(Marriage), 
+    A = standardize(MedianAgeMarriage)
+  )
+d %>% 
+  ggplot(aes(WaffleHouses / Population, Divorce)) + 
+  stat_smooth(method = "lm", fullrange = TRUE, colour = "black") + 
+  geom_point(alpha = 0.4, colour = "steelblue") + 
+  geom_text_repel(
+    data = d %>% filter(Loc %in% c("ME", "OK", "AR", "AL", "GA", "SC", "NJ")),  
+    aes(label = Loc), 
+    size = 3, 
+    seed = 1042
+  ) + 
+  labs(x = "Waffle Houses per million", y = "Divorce rate") + 
+  theme(panel.grid = element_blank())
+```
+
+Is it meaningful though? Does it tell us anything about divorce?
+
+## Spurious association
+
+We switch from waffles to the correlation between divorce rate and marriage rate. Does marriage _cause_ divorce? We can try to answer that by considering the relationship between those variables, but also between median age of marriage and and divorce rate. 
+
+Start off with a linear regression model: 
+
+$$
+\begin{align}
+D_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_A A_i \\
+\alpha  &\sim \mathcal{N}(0, 0.2) \\
+\beta_A &\sim \mathcal{N}(0, 0.5) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+We can use this to generate our first model for divorce rate. 
+
+```{r}
+m5_1 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+```
+
+Now do some prior predictive simulation. 
+
+```{r}
+set.seed(10)
+prior_5_1 <- extract.prior(m5_1)
+prior_mu_5_1 <- link(m5_1, post = prior_5_1, data = list(A = c(-2, 2))) %>% 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(
+    -.id, 
+    names_to = "x", 
+    names_transform = list(x = parse_number)
+  )
+prior_mu_5_1 %>% 
+  filter(.id <= 50) %>% 
+  ggplot(aes(x, value, group = .id)) + 
+  geom_line(alpha = 0.3) + 
+  labs(
+    y = "Divorce rate (std)", 
+    x = "Median age marriage (std)"
+  ) + 
+  theme(
+    panel.grid = element_blank()
+  )
+```
+
+The priors on $\alpha$ and $\beta_A$ are keeping the lines sensible. RM suggests trying more vague priors and plotting them, which we can try. 
+
+```{r}
+set.seed(1644)
+quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 1), 
+    bA ~ dnorm(mean = 0, sd = 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+) %>% 
+  {
+    prior <- extract.prior(.)
+    link(., post = prior, data = list(A = c(-2, 2)))
+  } %>% 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(
+    -.id, 
+    names_to = "x", 
+    names_transform = list(x = parse_number)
+  ) %>% 
+  filter(.id <= 50) %>% 
+  ggplot(aes(x, value, group = .id)) + 
+  geom_line(alpha = 0.3) + 
+  labs(y = "Divorce rate (std)", x = "Median age marriage (std)") + 
+  theme(panel.grid = element_blank())
+```
+
+The y axis range has exploded. Does it seem plausible that a value for median age of marriage 2 standard deviations below the mean could be responsible for a divorce rate _six_ standard deviations below the mean? 
+
+Returning to RM's model, we can now do posterior predictive checks. 
+
+```{r}
+set.seed(1650)
+A_seq <- seq(-3, 3, length.out = 31)
+post_mu_5_1 <- link(m5_1, data = list(A = A_seq))
+post_mu_mean_5_1 <- tibble(
+  A = A_seq, 
+  D = colMeans(post_mu_5_1)
+)
+post_mu_PI_5_1 <- apply(post_mu_5_1, 2, PI) %>%
+  t() %>% 
+  as_tibble(.name_repair = ~ c("lower", "upper")) %>% 
+  transmute(A = A_seq, lower, upper)
+fig_5_2_2 <- d %>% 
+  ggplot(aes(A, D)) + 
+  geom_line(data = post_mu_mean_5_1) + 
+  geom_ribbon(
+    aes(x = A, ymin = lower, ymax = upper), 
+    data = post_mu_PI_5_1, 
+    inherit.aes = FALSE, 
+    alpha = 0.4
+  ) + 
+  geom_point(colour = "steelblue", alpha = 0.4) + 
+  labs(
+    y = "Divorce rate (std)", 
+    x = "Median age marriage (std)"
+  ) + 
+  theme(panel.grid = element_blank())
+fig_5_2_2
+```
+
+Now we can do something similar with marriage rate as the predictor. The book skips the prior simulation, but we will do it here. 
+
+```{r}
+m5_2 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+
+set.seed(1714)
+prior_5_2 <- extract.prior(m5_2)
+prior_mu_5_2 <- link(m5_2, post = prior_5_2, data = list(M = c(-2, 2))) %>% 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(
+    -.id, 
+    names_to = "x", 
+    names_transform = list(x = parse_number)
+  )
+prior_mu_5_2 %>% 
+  filter(.id <= 50) %>% 
+  ggplot(aes(x, value, group = .id)) + 
+  geom_line(alpha = 0.3) + 
+  labs(
+    y = "Divorce rate (std)", 
+    x = "Marriage rate (std)"
+  ) + 
+  theme(
+    panel.grid = element_blank()
+  )
+```
+
+
+```{r}
+M_seq <- seq(-3, 3, length.out = 31)
+post_mu_5_2 <- link(m5_2, data = list(M = M_seq))
+post_mu_mean_5_2 <- tibble(
+  M = M_seq, 
+  D = colMeans(post_mu_5_2)
+)
+post_mu_PI_5_2 <- apply(post_mu_5_2, 2, PI) %>%
+  t() %>% 
+  as_tibble(.name_repair = ~ c("lower", "upper")) %>% 
+  transmute(M = M_seq, lower, upper)
+fig_5_2_1 <- d %>% 
+  ggplot(aes(M, D)) + 
+  geom_line(data = post_mu_mean_5_2) + 
+  geom_ribbon(
+    aes(x = M, ymin = lower, ymax = upper), 
+    data = post_mu_PI_5_2, 
+    inherit.aes = FALSE, 
+    alpha = 0.4
+  ) + 
+  geom_point(colour = "steelblue", alpha = 0.4) + 
+  labs(
+    y = "Divorce rate (std)", 
+    x = "Marriage rate (std)"
+  ) + 
+  theme(panel.grid = element_blank())
+
+fig_5_2_1 + fig_5_2_2
+```
+
+This recreates figure 5.2 from the book. 
+
+Soon we will combine these in a multiple regression, but first there is some thinking to do. 
+
+### Think before you regress
+
+RM shows a couple of possible DAGs for the divorce rate problem. The first is: 
+
+```{r}
+dagify(
+  M ~ A, 
+  D ~ A + M, 
+  coords = tibble(
+    name = c("A", "D", "M"), 
+    x = c(0, 1, 2), 
+    y = c(0, -1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_void()
+```
+
+Another is: 
+
+```{r}
+dagify(
+  M ~ A, 
+  D ~ A, 
+  coords = tibble(
+    name = c("A", "D", "M"), 
+    x = c(0, 1, 2), 
+    y = c(0, -1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_void()
+```
+
+The change being that marriage rate no longer affects divorce rate directly, and all of the effect comes from median age of marriage. 
+
+### Testable implications
+
+RM describes the "model's testable implications, its **conditional independence**". Which variables should and should not be associated with one another in the data? And how do these associations change conditional on other variables?
+
+We can look for implied conditional independencies in the two DAGs above. 
+
+```{r}
+dagify(
+  M ~ A, 
+  D ~ A + M
+) %>% 
+  dagitty::impliedConditionalIndependencies()
+
+dagify(
+  M ~ A, 
+  D ~ A
+) %>% 
+  dagitty::impliedConditionalIndependencies()
+```
+
+Nothing from the first, but the second reveals that $D$ is independent of $M$ conditional on $A$. 
+
+### Multiple regression notation
+
+Now we define the model of divorce rate using marriage age and marriage rate. 
+
+$$
+\begin{align}
+D_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_A A_i + \beta_M M_i \\
+\alpha  &\sim \mathcal{N}(0, 0.2) \\
+\beta_A &\sim \mathcal{N}(0, 0.5) \\
+\beta_M &\sim \mathcal{N}(0, 0.5) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+### Approximating the posterior
+
+Now fit the model and start trying to interpret it. 
+
+```{r}
+m5_3 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+precis(m5_3)
+```
+
+The mean estimate for `bM` is close to zero its interval includes negative and positive numbers. Easier to see in a plot. 
+
+```{r}
+coeftab(m5_1, m5_2, m5_3) %>% 
+  plot(par = c("bA", "bM"))
+```
+
+We get consistently negative estimates for `bA` across both models where it's present. Whereas the intervals for `bM` change a lot, depending on whether we know `bA` or not. This implies that $D \perp\!\!\!\perp M | A$, which means the second of our two DAGs was the right one. 
+
+RM suggests that we can investigate the relationship between marriage age and marriage rate, so let's do that. Our DAG assumes that marriage age is causing marriage rate. 
+
+$$
+\begin{align}
+M_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_A A_i \\
+\alpha  &\sim \mathcal{N}(0, 0.2) \\
+\beta_A &\sim \mathcal{N}(0, 0.5) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+```{r}
+m5_4 <- quap(
+  flist = alist(
+    M ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+precis(m5_4)
+plot(coeftab(m5_4))
+```
+
+The interval for `bA` is all negative, which seems to match our intuition: if people tend to get married older then there will be fewer marriages overall. 
+
+RM also suggests that we simulate the divorce problem, so let's do that too but with tidyverse. Note the comments as I did it differently to the book in order to get `bA` to be negative. 
+
+```{r}
+set.seed(840)
+quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = tibble(A = rnorm(50)) %>% 
+    mutate(
+      M = rnorm(50, -A), 
+      D = rnorm(50, -A) # in the book it's A rather than -A
+    )
+) %>% 
+  precis()
+```
+
+### Plotting multivariate posteriors
+
+Three types of plots to use now, as even this model is too complex for a simple scatterplot. 
+
+#### Predictor residual plots
+
+To do this we need to regress one of our predictors on the other. We already did this above, to test the association between marriage rate and marriage age. The model definition was: 
+
+$$
+\begin{align}
+M_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_A A_i \\
+\alpha  &\sim \mathcal{N}(0, 0.2) \\
+\beta_A &\sim \mathcal{N}(0, 0.5) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+We have already estimated the posterior as `m5_4`. We now need to flip this and compute the other way round. The new model definition will be: 
+
+$$
+\begin{align}
+A_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_M M_i \\
+\alpha  &\sim \mathcal{N}(0, 0.2) \\
+\beta_M &\sim \mathcal{N}(0, 0.5) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+```{r}
+m5_4_b <- quap(
+  flist = alist(
+    A ~ dnorm(mu, sigma), 
+    mu <- a + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+```
+
+Now we compute the residuals for each model. 
+
+```{r}
+set.seed(854)
+mu_5_4 <- tibble(mu = link(m5_4) %>% colMeans()) %>% 
+  mutate(resid = d$M - mu) %>% 
+  bind_cols(d)
+mu_5_4
+
+mu_5_4_b <- tibble(mu = link(m5_4_b) %>% colMeans()) %>% 
+  mutate(resid = d$A - mu) %>% 
+  bind_cols(d)
+mu_5_4_b
+```
+
+Here is the first of the plots. 
+
+```{r}
+fig_5_4_1 <- mu_5_4 %>% 
+  ggplot(aes(A, M)) + 
+  geom_point(alpha = 0.4, colour = "steelblue") + 
+  geom_segment(aes(xend = A, yend = mu), size = 1/4) + 
+  geom_line(aes(y = mu)) + 
+  geom_text_repel(
+    data = d %>% filter(Loc %in% c("ME", "HI", "ND", "WY", "DC")),  
+    aes(label = Loc), 
+    size = 3, 
+    seed = 1042
+  ) + 
+  labs(x = "Age at marriage (std)", y = "Marriage rate (std)") + 
+  theme(panel.grid = element_blank())
+fig_5_4_1
+```
+
+We generate the other plot but save it for later when we plot all four. 
+
+```{r}
+fig_5_4_2 <- mu_5_4_b %>% 
+    ggplot(aes(M, A)) + 
+    geom_point(alpha = 0.4, colour = "steelblue") + 
+    geom_segment(aes(xend = M, yend = mu), size = 1/4) + 
+    geom_line(aes(y = mu)) + 
+    geom_text_repel(
+        data = d %>% filter(Loc %in% c("ID", "HI", "DC")),  
+        aes(label = Loc), 
+        
+        seed = 1042
+    ) + 
+    labs(x = "Marriage rate (std)", y = "Age at marriage (std)") + 
+    theme(panel.grid = element_blank())
+```
+
+Now we need to plot the divorce rate with the residuals for each, then show all four plots. 
+
+```{r}
+fig_5_4_3 <- mu_5_4 %>% 
+  ggplot(aes(resid, D)) + 
+  stat_smooth(formula = "y ~ x", method = "lm", colour = "black", alpha = 0.4) + 
+  geom_point(alpha = 0.4, colour = "steelblue") + 
+  geom_text_repel(
+    data = mu_5_4 %>% filter(Loc %in% c("ME", "HI", "DC", "WY", "ND")),  
+    aes(label = Loc), 
+    seed = 1042
+  ) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  labs(x = "Marriage rate residuals", y = "Divorce rate (std)") + 
+  theme(panel.grid = element_blank())
+fig_5_4_4 <- mu_5_4_b %>%
+  ggplot(aes(resid, D)) + 
+  stat_smooth(formula = "y ~ x", method = "lm", colour = "black", alpha = 0.4) + 
+  geom_point(alpha = 0.4, colour = "steelblue") + 
+  geom_text_repel(
+    data = mu_5_4_b %>% filter(Loc %in% c("ID", "HI", "DC")),  
+    aes(label = Loc), 
+    seed = 1042
+  ) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  labs(x = "Age at marriage residuals", y = "Divorce rate (std)") + 
+  theme(panel.grid = element_blank())
+
+fig_5_4_1 + fig_5_4_2 + fig_5_4_3 + fig_5_4_4
+```
+
+#### Posterior prediction plots
+
+Now we "check the model's implied predictions against the observed data". Two reasons given: 
+
+1. Checking that the model correctly approximated the posterior distribution; 
+2. Checking how the model may have failed. 
+
+```{r}
+set.seed(1034)
+link(m5_3) %>% 
+  {
+    tibble(
+      mean = colMeans(.), 
+      lower = apply(., 2, PI)[1, ], 
+      upper = apply(., 2, PI)[2, ]
+    )
+  } %>% 
+  bind_cols(d) %>% 
+  ggplot(aes(D, mean)) + 
+  geom_point(alpha = 0.4, colour = "steelblue") + 
+  geom_abline(linetype = 2, colour = "grey50") + 
+  geom_linerange(aes(ymin = lower, ymax = upper), colour = "steelblue") + 
+  geom_text_repel(
+    data = . %>% filter(Loc %in% c("ID", "UT", "RI", "ME")),  
+    aes(label = Loc), 
+    seed = 1042
+  ) + 
+  labs(x = "Observed divorce", y = "Predicted divorce") + 
+  theme(panel.grid = element_blank())
+```
+
+RM then illustrates spurious association through simulation, which we will repeat here. In this case there is the true causal predictor, which influences both the outcome and another variable (the spurious predictor). 
+
+```{r}
+set.seed(1103)
+tibble(x_real = rnorm(100)) %>% 
+  mutate(x_spur = rnorm(100, x_real), y = rnorm(100, x_real)) %>% 
+  GGally::ggpairs()
+```
+
+The strength of association between the spurious predictor is not dissimilar to that of the real one. 
+
+#### Counterfactual plots
+
+The process here is to imagine some intervention that can change one of our variables, and then simulate how the rest of the parameters change. Note that here we need to estimate the effect of A on M, since that affects D. 
+
+```{r}
+m5_3_A <- quap(
+  flist = alist(
+    # First the model for A -> D <- M
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1), 
+    
+    # Now the model for A -> M
+    M ~ dnorm(mu_M, sigma_M), 
+    mu_M <- aM + (bAM * A), 
+    aM ~ dnorm(mean = 0, sd = 0.2), 
+    bAM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma_M ~ dexp(1)
+  ), 
+  data = d
+)
+```
+
+Now generate some sequence of values for A, and generate predictions. I'll do this without the convenience functions, just to get to grips with what is really happening. 
+
+```{r}
+set.seed(1125)
+# First simulate the posterior values from the model for all parameters
+post_5_3_A <- extract.samples(m5_3_A) %>% 
+  as_tibble()
+# Now for each of the 1,000 rows in that posterior we want to generate an M for
+# every value in A_seq. I'll use RM's new range for A but without creating a new
+# variable, to avoid having two variables with the same name.
+sim_5_3_A <- post_5_3_A %>% 
+  expand(
+    nesting(a, bA, bM, sigma, aM, bAM, sigma_M), 
+    A = seq(-2, 2, length.out = 30)
+  ) %>% 
+  mutate(M = rnorm(nrow(.), mean = aM + (bAM * A), sd = sigma_M)) %>% 
+  # Now that we have an M for each set of parameters we use that to generate
+  # predictions for D
+  mutate(D = rnorm(nrow(.), mean = a + (bA * A) + (bM * M), sd = sigma))
+
+# We can now summarise the predictions, ready for plotting
+summary_5_3_A <- sim_5_3_A %>% 
+  pivot_longer(c(M, D), names_to = "var") %>% 
+  group_by(A, var) %>% 
+  summarise(
+    tibble(
+      stat = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(
+    names_from = c(var, stat)
+  ) 
+
+# Now generate the plots
+(
+  summary_5_3_A %>% 
+    ggplot(aes(A)) + 
+    geom_line(aes(y = D_mean)) + 
+    geom_ribbon(aes(ymin = D_lower, ymax = D_upper), alpha = 0.3) + 
+    labs(
+      title = "Total counterfactual effect of A on D", 
+      x = "manipulated A", 
+      y = "counterfactual D"
+    ) + 
+    theme(panel.grid = element_blank())
+) + 
+  (
+    summary_5_3_A %>% 
+      ggplot(aes(A)) + 
+      geom_line(aes(y = M_mean)) + 
+      geom_ribbon(aes(ymin = M_lower, ymax = M_upper), alpha = 0.3) + 
+      labs(
+        title = "Total counterfactual effect of A -> M", 
+        x = "manipulated A", 
+        y = "counterfactual M"
+      ) + 
+      theme(panel.grid = element_blank())
+  )
+```
+
+Both plots tell the story that as A increases we expect both marriage rate and divorce rate to go down. 
+
+We then try manipulating M. The implied dag is: 
+
+```{r}
+dagify(
+  D ~ A, 
+  D ~ M, 
+  coords = tibble(
+    name = c("A", "D", "M"), 
+    x = c(0, 1, 2), 
+    y = c(0, -1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_void()
+```
+
+The association between M and A no longer exists because we will be controlling M completely. Run the simulation again: we already have the posterior samples in `post_5_3_A`. So we are varying M, then we hold A constant at 0. What happens to D? 
+
+```{r}
+post_5_3_A %>% 
+  expand(
+    nesting(a, bM, sigma), 
+    M = seq(-2, 2, length.out = 30)
+  ) %>% 
+  mutate(D = rnorm(nrow(.), mean = a + (bM * M), sd = sigma)) %>% 
+  pivot_longer(c(D), names_to = "var") %>% 
+  group_by(M, var) %>% 
+  summarise(
+    tibble(
+      stat = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(
+    names_from = c(var, stat)
+  ) %>% 
+  ggplot(aes(M)) + 
+    geom_line(aes(y = D_mean)) + 
+    geom_ribbon(aes(ymin = D_lower, ymax = D_upper), alpha = 0.3) + 
+    labs(
+      title = "Total counterfactual effect of M on D", 
+      x = "manipulated M", 
+      y = "counterfactual D"
+    ) + 
+    theme(panel.grid = element_blank())
+```
+
+The trend is quite weak, which matches with the results from earlier modelling. 
+
+## Masked relationship
+
+Masked relationships tend to occur when two predictor variables are correlated with each other, and each affects the outcome variable in opposite directions. 
+
+```{r}
+data("milk")
+dmilk <- milk %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    K = standardize(kcal_per_g), 
+    N = standardize(neocortex_perc), 
+    M = standardize(log(mass))
+  )
+dmilk
+```
+
+Those `NA` values for `N` will cause problems, so we drop them before modelling. 
+
+```{r}
+dmilk_cc <- dmilk %>% 
+  drop_na(K, N, M)
+```
+
+Now build the model. The first one is a simple linear model . 
+
+$$
+\begin{align}
+K_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_N N_i \\
+\alpha  &\sim \mathcal{N}(0, 1) \\
+\beta_N &\sim \mathcal{N}(0, 1) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+Note that the priors on the coefficients for the linear model here are wider than before. Some prior predictive checks will tell us how reasonable this is, compared with the model we will end up using. 
+
+```{r}
+m5_5_draft <- quap(
+  flist = alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bN * N), 
+    a ~ dnorm(mean = 0, sd = 1), 
+    bN ~ dnorm(mean = 0, sd = 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk_cc
+)
+set.seed(1333)
+fig_5_8_1 <- link(
+  m5_5_draft, 
+  post = extract.prior(m5_5_draft), 
+  data = tibble(N = c(-2, 2))
+) %>% 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(
+    -.id, 
+    names_to = "x", 
+    names_transform = list(x = parse_number)
+  ) %>% 
+  filter(.id <= 50) %>% 
+  ggplot(aes(x, value, group = .id)) + 
+  geom_line(alpha = 0.3) + 
+  coord_cartesian(xlim = c(-2, 2), ylim = c(-2, 2)) + 
+  labs(
+    title = "a ~ dnorm(0, 1); bN ~ dnorm(0, 1)", 
+    x = "neocortex percent (std)", 
+    y = "kilocal per g (std)"
+  ) + 
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+m5_5 <- quap(
+  flist = alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bN * N), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bN ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk_cc
+)
+set.seed(1350)
+fig_5_8_2 <- link(
+  m5_5, 
+  post = extract.prior(m5_5), 
+  data = tibble(N = c(-2, 2))
+) %>% 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(
+    -.id, 
+    names_to = "x", 
+    names_transform = list(x = parse_number)
+  ) %>% 
+  filter(.id <= 50) %>% 
+  ggplot(aes(x, value, group = .id)) + 
+  geom_line(alpha = 0.3) + 
+  coord_cartesian(xlim = c(-2, 2), ylim = c(-2, 2)) + 
+  labs(
+    title = "a ~ dnorm(0, 0.2); bN ~ dnorm(0, 0.5)", 
+    x = "neocortex percent (std)", 
+    y = "kilocal per g (std)"
+  ) + 
+  theme(panel.grid = element_blank())
+fig_5_8_1 + fig_5_8_2
+```
+
+The stricter priors give us more reasonable predictions. 
+
+Now we can generate predictions for the linear part of the model and plot them with the actual data. 
+
+```{r}
+set.seed(1356)
+N_seq <- seq(min(dmilk_cc$N) - 0.15, max(dmilk_cc$N) + 0.15, length.out = 30)
+post_pred_5_5 <- link(m5_5, data = list(N = N_seq)) %>% 
+  as_tibble(.name_repair = ~ str_c(N_seq))
+post_summary_5_5 <- post_pred_5_5 %>% 
+  pivot_longer(
+    everything(), 
+    names_to = "N", 
+    names_transform = list(N = parse_number)
+  ) %>% 
+  group_by(N) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider()
+
+fig_5_9_1 <- dmilk_cc %>% 
+  ggplot(aes(x = N)) + 
+  geom_point(aes(y = K), alpha = 0.4, colour = "steelblue") + 
+  geom_line(aes(y = mean), data = post_summary_5_5) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = post_summary_5_5, 
+    alpha = 0.3
+  ) + 
+  labs(x = "necortex percent (std)", y = "kilocal per g (std)") + 
+  theme(panel.grid = element_blank())
+fig_5_9_1
+```
+
+Now we will repeat the process but regressing K on M. 
+
+```{r}
+set.seed(1411)
+m5_6 <- quap(
+  flist = alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk_cc
+)
+
+M_seq <- seq(min(dmilk_cc$M) - 0.15, max(dmilk_cc$M) + 0.15, length.out = 30)
+post_pred_5_6 <- link(m5_6, data = list(M = M_seq)) %>% 
+  as_tibble(.name_repair = ~ str_c(M_seq))
+post_summary_5_6 <- post_pred_5_6 %>% 
+  pivot_longer(
+    everything(), 
+    names_to = "M", 
+    names_transform = list(M = parse_number)
+  ) %>% 
+  group_by(M) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider()
+
+fig_5_9_2 <- dmilk_cc %>% 
+  ggplot(aes(x = M)) + 
+  geom_point(aes(y = K), alpha = 0.4, colour = "steelblue") + 
+  geom_line(aes(y = mean), data = post_summary_5_6) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper), 
+    data = post_summary_5_6, 
+    alpha = 0.3
+  ) + 
+  labs(x = "log body mass (std)", y = "kilocal per g (std)") + 
+  theme(panel.grid = element_blank())
+fig_5_9_1 + fig_5_9_2
+```
+
+Now we put both predictors into a multiple regression with K. 
+
+```{r}
+m5_7 <- quap(
+  flist = alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bN * N) + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bN ~ dnorm(mean = 0, sd = 0.5), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk_cc
+)
+precis(m5_7)
+```
+
+We now get stronger association for each of the predictors with the outcome. The plot tells the story more clearly. 
+
+```{r}
+plot(coeftab(m5_5, m5_6, m5_7), pars = c("bM", "bN"))
+```
+
+For both predictors the interval in the multiple regression excludes 0. Why?
+
+We can look at a pairs plot quickly to get a clue. 
+
+```{r}
+dmilk_cc %>% 
+  GGally::ggpairs(columns = c("M", "N", "K"))
+```
+
+Now we get the counterfactual plots, and put everything together. 
+
+```{r}
+set.seed(1455)
+fig_5_9_1 + fig_5_9_2 + (
+  link(m5_7, data = tibble(N = N_seq, M = 0)) %>% 
+    as_tibble(.name_repair = ~ str_c(N_seq)) %>% 
+    pivot_longer(
+      everything(), 
+      names_to = "N", 
+      names_transform = list(N = parse_number)
+    ) %>% 
+    group_by(N) %>% 
+    summarise(
+      tibble(
+        stat = c("mean", "lower", "upper"), 
+        value = c(mean(value), PI(value))
+      ), 
+      .groups = "drop"
+    ) %>% 
+    pivot_wider(names_from = stat) %>% 
+    ggplot(aes(N)) + 
+    geom_line(aes(y = mean)) + 
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
+    labs(
+      title = "Counterfactual holding M = 0", 
+      x = "neocortex percent (std)", 
+      y = "kilocal per g (std)"
+    ) + 
+    theme(panel.grid = element_blank())
+) + (
+  link(m5_7, data = tibble(M = M_seq, N = 0)) %>% 
+    as_tibble(.name_repair = ~ str_c(M_seq)) %>% 
+    pivot_longer(
+      everything(), 
+      names_to = "M", 
+      names_transform = list(M = parse_number)
+    ) %>% 
+    group_by(M) %>% 
+    summarise(
+      tibble(
+        stat = c("mean", "lower", "upper"), 
+        value = c(mean(value), PI(value))
+      ), 
+      .groups = "drop"
+    ) %>% 
+    pivot_wider(names_from = stat) %>% 
+    ggplot(aes(M)) + 
+    geom_line(aes(y = mean)) + 
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
+    labs(
+      title = "Counterfactual holding N = 0", 
+      x = "log body mass (std)", 
+      y = "kilocal per g (std)"
+    ) + 
+    theme(panel.grid = element_blank())
+)
+```
+
+In the Overthinking section RM shows how to simulate data consistent with each of the DAGs. Starting from left on page 151, for each showing the DAG and then the pairs plots.
+
+```{r}
+dagify(
+  N ~ M, 
+  K ~ M + N, 
+  coords = tibble(
+    name = c("M", "N", "K"), 
+    x = c(1, 3, 2), 
+    y = c(1, 1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+set.seed(1519)
+tibble(M = rnorm(100)) %>% 
+  mutate(N = rnorm(100, M)) %>% 
+  mutate(K = rnorm(100, N - M)) %>% 
+  GGally::ggpairs()
+```
+
+```{r}
+dagify(
+  M ~ N, 
+  K ~ M + N, 
+  coords = tibble(
+    name = c("M", "N", "K"), 
+    x = c(1, 3, 2), 
+    y = c(1, 1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_void()
+set.seed(1530)
+tibble(N = rnorm(100)) %>% 
+  mutate(M = rnorm(100, N)) %>% 
+  mutate(K = rnorm(100, N - M)) %>% 
+  select(M, N, K) %>% 
+  GGally::ggpairs()
+```
+
+```{r}
+dagify(
+  M ~ U, 
+  N ~ U, 
+  K ~ M + N, 
+  latent = "U", 
+  coords = tibble(
+    name = c("M", "N", "K", "U"), 
+    x = c(1, 3, 2, 2), 
+    y = c(1, 1, 0, 1)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+set.seed(1544)
+tibble(U = rnorm(100)) %>% 
+  mutate(M = rnorm(100, U), N = rnorm(100, U)) %>% 
+  mutate(K = rnorm(100, N - M)) %>% 
+  select(M, N, K) %>% 
+  GGally::ggpairs()
+```
+
+Now we can find the set of all DAGs that are **Markov equivalent** with the first DAG (which the subject matter knowledge would imply to be true). 
+
+```{r}
+dagify(
+  N ~ M, 
+  K ~ M + N, 
+  coords = tibble(
+    name = c("M", "N", "K"), 
+    x = c(1, 3, 2), 
+    y = c(1, 1, 0)
+  )
+) %>% 
+  ggdag_equivalent_dags() + 
+  theme_dag()
+```
+
+Not totally sure what to do with this. Which ones are not possible?
+
+## Categorical variables
+
+Now need to learn about handling categorical variables. RM shows both dummy encoding and index variables, although he prefers the latter. 
+
+### Binary categories
+
+Returning to the !Kung data from earlier. 
+
+```{r}
+data("Howell1")
+dheight <- Howell1 %>% 
+  as_tibble() %>% 
+  mutate(sex = male + 1L)
+dheight
+```
+
+The `male` variable will be our category, as it is **DISCRETE** and **UNORDERED**. (The `sex` variable is for use a bit later ...)
+
+First approach will be to include the `male` variable in the model directly, so that it 'switches on' the relevant coefficient for people who are male. 
+
+$$
+\begin{align}
+h_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_m m_i \\
+\alpha  &\sim \mathcal{N}(178, 20) \\
+\beta_m &\sim \mathcal{N}(0, 10) \\
+\sigma  &\sim \text{Uniform}(0, 50)
+\end{align}
+$$
+
+The problem with this is that female is now the 'default' in our model, and the uncertainty in $\beta_m$ will only affect males. This is easy to see by simulating from the prior. 
+
+```{r}
+set.seed(1711)
+tibble(
+  female = rnorm(1e4, 178, 20), 
+  male = rnorm(1e4, 178, 20) + rnorm(1e4, 0, 10)
+) %>% 
+  precis()
+```
+
+The standard deviation for males is higher than that of females: in this case because we are adding normal distributions for males we can get an analytical solution. The variances add, so we get: 
+
+```{r}
+round(sqrt(20^2 + 10^2), 2)
+```
+
+This is what we get from the simulation (within Monte Carlo error). 
+
+The alternative is to use an index variable. So that instead of using the 1/0 value to switch on/off a single parameter, we estimate parameters for each level of the categorical variable. 
+
+$$
+\begin{align}
+h_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha_{SEX[i]} \\
+\alpha_j  &\sim \mathcal{N}(178, 20) \: \text{for} \: j \in \{1, 2\} \\
+\sigma  &\sim \text{Uniform}(0, 50)
+\end{align}
+$$
+
+Now each $\alpha_j$ has a clear interpretation: the expected height for each $j$ (i.e. each sex). 
+
+Now we can estimate the posterior for this model. 
+
+```{r}
+m_5_8 <- quap(
+  flist = alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a[sex], 
+    a[sex] ~ dnorm(178, 20), 
+    sigma ~ dunif(0, 50)
+  ), 
+  data = dheight
+)
+precis(m_5_8, depth = 2)
+```
+
+If we want to understand the difference between the categories we can use simulation. 
+
+```{r}
+set.seed(1724)
+m_5_8 %>% 
+  extract.samples() %>%
+  {
+    diff_fm <- .$a[, 1] - .$a[, 2]
+    list(sigma = .$sigma, a = .$a, diff_fm = diff_fm)
+  } %>% 
+  precis(depth = 2)
+```
+
+### Many categories
+
+The index variable approach is flexible enough to use with variables that have many categories. 
+
+```{r}
+dmilk_clade <- dmilk %>% 
+  # Coercing the factor to integer just pulls out the underlying integer for
+  # group id
+  mutate(clade_id = as.integer(clade))
+```
+
+Now we can build a model for milk energy in each clade. 
+
+$$
+\begin{align}
+K_i      &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i    &= \alpha_{CLADE[i]} \\ 
+\alpha_j &\sim \mathcal{N}(0, 0.5) \: \text{for} \: j \in \{1, \dots, 4\} \\
+\sigma   &\sim \text{Expo}(1)
+\end{align}
+$$
+
+```{r}
+m5_9 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a[clade_id], 
+    a[clade_id] ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk_clade
+)
+precis(m5_9, depth = 2, pars = "a") %>% 
+  plot(
+    labels = str_c("a[", 1:4, "]:", levels(dmilk$clade)), 
+    xlab = "expected kcal (std)"
+  )
+```
+
+Now we can add some nonsense predictor and see how it works. 
+
+```{r}
+set.seed(63)
+dmilk_house <- dmilk_clade %>% 
+  mutate(house = sample(rep(1:4, each = 8), size = nrow(dmilk_clade)))
+m5_10 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a[clade_id] + h[house], 
+    a[clade_id] ~ dnorm(0, 0.5), 
+    h[house] ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk_house
+)
+precis(m5_10, depth = 2, pars = "h") %>% 
+  plot(
+    labels = str_c(
+      "h[", 
+      1:4, 
+      "]:", 
+      c("Gryffindor", "Hufflepuff", "Ravenclaw", "Slytherin")
+      ), 
+    xlab = "expected kcal (std)"
+  )
+```
+
+Slytherin stands out, as RM said it would. 
