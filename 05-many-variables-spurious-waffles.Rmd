@@ -1226,3 +1226,468 @@ precis(m5_10, depth = 2, pars = "h") %>%
 ```
 
 Slytherin stands out, as RM said it would. 
+
+## Practice
+
+### Easy
+
+5E1. 
+
+2 and 4 are multiple linear regressions, as each of them has two predictors with their own parameters. 1 has just $x$. 3 has both $x$ and $z$, but one is subtracted from the other and they are multiplied by a single parameter. We can see this more easily by making a substitution: let $u = x - z$, and rewrite number 3 as $\mu_i = \alpha + \beta u$. This is obviously not multiple regression. 
+
+5E2. 
+
+Let $A$ be animal diversity, $L$ be latitude, and $D$ be plant diversity. Then the model definition would be: 
+
+$$
+\begin{align}
+A_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_L L_i + \beta_D D_i \\
+\alpha  &\sim \mathcal{N}(0, 1) \\
+\beta_L &\sim \mathcal{N}(0, 1) \\
+\beta_D &\sim \mathcal{N}(0, 1) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+Those priors may be too wide for the particular problem, but this lays out the structure. 
+
+5E3. 
+
+Let $T$ be time to PhD degree, $D$ be funding, and $L$ be size of laboratory. Then the model would be: 
+
+$$
+\begin{align}
+T_i     &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i   &=    \alpha + \beta_L L_i + \beta_D D_i \\
+\alpha  &\sim \mathcal{N}(0, 1) \\
+\beta_L &\sim \mathcal{N}(0, 1) \\
+\beta_D &\sim \mathcal{N}(0, 1) \\
+\sigma  &\sim \text{Expo}(1)
+\end{align}
+$$
+
+There is some ambiguity in the wording of the question, which says "_together these variables are both **positively associated** with time to degree_". Does that mean as they increase the time to degree increases? Or is "positively" meant more colloquially, so that as $D$ and $L$ increase the student gets a more 'positive' outcome (i.e. completing their PhD in less time). 
+
+If it's the latter then we would expect both coefficients to be negative, if it's the former they would be positive. 
+
+5E4. 
+
+1, 3, 4, and 5 all have four parameters, so they are maybe equivalent in some sense. But they won't give the same predictions in general. 
+
+### Medium
+
+5M1. 
+
+Let $x$ be the number of hours per week a person spends in the gym, $s$ the amount of protein shakes a person drinks each week, and $y$ the amount of of weight a person lifts in a week. Then we can set up our toy model and check the correlations. 
+
+```{r}
+set.seed(1054)
+tibble(x = rnorm(1e3)) %>% 
+  mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x)) %>% 
+  corrr::correlate()
+```
+
+Now we can run the quap model and get the parameter estimates. 
+
+```{r}
+set.seed(1054)
+quap(
+  alist(
+    y ~ dnorm(mu, sigma), 
+    mu <- a + (bS * s) + (bX *x), 
+    a ~ dnorm(0, 1), 
+    bS ~ dnorm(0, 1), 
+    bX ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = tibble(x = rnorm(1e3)) %>% 
+    mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x))
+) %>% 
+  precis()
+```
+
+Those priors are rather wide but there are enough observations that it doesn't matter: we get almost exactly the true parameters back from the model. But if we were to repeat it with only $s$ as a predictor: 
+
+```{r}
+set.seed(1054)
+quap(
+  alist(
+    y ~ dnorm(mu, sigma), 
+    mu <- a + (bS * s), 
+    a ~ dnorm(0, 1), 
+    bS ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = tibble(x = rnorm(1e3)) %>% 
+    mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x))
+) %>% 
+  precis()
+```
+
+Note that as well as getting a positive coefficient for $\beta_S$ the estimate for $\sigma$ is higher than the true value: using this spurious predictor increases our uncertainty about the outcome variable. 
+
+5M2. 
+
+We can consider the effects of eating out and income on health (however measured). We would expect that each of the predictors will have opposite effects on health: eating out will tend to mean eating less healthy food; richer people tend to be in better health. However richer people can afford to eat out more regularly, so the predictors would be correlated also. 
+
+5M3. 
+
+People may be getting divorced in order to remarry. Certainly it at least gives them the option to remarry: if people marry more than once on average that will tend to increase the number of marriages. 
+
+We could analyse this by breaking out first marriages, second, etc. 
+
+5M4. 
+
+I found data on [Wikipedia][1] for membership of the LDS. 
+
+```{r}
+read_rds(here::here("data/LDS.rds"))
+```
+
+Now we can bind this to the rest of the data and use it as a predictor. RM has given a hint that we may want to transform the LDS membership. Let's plot it and see why. 
+
+```{r}
+read_rds(here::here("data/LDS.rds")) %>% 
+  ggplot(aes(LDS)) + 
+  geom_histogram(binwidth = 0.05)
+```
+
+The data have a strong right skew. We can take its common log before using in our model, as well as standardising it as we did the other predictors above.  
+
+```{r}
+hw_5m4_d <- d %>% 
+  inner_join(read_rds(here::here("data/LDS.rds")), by = "Loc") %>% 
+  mutate(L = standardize(log10(LDS)))
+hw_5m4_d
+
+hw_5m4_d %>% 
+  ggplot(aes(L)) + 
+  geom_histogram()
+```
+
+
+```{r}
+quap(
+  alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bM * M) + (bL * L), 
+    a ~ dnorm(0, 0.2), 
+    bA ~ dnorm(0, 1), 
+    bM ~ dnorm(0, 1), 
+    bL ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = hw_5m4_d
+) %>% 
+  precis()
+```
+
+The coefficient on $L$ is reliably negative, confirming the intuition that it will tend to reduce the divorce rate. 
+
+5M5. 
+
+
+### Hard
+
+5H1. 
+
+We can check the implied conditional independencies with {dagitty}. 
+
+```{r}
+dag("M -> A -> D") %>% 
+  dagitty::impliedConditionalIndependencies()
+```
+
+$D$ is independent of $M$ given $A$. If this were correct we would expect a multiple regression with $D \sim A + M$ to estimate the coefficient for $M$ to be close to 0. We already fit that model earlier, we can plot the results again along with the models for the univariate regressions. 
+
+```{r}
+plot(coeftab(m5_1, m5_3, m5_3_A), par = c("bA", "bM", "bAM"))
+```
+
+The coefficient on $M$ in the multiple regression model (`m5_3`) is around 0, which is consistent with the data. We also see the expected correlations between $A$ and $M$ in `m5_3_A`, and that between $A$ and $D$ in `m5_1`.
+
+5H2. 
+
+Our new DAG is: 
+
+```{r}
+dagify(
+  D ~ A, 
+  A ~ M, 
+  coords = tibble(
+    name = c("M", "A", "D"), 
+    x = c(1, 3, 2), 
+    y = c(1, 1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+So all of the effect of $M$ is mediated by $A$. So we need to build our model in such a way that $A$ is a function of $M$, and $D$ is a function of $A$. 
+
+```{r}
+m_hw_5h2 <- quap(
+  flist = alist(
+    # First the model for A -> D
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1), 
+    
+    # Now the model for M -> A
+    A ~ dnorm(mu_A, sigma_A), 
+    mu_A <- aM + (bM * M), 
+    aM ~ dnorm(mean = 0, sd = 0.2), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma_A ~ dexp(1)
+  ), 
+  # Change M so that it is log() of the original marriage rate
+  data = d
+)
+precis(m_hw_5h2)
+```
+
+Now we have our model we can use it to generate samples: first samples of $A$, then of $D$, all deriving from the manipulated values of $M$. We can estimate the effect of halving the marriage rate by comparing the values at 1 and 0.5. 
+
+```{r}
+set.seed(1508)
+M_seq <- seq(-2, 2, length.out = 51)
+sim_hw_5h2 <- sim(m_hw_5h2, data = tibble(M = M_seq), vars = c("A", "D")) %>% 
+  pluck("D") %>% 
+  as_tibble(.name_repair = ~ str_c(M_seq)) %>% 
+  pivot_longer(
+    everything(), 
+    names_to = "M", 
+    names_transform = list(M = parse_number)
+  )
+
+summary_hw_5h2 <- sim_hw_5h2 %>% 
+  group_by(M) %>% 
+  summarise(
+    tibble(
+      stat = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(names_from = stat)
+
+hw_5h2_halving_diff <- summary_hw_5h2 %>% 
+        filter(between(M, 0.45, 1.05)) %>% 
+        filter(M == first(M) | M == last(M)) %>% 
+        pull(mean) %>% 
+        diff()
+
+summary_hw_5h2 %>% 
+  ggplot(aes(M, y = mean)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
+  labs(
+    title = "Counterfactual effect on D of varying M", 
+    subtitle = sprintf(
+      "Approx. reduction in divorce rate by halving marriage rate: %0.2f", 
+      abs(hw_5h2_halving_diff)
+    ), 
+    x = "Manipulated marriage rate", 
+    y = "Divorce rate (std)"
+  )
+```
+
+So halving the marriage rate from 1 to 0.5 will (according to this counterfactual) reduce the divorce rate by `round(hw_5h2_halving_diff, digits = 2)` standard deviations. 
+
+5H3. 
+
+Our new DAG is: 
+
+```{r}
+dagify(
+  N ~ M, 
+  K ~ M + N, 
+  coords = tibble(
+    name = c("M", "N", "K"), 
+    x = c(1, 3, 2), 
+    y = c(1, 1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+So we need to build our model in such a way that $N$ is a function of $M$, and $K$ is a function of $N$ and $M$. 
+
+```{r}
+m_hw_5h3 <- quap(
+  flist = alist(
+    # First the model for M -> K <- N
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bM * M) + (bN * N), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    bN ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1), 
+    
+    # Now the model for M -> N
+    N ~ dnorm(mu_N, sigma_N), 
+    mu_N <- aN + (bNM * M), 
+    aN ~ dnorm(mean = 0, sd = 0.2), 
+    bNM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma_N ~ dexp(1)
+  ), 
+  # Change M so that it is log() of the original marriage rate
+  data = dmilk_cc
+)
+precis(m_hw_5h3)
+```
+
+Now we have our model we can use it to generate samples: first samples of $N$, then of $K$, all deriving from the manipulated values of $M$. We can estimate the effect of doubling log-mass by comparing the values at 1 and 0.5. 
+
+```{r}
+set.seed(1144)
+sim_hw_5h3 <- sim(m_hw_5h3, data = tibble(M = M_seq), vars = c("N", "K")) %>% 
+  pluck("K") %>% 
+  as_tibble(.name_repair = ~ str_c(M_seq)) %>% 
+  pivot_longer(
+    everything(), 
+    names_to = "M", 
+    names_transform = list(M = parse_number)
+  )
+
+summary_hw_5h3 <- sim_hw_5h3 %>% 
+  group_by(M) %>% 
+  summarise(
+    tibble(
+      stat = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(names_from = stat)
+
+hw_5h3_doubling_diff <- summary_hw_5h3 %>% 
+        filter(between(M, 0.45, 1.05)) %>% 
+        filter(M == first(M) | M == last(M)) %>% 
+        pull(mean) %>% 
+        diff()
+
+summary_hw_5h3 %>% 
+  ggplot(aes(M, y = mean)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
+  labs(
+    title = "Counterfactual effect on K of varying M", 
+    subtitle = sprintf(
+      "Approx. reduction in milk energy by doubling log-mass: %0.2f", 
+      abs(hw_5h3_doubling_diff)
+    ), 
+    x = "Manipulated log mass", 
+    y = "Milk energy (std)"
+  )
+```
+
+So doubling the log-mass from 0.5 to 1 will (according to this counterfactual) reduce the milk energy by `round(abs(hw_5h3_halving_diff), digits = 2)` standard deviations.
+
+5H4. 
+
+First revisit the divorce data. 
+
+```{r}
+d_hw_5h4 <- d %>% 
+  transmute(Loc, D, M, A, S = South + 1L)
+
+d_hw_5h4
+
+# Quick summary
+d_hw_5h4 %>% 
+  group_by(S) %>% 
+  summarise(across(D, .fns = ~ round(mean(.x), 2)), .groups = "drop")
+```
+
+States in the South are about 0.55 standard deviations above the mean, qhile the other states are 0.21 standard deviations _below_ the mean. That's quite a difference. What sort of DAG would make sense? 
+
+One question to consider is how $S$ (the indicator of being in the South) affects $D$: 
+
+- Directly; 
+- Only via $M$ and $A$; 
+- Both. 
+
+The last seems the most reasonable to me: we can expect that cultural and economic factors in the South will affect $M$ and $A$, but that there are other effects of the South on $D$. We also saw in the earlier examples that $M$ isn't much use once we know $A$, so we can try dropping that variable. That implies the following DAG: 
+
+```{r}
+dagify(
+  M ~ S, 
+  D ~ S + M, 
+  coords = tibble(
+    name = c("M", "S", "D"), 
+    x = c(0, 2, 1), 
+    y = c(1, 1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+What are the implied conditional independencies in this DAG?
+
+```{r}
+dag("S -> M; M -> D <- S") %>% 
+  dagitty::impliedConditionalIndependencies()
+```
+
+There are none. So we can move on to modelling. 
+
+```{r}
+m_hw_5h4 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a[S] + (bA * A), 
+    a[S] ~ dnorm(0, 0.5), 
+    bA ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d_hw_5h4
+)
+
+m_hw_5h4 %>% 
+  precis(depth = 2)
+```
+
+As expected the `a` parameter for the South group (i.e. `a[2]`) is higher than that of the non-Southern states. This is perhaps an example of the sort of masking relationship we saw in the primate milk problems above: $S$ and $M$ are correlated with each other and they each affect $D$ in opposite directions. We can try drawing some samples and looking at the difference between Southern and non-Southern states. 
+
+```{r}
+set.seed(1757)
+post_hw_5h4 <- extract.samples(m_hw_5h4) %>% 
+  with(tibble(bA, sigma, a1 = a[, 1], a2 = a[, 2])) %>% 
+  mutate(south_diff = a2 - a1)
+
+post_hw_5h4 %>% 
+  precis()
+```
+
+So the expected change in divorce rate based on being in the South is `r round(mean(post_hw_5h4[["south_diff"]]), digits = 2)`. We can also try plotting it. 
+
+```{r}
+post_hw_5h4 %>% 
+  select(-sigma) %>% 
+  pivot_longer(everything()) %>% 
+  group_by(name) %>% 
+  summarise(
+    tibble(
+      stat = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider(names_from = stat) %>% 
+  ggplot(aes(y = fct_rev(name), colour = fct_rev(name))) + 
+  geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") + 
+  labs(x = NULL, y = NULL) + 
+  theme(legend.position = "none")
+```
+
+The interval on `south_diff` is rather wide. This feels like an OK model, but probably the material in the next chapter on DAGS, colliders, etc. would improve it. 
+
+[1]: https://en.wikipedia.org/wiki/The_Church_of_Jesus_Christ_of_Latter-day_Saints_membership_statistics_(United_States)
