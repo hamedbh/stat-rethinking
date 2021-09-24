@@ -1279,7 +1279,7 @@ If it's the latter then we would expect both coefficients to be negative, if it'
 
 5M1. 
 
-Let $x$ be the number of hours per week a person spends in the gym, $s$ the amount of protein shakes a person drinks each week, and $y$ the amount of of weight a person lifts in a week. Then we can set up our toy model and check the correlations. 
+Let $x$ be the number of hours per week a person spends in the gym, $s$ the amount of protein shakes a person drinks each week, and $y$ the amount of weight a person lifts in a week. Then we can set up our toy model and check the correlations. 
 
 ```{r}
 set.seed(1054)
@@ -1373,9 +1373,9 @@ quap(
     D ~ dnorm(mu, sigma), 
     mu <- a + (bA * A) + (bM * M) + (bL * L), 
     a ~ dnorm(0, 0.2), 
-    bA ~ dnorm(0, 1), 
-    bM ~ dnorm(0, 1), 
-    bL ~ dnorm(0, 1), 
+    bA ~ dnorm(0, 0.5), 
+    bM ~ dnorm(0, 0.5), 
+    bL ~ dnorm(0, 0.5), 
     sigma ~ dexp(1)
   ), 
   data = hw_5m4_d
@@ -1444,7 +1444,6 @@ m_hw_5h2 <- quap(
     bM ~ dnorm(mean = 0, sd = 0.5), 
     sigma_A ~ dexp(1)
   ), 
-  # Change M so that it is log() of the original marriage rate
   data = d
 )
 precis(m_hw_5h2)
@@ -1536,7 +1535,6 @@ m_hw_5h3 <- quap(
     bNM ~ dnorm(mean = 0, sd = 0.5), 
     sigma_N ~ dexp(1)
   ), 
-  # Change M so that it is log() of the original marriage rate
   data = dmilk_cc
 )
 precis(m_hw_5h3)

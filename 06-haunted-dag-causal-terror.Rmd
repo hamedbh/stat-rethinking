@@ -1,0 +1,1068 @@
+---
+title: "The Many Variables & The Spurious Waffles"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+library(patchwork)
+library(zeallot)
+library(ggdag)
+library(ggrepel)
+library(magrittr)
+library(corrr)
+library(tidyverse)
+# set up the theme
+theme_set(theme_light())
+```
+
+Let's first do the simulation of _Berkson's Paradox_ that RM shows. 
+
+```{r}
+set.seed(1941)
+berkson_ex <- tibble(nw = rnorm(200), tw = rnorm(200)) %>% 
+  mutate(selected = ntile(nw + tw, 10) == 10)
+
+berkson_ex %>% 
+  ggplot(aes(nw, tw, colour = selected, fill = selected)) + 
+  geom_point(alpha = 0.4) + 
+  stat_smooth(
+    data = . %>% filter(selected), 
+    formula = "y ~ x", 
+    method = "lm", 
+    se = FALSE
+  ) + 
+  scale_colour_manual(
+    values = c("black", "steelblue"), 
+    aesthetics = c("fill", "colour")
+  ) + 
+  labs(x = "Newsworthiness", y = "Trustworthiness") + 
+  theme(
+    legend.position = "none", 
+    panel.grid = element_blank()
+  )
+```
+
+We can compute the correlation as RM does also. 
+
+```{r}
+berkson_ex %>% 
+  filter(selected) %>% 
+  select(-selected) %>% 
+  correlate()
+```
+
+A strong negative correlation, even though we know from the simulation that trustworthiness and newsworthiness are entirely independent. But they are **not** independent conditional on selection for publication. Or we can say: 
+
+$$
+X \perp\!\!\!\perp Y \\
+X \not\!\perp\!\!\!\perp Y | S
+$$
+Where $X$ is trustworthiness, $Y$ is newsworthiness, and $S$ is an indicator of whether the paper was selected. 
+
+## Multicollinearity
+
+RM describes this as "the least of your worries". Nonetheless it's a problem. 
+
+### Multicollinear legs
+
+First show this with some simulated data: we want to predictor height using leg length. 
+
+```{r}
+set.seed(909)
+dheight <- tibble(
+  # heights are Gaussian around 10
+  height = rnorm(100, 10, 2), 
+  # What proportion of height is the leg?
+  prop = runif(100, 0.4, 0.5)) %>% 
+  mutate(
+    # Each leg is prop * height plus some error
+    left = prop * height + rnorm(100, 0, 0.02), 
+    right = prop * height + rnorm(100, 0, 0.02)
+  )
+```
+
+We can then fit a model. As RM says: 
+
+> On average an individual's legs are 45% of their height ... should expect the beta coefficient that measures association of a leg with height to end up around ... 2.2.
+
+```{r}
+m6_1 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (bl * left) + (br * right), 
+    a ~ dnorm(10, 100), 
+    bl ~ dnorm(2, 10), 
+    br ~ dnorm(2, 10), 
+    sigma ~ dexp(1)
+  ),
+  data = dheight
+)
+precis(m6_1)
+```
+
+The posterior means are strange, but the picture becomes even worse in a plot. 
+
+```{r}
+plot(precis(m6_1))
+```
+
+These are the correct answers to the question our model poses: _what is the value of knowing the length of one leg when we already know the length of the other_? Once you already know the length of the left leg, what information is there in the length of the right? The answer is, it depends a lot! Let's plot the joint posterior distribution for the parameters. 
+
+```{r}
+set.seed(1220)
+post6_1 <- extract.samples(m6_1) %>% 
+  as_tibble()
+(
+  post6_1 %>% 
+  ggplot(aes(br, bl)) + 
+  geom_point(alpha = 0.3, colour = "steelblue") + 
+  theme(panel.grid = element_blank())
+) + (
+  post6_1 %>% 
+  ggplot(aes(x = bl + br)) + 
+  geom_density(colour = "steelblue", bw = 0.004) + 
+  labs(x = "sum of bl and br", y = "Density") + 
+  theme(panel.grid = element_blank())
+)
+```
+
+By including both legs, for any given height there are a huge number of combinations of left and right leg lengths that can generate the same predictions. So we get out nonsense. RM illustrates this by letting $y$ be the height and $x$ be the leg length (we know that there is basically just one, which of course assumes that everyone in our sample has two legs). Then: 
+
+$$
+\begin{align}
+y_i &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta_1 x_i + \beta_2 x_i \\
+      &= \alpha + (\beta_1 + \beta_2)x_i
+\end{align}
+$$
+
+Now the problem is clear: there will be huge numbers of plausible combinations of $\beta_1$ and $\beta_2$ that give plausible outcomes, so our model cannot distinguish between them. 
+
+The second plot above give a clue as to how we could improve this model: by using the sum of the two legs as the predictor. 
+
+```{r}
+m6_1b <- quap(
+  alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + b * (left + right), 
+    a ~ dnorm(10, 100), 
+    b ~ dnorm(2, 10), 
+    sigma ~ dexp(1)
+  ),
+  data = dheight
+)
+precis(m6_1b)
+```
+
+Now we get the right inferences. Could also do this with just one of the leg lengths as RM does. 
+
+```{r}
+m6_2 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma), 
+    mu <- a + (bl * left), 
+    a ~ dnorm(10, 100), 
+    bl ~ dnorm(2, 10), 
+    sigma ~ dexp(1)
+  ),
+  data = dheight
+)
+precis(m6_2)
+```
+
+### Multicollinear milk
+
+Now a more challengaing problem with real data, the primate milk data. 
+
+```{r}
+data(milk)
+dmilk <- milk %>% 
+  as_tibble() %>% 
+  mutate(
+    K = standardize(kcal.per.g), 
+    F = standardize(perc.fat), 
+    L = standardize(perc.lactose)
+  )
+```
+
+We are modelling $K \sim F + L$. Start off my modelling each separately. 
+
+```{r}
+m6_3 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bF * F), 
+    a ~ dnorm(0, 0.2), 
+    bF ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk
+)
+
+m6_4 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bL * L), 
+    a ~ dnorm(0, 0.2), 
+    bL ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk
+)
+
+precis(m6_3)
+precis(m6_4)
+```
+
+The picture seems clear enough: each predictor has strong association but in opposite directions. Now we build a model with both. 
+
+```{r}
+m6_5 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma), 
+    mu <- a + (bL * L) + (bF * F), 
+    a ~ dnorm(0, 0.2), 
+    bL ~ dnorm(0, 0.5), 
+    bF ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmilk
+)
+precis(m6_5)
+```
+
+The pairs plot is informative. 
+
+```{r}
+dmilk %>% 
+  select(K, F, L) %>% 
+  GGally::ggpairs()
+```
+
+The two predictors have a correlation of -0.94: they encode almost the same information, much like the leg lengths earlier. (Their correlation was about 1.) 
+
+RM points out that this doesn't mean the model is wrong: it is answering correctly the question that was asked. He also advises against the procedure of inspecting the data for pairwise collinear predictors and removing some. He say that the pairwise correlations are not the issue, rather it's a problem with the conditional associations, and what they imply. 
+
+With the milk example: those species who nurse more frequently will tend to have more sugary milk; those who nurse less frequently will have fattier milk. These work in opposite directions. So the implied DAG might be: 
+
+```{r}
+dagify(
+  K ~ L + F, 
+  L ~ D, 
+  F ~ D, 
+  coords = tibble(
+    name = c("L", "D", "F", "K"), 
+    x = c(1, 2, 3, 2), 
+    y = c(1, 1, 1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+In this DAG $D$ is some unobserved variable for how dense the milk must be. So in this case the real challenge is to figure out a means of measuring or quantifying $D$, rather than just fitting regressions. 
+
+## Post-treatment bias
+
+RM points out that bias from including variables is just as much a problem as from excluding them, although the latter gets much more attention. One example of included bias is post-treatment bias. 
+
+```{r}
+set.seed(71)
+dfungus <- tibble(h0 = rnorm(100, 10, 2), treatment = rep(0:1, each = 50)) %>% 
+  mutate(fungus = rbinom(100, size = 1, prob = 0.5 - (treatment * 0.4))) %>% 
+  mutate(h1 = h0 + rnorm(100, 5 - (3 * fungus)))
+dfungus %>% 
+  precis()
+```
+
+### A prior is born
+
+We know set up the model as though we don't already know the data generating structure, but using some scientific knowledge and physical constraints. 
+
+To start with we can consider the ratio $p = h_1 / h_0$. Then we set up a linear model: 
+
+$$
+\begin{align}
+h_{1, i} &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= h_{0, i} \times p
+\end{align}
+$$
+
+In other words: the height at time $t = 1$ is normally distributed with mean equal to the height at time $t = 0$ times the proportion parameter $p$. We know then that $p$ must be a positive real number, so we can use the lognormal distribution for its prior. We can simulate from that prior to get a feel for the plausible values: 
+
+```{r}
+set.seed(1419)
+tibble(sim_p = rlnorm(1e4, 0, 0.25)) %>% 
+  precis()
+```
+
+The range of plausible values goes from shrinkage of about $1/3$ to growth of about 50%. Now we can fit a model. 
+
+```{r}
+m6_6 <- quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p ~ dlnorm(0, 0.25), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfungus
+)
+precis(m6_6)
+```
+
+The MAP estimate for $p$ is 1.43, i.e. 43% growth. Now we can add predictors. 
+
+$$
+\begin{align}
+h_{1, i} &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i    &= h_{0, i} \times p \\
+p        &= \alpha + \beta_T T_i + \beta_F F_i \\
+\alpha   &\sim \text{Lognormal}(0, 0.25) \\
+\beta_T  &\sim \mathcal{N}(0, 0.5) \\
+\beta_F  &\sim \mathcal{N}(0, 0.5) \\
+\sigma   &\sim \text{Expo(1)}
+\end{align}
+$$
+
+Now we fit the model. 
+
+```{r}
+m6_7 <- quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p <- a + (bT * treatment) + (bF * fungus), 
+    a ~ dlnorm(0, 0.25), 
+    bT ~ dnorm(0, 0.5), 
+    bF ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfungus
+)
+```
+
+Before checking the model fit let's take a look at those priors and see if they make sense. 
+
+```{r}
+set.seed(1504)
+prior_summary_6_7 <- extract.prior(m6_7) %>% 
+  enframe(name = "var") %>% 
+  unnest(value) %>% 
+  group_by(var) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider()
+
+prior_summary_6_7 %>% 
+  ggplot(aes(y = var, colour = var)) + 
+  geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  labs(x = NULL, y = NULL) + 
+  theme(legend.position = "none")
+```
+
+The $\beta$ priors are centred at 0 and have 89% of their mass roughly in $\pm 0.8$. The $\alpha$ parameter is as we saw above. And $\sigma$ looks fine. 
+
+Now we inspect the model results. 
+
+```{r}
+precis(m6_7)
+```
+
+The model is telling us that treatment has no effect, which we know to be wrong because of how we simulated it. 
+
+### Blocked by consequence
+
+We set it up so that `treatment` causes `fungus`. So our estimate for the coefficient on treatment is asking "once we know that a plant developed fungus, how much information do we get from knowing whether or not it had the treatment?" Since so much of the information from `treatment` is encoded in `fungus`, the answer is 'not much'. 
+
+A more interesting question is "what effect does the treatment have on growth?" So we can ask it directly. 
+
+```{r}
+m6_8 <- quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p <- a + (bT * treatment), 
+    a ~ dlnorm(0, 0.25), 
+    bT ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfungus
+)
+precis(m6_8)
+```
+
+Now the estimate for the treatment effect is clearly positive. 
+
+RM points out that we might want to include _pre_-treatment variables, such as the original height, in order to improve the model. But including post-treatment variables will cause problems. 
+
+### Fungus and d-separation
+
+```{r warning=FALSE}
+dagify(
+  H_1 ~ H_0 + F, 
+  F ~ T, 
+  coords = tibble(
+    name = c("H_0", "H_1", "F", "T"), 
+    x = c(0, 2, 3, 4), 
+    y = rep(0, 4)
+  )
+) %>% 
+  tidy_dagitty() %>%
+  arrange(name) %>% 
+  ggplot(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  geom_dag_point() +
+  geom_dag_edges() +
+  geom_dag_text(
+    parse = TRUE, 
+    label = c("F", expression(H[0]), expression(H[1]), "T")
+  ) +
+  theme_dag()
+```
+
+Including $F$ in the model 'blocks' the path from $T$. We can check the implied conditional independencies. 
+
+```{r}
+dagitty::impliedConditionalIndependencies(
+  dagify(
+    H_1 ~ H_0 + F, 
+    F ~ T, 
+    coords = tibble(
+      name = c("H_0", "H_1", "F", "T"), 
+      x = c(0, 2, 3, 4), 
+      y = rep(0, 4)
+    )
+  )
+)
+```
+
+We can consider each of these. The third one is already done as that was the post-treatment effect problem highlighted above. But what happens if we regress $F$ on $H_0$ or $H_0$ on $T$? We know from the simulation that they are unconnected, so the implied conditional independencies are correct. 
+
+This post-treatment effect has led to an incorrect inference (from `m6_7`) in this case that the treatment is not effective. It could also fool us in an opposite direction. Suppose the fungus didn't affect plant growth, but moisture affected both plant and fungus growth. The DAG then might be: 
+
+```{r warning=FALSE}
+dagify(
+  H_1 ~ H_0 + M, 
+  F ~ T + M, 
+  coords = tibble(
+    name = c("H_0", "H_1", "M", "F", "T"), 
+    x = c(0, 1, 2, 3, 4), 
+    y = c(1, 1, 0.8, 1, 1)
+  )
+) %>% 
+  tidy_dagitty() %>%
+  arrange(name) %>% 
+  ggplot(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  geom_dag_point() +
+  geom_dag_edges() +
+  geom_dag_text(
+    parse = TRUE, 
+    label = c("F", expression(H[0]), expression(H[1]), "M", "T")
+  ) +
+  theme_dag()
+```
+
+What happens to our inference now? First set up the data, then run each of the models from before. 
+
+```{r}
+set.seed(71)
+dmoisture <- tibble(
+  h0 = rnorm(1000, 10, 2), 
+  treatment = rep(0:1, each = 500), 
+  M = rbern(1000)
+) %>% 
+  mutate(fungus = rbinom(1000, 1, 0.5 - (treatment * 0.4) + (M * 0.4))) %>% 
+  mutate(h1 = h0 + rnorm(1000, 5 + (3 * M)))
+
+quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p <- a + (bT * treatment) + (bF * fungus), 
+    a ~ dlnorm(0, 0.25), 
+    bT ~ dnorm(0, 0.5), 
+    bF ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmoisture
+) %>% 
+  precis()
+```
+
+```{r}
+quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p <- a + (bT * treatment), 
+    a ~ dlnorm(0, 0.25), 
+    bT ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmoisture
+) %>% 
+  precis()
+```
+
+Including fungus in the model gives the wrong inference. 
+
+RM mentions in the Rethinking section that model selection (i.e. using error metrics or information criteria) wouldn't help: including fungus will improve the model's predictions but the causal inference will be wrong. 
+
+## Collider bias
+
+We return to the published scientific studies example from earlier. Its DAG: 
+
+```{r}
+dagify(
+  S ~ T, 
+  S ~ N, 
+  coords = tibble(
+    name = c("T", "S", "N"), 
+    x = c(0, 1, 2), 
+    y = c(0, 0, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+RM gives a simple means for identifying colliders: 
+
+> The fact that two arrows enter $S$ means it is a **collider**. 
+
+### Collider of false sorrow
+
+We want to study the relationship between ageing and happiness. Our DAG is: 
+
+```{r}
+dagify(
+  M ~ H, 
+  M ~ A, 
+  coords = tibble(
+    name = c("H", "M", "A"), 
+    x = c(0, 1, 2), 
+    y = c(0, 0, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+So both ageing and happiness affect marriage. Two arrows going into $M \implies$ that we have a collider. 
+
+Some simulation to illustrate the issue. 
+
+```{r}
+set.seed(11)
+dmarriage <- sim_happiness() %>% 
+  as_tibble()
+precis(dmarriage)
+```
+
+```{r}
+dmarriage %>% 
+  mutate(
+    married = factor(married) %>% 
+      fct_relabel(~ c("unmarried", "married"))
+  ) %>% 
+  ggplot(aes(age, happiness, fill = married)) + 
+  geom_point(shape = 21) + 
+  scale_fill_manual(values = c("white", "steelblue")) + 
+  scale_x_continuous(breaks = seq(0, 6, by = 10)) + 
+  labs(fill = NULL) + 
+  theme(legend.position = "top", panel.grid = element_blank())
+```
+
+There's a clear pattern to the distribution of blue and white dots: happier people are more likely to be married at every age, but overall older people are more likely to be married. 
+
+Now if we want to understand whether age is related to happiness we can build a model. The linear moel part is: 
+
+$$
+\begin{align}
+\mu_i &= \alpha_{MID[i]} + \beta_A A_i
+\end{align}
+$$
+
+There is a different $\alpha$ for each group (married and unmarried), then a single coefficient for age. 
+
+Now we need to work on the priors. It helps to rescale age on $[0, 1]$, such that we can interpret it as "what proportion of their adult life has this person lived?"
+
+We will also add a variable for the marriage index ($MID$ in the linear model). 
+
+```{r}
+dmarriage_adults <- dmarriage %>% 
+  filter(age > 17L) %>% 
+  mutate(A = scales::rescale(age)) %>% 
+  mutate(mid = married + 1L)
+
+```
+
+Now fit the model. 
+
+```{r}
+m6_9 <- quap(
+  alist(
+    happiness ~ dnorm(mu, sigma), 
+    mu <- a[mid] + (bA * A), 
+    a[mid] ~ dnorm(0, 1), 
+    bA ~ dnorm(0, 2), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmarriage_adults
+)
+precis(m6_9, depth = 2)
+```
+
+The model shows a strong negative association between age and happiness. What happens if we drop marriage from the model?
+
+```{r}
+m6_10 <- quap(
+  alist(
+    happiness ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(0, 1), 
+    bA ~ dnorm(0, 2), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmarriage_adults
+)
+precis(m6_10)
+```
+
+We get the correct inference, that age and happiness have no association. Conditioning on the collider created a spurious association between its common causes. 
+
+### The haunted DAG
+
+We now consider the question of grandparents' and parents' effect on their grandkids' education. We can presume that there will be influence both directly and indirectly. 
+
+```{r}
+dagify(
+  C ~ P + G, 
+  P ~ G, 
+  coords = tibble(
+    name = c("G", "P", "C"), 
+    x = c(1, 2, 2), 
+    y = c(0, 0, -1)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+But we might also expect that there are other factors affecting the parents and children: where they live for example. 
+
+```{r}
+dagify(
+  C ~ P + G + U, 
+  P ~ G + U, 
+  coords = tibble(
+    name = c("G", "P", "C", "U"), 
+    x = c(1, 2, 2, 3), 
+    y = c(0, 0, -1, -0.5)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+The new variable $U$ is unobserved. 
+
+Now we can try to model this. The issue here is that conditioning on $P$ will bias our inference about $\beta_G$, because it is a collider for $G$ and $U$. This happens even though we never measure $U$. 
+
+Some simulation to illustrate. 
+
+```{r}
+# First set up the strengths of association between the variables
+bGP <- 1 # effect of G on P
+bGC <- 0 # effect of G on C
+bPC <- 1 # direct effect of P on C
+bU <- 2 # direct effect of U on P and C
+
+set.seed(1)
+dhaunted <- tibble(
+  U = (2 * rbern(200, 0.5)) - 1L, 
+  G = rnorm(200)
+) %>% 
+  mutate(P = rnorm(200, (bGP * G) + (bU * U))) %>% 
+  mutate(C = rnorm(200, (bPC * P) + (bGC * G) + (bU * U)))
+```
+
+Now we fit the model (with the vague priors that RM uses). 
+
+```{r}
+m6_11 <- quap(
+  alist(
+    C ~ dnorm(mu, sigma), 
+    mu <- a + (bPC * P) + (bGC * G), 
+    a ~ dnorm(0, 1), 
+    c(bPC, bGC) ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = dhaunted
+)
+precis(m6_11)
+```
+
+We know from our setup that `bPC` should be about 1, but we get something much larger because there are effects from the unmeasured variable $U$ that we cannot include in our model. 
+
+We get a more surprising result also: apparently grandparents have a _negative_ effect on educational outcomes. But this arises because of the neighbourhood effects. We can recreate RM's plot to illustrate.
+
+```{r}
+dhaunted %>% 
+  mutate(across(c(G, C), standardize)) %>% 
+  mutate(
+    filled = between(ntile(P, 100), 45, 60), 
+    hood = if_else(U < 0, "bad", "good") %>% 
+      factor()
+  ) %>% 
+  ggplot(aes(G, C)) + 
+  geom_point(aes(colour = hood, shape = filled)) + 
+  stat_smooth(
+    data = . %>% filter(filled), 
+    method = "lm", 
+    formula = "y ~ x", 
+    se = FALSE, 
+    colour = "grey30", 
+    size = 0.5
+  ) + 
+  geom_text(
+    aes(label = label, colour = hood), 
+    data = tibble(
+      G = c(-2, -0.1), 
+      C = c(2, -2.1), 
+      label = c("good neighbourhood", "bad neighbourhood"), 
+      hood = factor(c("good", "bad"), levels = c("bad", "good"))
+    )
+  ) +
+  scale_colour_manual(values = c("black", "steelblue")) + 
+  scale_shape_manual(values = c(1, 19)) + 
+  labs(
+    title = "Parents in 45th to 60th centiles", 
+    x = "grandparent education (G)", 
+    y = "grandchild education (C)"
+  ) + 
+  theme(
+    panel.grid = element_blank(), 
+    legend.position = "none"
+  )
+```
+
+The regression line is for those parents between the 45th and 60th centiles. Once we know that a parent is in that group, the only thing left that can vary is $G$, which ends up telling us indirectly about the neighbourhood effects. (NB. I tried running this again with `bU` set to 1, and the effect was still there albeit less pronounced.)
+
+Could we try regressing each of our predictor variables on $C$ separately?
+
+```{r}
+# first just parents
+m6_11b <- quap(
+  alist(
+    C ~ dnorm(mu, sigma), 
+    mu <- a + (bPC * P), 
+    a ~ dnorm(0, 1), 
+    bPC ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = dhaunted
+)
+m6_11b %>% 
+  precis()
+```
+
+The estimate for `bPC` is still far too high. Note also that `sigma` has increased a bit. 
+
+```{r}
+# now just grandparents
+m6_11c <- quap(
+  alist(
+    C ~ dnorm(mu, sigma), 
+    mu <- a + (bGC * G), 
+    a ~ dnorm(0, 1), 
+    bGC ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = dhaunted
+)
+m6_11c %>% 
+  precis()
+```
+
+Now `bGC` is lower than it should be, the interval for `a` is huge, and `sigma` has exploded. Easier to see in a plot. 
+
+```{r}
+coeftab(
+  m6_11, 
+  m6_11b, 
+  m6_11c
+) %>% 
+  plot()
+```
+
+We get similar inferences for the effect of parents in `m6_11` and `b`, but for everything else the results are markedly different across the models. 
+
+The only solution is to measure $U$. We can fit a model to it and check the results. 
+
+```{r}
+m6_12 <- quap(
+  alist(
+    C ~ dnorm(mu, sigma), 
+    mu <- a + (bPC * P) + (bGC * G) + (bU * U), 
+    a ~ dnorm(0, 1), 
+    c(bPC, bGC, bU) ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = dhaunted
+)
+precis(m6_12)
+```
+
+We recover the same values for our parameters that we used for simulation. It's helpful to see these in a plot with the rest. 
+
+```{r}
+coeftab(
+  m6_11, 
+  m6_11b, 
+  m6_11c, 
+  m6_12
+) %>% 
+  plot()
+```
+
+## Confronting confounding
+
+RM's definition of confounding is worth repeating.
+
+> Let's define **confounding** as any context in which the association ebtween an outcome $Y$ and a predictor of interest $X$ is not the same as it would be if we had experimentally determined the values of $X$.
+
+This is almost inevitable in any sort of observational study/modelling: there will be other variables (measured or unmeasured) that affect $X$. 
+
+Being **confounded** means that there are _multiple paths connecting two variables_. Suppose we want to regress $W$ on $E$ in this DAG: 
+
+```{r}
+dagify(
+  W ~ U + E, 
+  E ~ U, 
+  coords = tibble(
+    name = c("E", "U", "W"), 
+    x = c(1, 2, 3), 
+    y = c(1, 2, 1)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+There are two paths from $E$ to $W$, and if we fail to consider both then we will get the wrong answers. 
+
+The direction of the arrows doesn't matter when considering whether confounders exist, as the statistical associations can move 'against' the arrows. The arrows _do_ matter when considering causality. 
+
+### Shutting the backdoor
+
+RM lists the four elemental confounds. 
+
+```{r}
+(
+  dagify(
+    X ~ Z, 
+    Y ~ Z, 
+    coords = tibble(
+      name = c("X", "Y", "Z"), 
+      x = c(1, 3, 2), 
+      y = c(1, 1, 0)
+    )
+  ) %>% 
+    ggdag() + 
+    theme_dag() + 
+    labs(title = "The Fork") + 
+    theme(plot.title = element_text(hjust = 0.49))
+) + (
+  dagify(
+    Z ~ X, 
+    Y ~ Z, 
+    coords = tibble(
+      name = c("X", "Y", "Z"), 
+      x = c(1, 3, 2), 
+      y = c(2, 0, 1)
+    )
+  ) %>% 
+    ggdag() + 
+    theme_dag() + 
+    labs(title = "The Pipe") + 
+    theme(plot.title = element_text(hjust = 0.49))
+) + (
+  dagify(
+    Z ~ X + Y, 
+    coords = tibble(
+      name = c("X", "Y", "Z"), 
+      x = c(1, 3, 2), 
+      y = c(1, 1, 2)
+    )
+  ) %>% 
+    ggdag() + 
+    theme_dag() + 
+    labs(title = "The Collider") + 
+    theme(plot.title = element_text(hjust = 0.49))
+) + (
+  dagify(
+    Z ~ X + Y, 
+    D ~ Z, 
+    coords = tibble(
+      name = c("X", "Y", "Z", "D"), 
+      x = c(1, 3, 2, 2), 
+      y = c(1, 1, 2, 1.2)
+    )
+  ) %>% 
+    ggdag() + 
+    theme_dag() + 
+    labs(title = "The Descendent") + 
+    theme(plot.title = element_text(hjust = 0.49))
+)
+```
+
+From these four we can build any DAG. 
+
+1. The fork: the confounder is a common cause of $X$ and $Y$. 
+2. The pipe: the effect of $X$ is mediated through $Z$ to $Y$. 
+3. The collider: $X$ and $Y$ both affect $Z$. 
+4. The descendent: $Z$ influences $D$. 
+
+The key takeaways are: 
+
+- We handle both pipes and forks the same way: we must condition on the confounder in order to block the flow of information from $X$ to $Y$. 
+- For the collider we **must not** condition on the confounder: doing so will open the path through which information can flow between $X$ and $Y$. 
+- The approach for handling a descendant depends on its parent: in the DAGs above the right step would be to leave both $Z$ and $D$ out of the model, but that would not be the case if $Z$ were a fork or pipe. 
+
+### Two roads
+
+Our first example. We have this DAG: 
+
+```{r}
+dagify(
+  X ~ U, 
+  U ~ A, 
+  B ~ U + C, 
+  C ~ A, 
+  Y ~ X + C, 
+  coords = tibble(
+    name = c("X", "U", "B", "A", "Y", "C"), 
+    x = c(1, 1, 2, 2, 3, 3), 
+    y = c(0, 2, 1, 3, 0, 2)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+I worked through the steps: 
+
+1. Check all paths: we have the obvious one $XY$, plus $XUACY$ and $XUBCY$. 
+2. Classify each path by whether it's open or closed: only $XUBCY$ contains a collider, so it is the only closed path. 
+3. Classify each path by whether it's a backdoor path: of the open paths only $XUACY$ has a path entering $X$. 
+4. Decide which variables to condition on to close the backdoor: can use $A$ or $C$. 
+
+RM suggests that $C$ will be better in this particular case because it will tell us about the precision of our estimate of $X \to Y$. Maybe this will make more sense later in the book when we cover measurement?
+
+Can also get this info from {dagitty}: 
+
+```{r}
+dagitty::adjustmentSets(
+  dag(
+    "dag {
+    U [unobserved]
+    X -> Y
+    X <- U <- A -> C -> Y
+    U -> B <- C
+    }"
+  ), 
+  exposure = "X", 
+  outcome = "Y"
+)
+```
+
+### Backdoor waffles
+
+Now we go back to the Waffle House divorce data. We could set up the DAG as: 
+
+```{r}
+dagify(
+  A ~ S, 
+  M ~ A + S, 
+  W ~ S, 
+  D ~ W + M + A, 
+  coords = tibble(
+    name = c("A", "S", "M", "D", "W"), 
+    x = c(1, 1, 2, 3, 3), 
+    y = c(1, 3, 2, 1, 3)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+We are interested in the effect of $W$ on $D$. There are three other open paths in this DAG: $WSAD$, $WSAMD$, and $WSMD$. All of them are open. We can close all of those backdoor paths by conditioning on $S$. {dagitty} will confirm as much: 
+
+```{r}
+dagitty::adjustmentSets(
+  dag(
+    "dag {
+    A <- S -> W
+    A -> M <- S
+    A -> D
+    M -> D <- W
+    }"
+  ), 
+  exposure = "W", 
+  outcome = "D"
+)
+```
+
+Conditioning on $A$ and $M$ would do the same. We can test how well this agrees with the data. 
+
+```{r}
+data("WaffleDivorce")
+ddivorce <- WaffleDivorce %>% 
+  as_tibble() %>% 
+  transmute(
+    W = standardize(WaffleHouses / Population), 
+    sid = South + 1L, 
+    D = standardize(Divorce), 
+    M = standardize(Marriage), 
+    A = standardize(MedianAgeMarriage)
+  )
+
+quap(
+  alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a[sid] + (bW * W), 
+    a[sid] ~ dnorm(0, 0.5), 
+    bW ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+) %>% 
+  precis(depth = 2)
+```
+
+The estimate for `bW` is fairly uncertain, but most of the posterior range is positive. 
+
+```{r}
+quap(
+  alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bW * W) + (bM * M) + (bA * A), 
+    a ~ dnorm(0, 0.5), 
+    c(bW, bM, bA) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+) %>% 
+  precis(depth = 2)
+```
+
+Similar estimate for `bW`, although we are now fairly certain it's positive. In this case there are likely to be unobserved variables not accounted for in the DAG above. Or Waffle Houses really do cause divorce. 
+
