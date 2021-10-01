@@ -1,0 +1,515 @@
+---
+title: "Ulysses' Compass"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+library(patchwork)
+library(zeallot)
+library(dagitty)
+library(ggdag)
+library(ggrepel)
+library(magrittr)
+library(corrr)
+library(tidyverse)
+# set up the theme
+theme_set(
+  theme_light() + 
+    theme(panel.grid = element_blank())
+)
+```
+
+At the start of the chapter we get a key point from RM: 
+
+> When we design any particular statistical model, we must decide whether we want to understand causes or rather just predict. These are not the same goal, and different models are needed for each. 
+
+Two main approaches for navigating underfitting and overfitting: 
+
+1. **Regularising priors** tell the method "not to get too excited by the data"; 
+2. **Information criteria** or **cross-validation** to estimate predictive accuracy out-of-sample. 
+
+## The problem with parameters
+
+### More parameters (almost) always improve fit
+
+```{r}
+sppnames <- c(
+  "afarensis", 
+  "africanus", 
+  "habilis", 
+  "boisei", 
+  "rudolfensis", 
+  "ergaster", 
+  "sapiens"
+)
+brainvolcc <- c(438, 452, 612, 521, 752, 871, 1350)
+masskg <- c(37, 35.5, 34.5, 41.5, 55.5, 61, 53.5)
+dbrain <- tibble(species = sppnames, brain = brainvolcc, mass = masskg)
+dbrain
+```
+
+```{r}
+dbrain %>% 
+  ggplot(aes(mass, brain)) + 
+  geom_point(alpha = 0.6, colour = "steelblue") + 
+  geom_text_repel(aes(label = species)) + 
+  coord_cartesian()
+  labs(x = "body mass (kg)", y = "brain volume (cc)")
+```
+
+Now we fit a bunch of models, becoming increasingly complex and useless. Need to rescale the data: `brain` is handled differently than `mass` because we need to preserve 0 as a reference point (i.e. no such thing as negative brain). 
+
+```{r}
+dbrain_std <- dbrain %>% 
+  mutate(mass_std = standardize(mass), brain_std = brain / max(brain))
+```
+
+Set up the linear model for brain mass as a function of body mass. 
+
+$$
+\begin{align}
+b_i &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta m_i \\
+\alpha &\sim \mathcal{N}(0.5, 1) \\ 
+\beta &\sim \mathcal{N}(0, 10) \\
+\sigma &\sim \text{Lognormal}(0, 1)
+\end{align}
+$$
+
+This is not a good model for any number of reasons. But the weakness of the priors is part of the lesson anyway ...
+
+```{r}
+m7_1 <- quap(
+  alist(
+    brain_std ~ dnorm(mu, exp(log_sigma)), 
+    mu <- a + (b * mass_std), 
+    a ~ dnorm(0.5, 1), 
+    b ~ dnorm(0, 10), 
+    log_sigma ~ dnorm(0, 1)
+  ), 
+  data = dbrain_std
+)
+```
+
+RM then discussed $R^2$ as a statistical measure, and its weakness. Quite simply it's: 
+
+$$
+\begin{align}
+R^2 &= \frac{\text{Var}(\text{outcome}) - \text{Var}(\text{residuals})}
+  {\text{Var}(\text{outcome})} \\
+  
+  &= 1 - \frac{\text{Var}(\text{residuals})}{\text{Var}(\text{outcome})}
+\end{align}
+$$
+
+$R^2$ will always go up when we add more predictors, even if they are just noise. So if we measure it in-sample it tells us little/nothing. 
+
+```{r}
+set.seed(12)
+# Create the helper function straight away
+R2_is_bad <- function(quap_fit) {
+  v <- var2(dbrain_std[["brain_std"]])
+  r <- quap_fit %>% 
+    sim(refresh = 0) %>% 
+    colMeans() %>% 
+    {
+      . - dbrain_std[["brain_std"]]
+    } %>% 
+    var2()
+  
+  1 - (r / v)
+}
+# Compute for first model
+R2_is_bad(m7_1)
+```
+
+Now we build up those silly models with higher-order polynomial terms. Starting with squares. 
+
+$$
+\begin{align}
+b_i &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta_1 m_i + \beta_2 m^2_i\\
+\alpha &\sim \mathcal{N}(0.5, 1) \\ 
+\beta_j &\sim \mathcal{N}(0, 10) \: \text{for} \: j \in \{1, 2\} \\
+\sigma &\sim \text{Lognormal}(0, 1)
+\end{align}
+$$
+
+```{r}
+m7_2 <- quap(
+  alist(
+    brain_std ~ dnorm(mu, exp(log_sigma)), 
+    mu <- a + (b[1] * mass_std) + (b[2] * mass_std^2), 
+    a ~ dnorm(0.5, 1), 
+    b ~ dnorm(0, 10), 
+    log_sigma ~ dnorm(0, 1)
+  ), 
+  data = dbrain_std, 
+  start = list(b = rep(0, 2))
+)
+```
+
+Now we build the remaining models, with increasing levels of nonsense. 
+
+```{r}
+m7_3 <- quap(
+  alist(
+    brain_std ~ dnorm(mu, exp(log_sigma)), 
+    mu <- a + (b[1] * mass_std) + (b[2] * mass_std^2) + (b[3] * mass_std^3), 
+    a ~ dnorm(0.5, 1), 
+    b ~ dnorm(0, 10), 
+    log_sigma ~ dnorm(0, 1)
+  ), 
+  data = dbrain_std, 
+  start = list(b = rep(0, 3))
+)
+
+m7_4 <- quap(
+  alist(
+    brain_std ~ dnorm(mu, exp(log_sigma)), 
+    mu <- a + (b[1] * mass_std) + (b[2] * mass_std^2) + (b[3] * mass_std^3) + 
+      (b[4] * mass_std^4), 
+    a ~ dnorm(0.5, 1), 
+    b ~ dnorm(0, 10), 
+    log_sigma ~ dnorm(0, 1)
+  ), 
+  data = dbrain_std, 
+  start = list(b = rep(0, 4))
+)
+
+m7_5 <- quap(
+  alist(
+    brain_std ~ dnorm(mu, exp(log_sigma)), 
+    mu <- a + (b[1] * mass_std) + (b[2] * mass_std^2) + (b[3] * mass_std^3) + 
+      (b[4] * mass_std^4) + (b[5] * mass_std^5), 
+    a ~ dnorm(0.5, 1), 
+    b ~ dnorm(0, 10), 
+    log_sigma ~ dnorm(0, 1)
+  ), 
+  data = dbrain_std, 
+  start = list(b = rep(0, 5))
+)
+
+# Note that we have to set sigma to a fixed value for this
+m7_6 <- quap(
+  alist(
+    brain_std ~ dnorm(mu, 0.001), 
+    mu <- a + (b[1] * mass_std) + (b[2] * mass_std^2) + (b[3] * mass_std^3) + 
+      (b[4] * mass_std^4) + (b[5] * mass_std^5) + (b[6] * mass_std^6), 
+    a ~ dnorm(0.5, 1), 
+    b ~ dnorm(0, 10)
+  ), 
+  data = dbrain_std, 
+  start = list(b = rep(0, 6))
+)
+```
+
+Now we can generate plots. 
+
+```{r}
+plot_R2_is_bad <- function(quap_fit_chr, poly_order) {
+  mass_seq <- seq(
+    min(dbrain_std[["mass_std"]]), 
+    max(dbrain_std[["mass_std"]]), 
+    length.out = 100
+  )
+  quap_fit <- quap_fit_chr %>% 
+    get()
+  R2 <- R2_is_bad(quap_fit) %>% 
+    round(digits = 2)
+  quap_fit %>% 
+    link(data = list(mass_std = mass_seq)) %>% 
+    as_tibble(.name_repair = ~ str_c(mass_seq)) %>% 
+    rowid_to_column(".id") %>% 
+    pivot_longer(
+      -.id, 
+      names_to = "mass_std", 
+      names_transform = list(mass_std = parse_number)
+    ) %>% 
+    group_by(mass_std) %>% 
+    summarise(
+      tibble(
+        name = c("mean", "lower", "upper"), 
+        value = c(mean(value), PI(value))
+      ), 
+      .groups = "drop"
+    ) %>% 
+    pivot_wider() %>% 
+    ggplot(aes(x = mass_std)) + 
+    geom_line(aes(y = mean)) + 
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
+    geom_point(aes(y = brain_std), data = dbrain_std, colour = "steelblue") + 
+    labs(
+      title = sprintf("%s: R^2 = %s", quap_fit_chr, R2), 
+      x = "body mass (std)", 
+      y = "brain volume (std)"
+    )
+}
+
+plot_R2_is_bad("m7_1") + 
+  plot_R2_is_bad("m7_2") + 
+  plot_R2_is_bad("m7_3") + 
+  plot_R2_is_bad("m7_4") + 
+  plot_R2_is_bad("m7_5") + 
+  (
+    plot_R2_is_bad("m7_6") + 
+      geom_hline(yintercept = 0, linetype = 2)
+  )
+```
+
+The $R^2$ improves to a seemingly-perfect fit on the last model, but it is clearly junk. For example: brain volume goes negative towards the right of the plot. And yet the CI around the MAP line has collapsed to nothing: our model is certain that this is the only possible line compatible with the data. 
+
+This model is simply a recoding of the data. We've projected our data from its original space into a polynomial basis, so that it is being recreated exactly. This doesn't make it at all useful. 
+
+### Too few parameters hurts, too
+
+RM gives a neat description of underfit models as being "insensitive to the sample". We can recreate RM's leave-one-out plots for models 1 and 4 below to illustrate the difference. 
+
+```{r}
+plot_brain_loo <- function(quap_fit) {
+  model_name <- deparse(match.call()[[2]])
+  # quap_fit <- get(quap_fit_chr)
+  mass_seq <- seq(
+    min(dbrain_std[["mass_std"]]), 
+    max(dbrain_std[["mass_std"]]), 
+    length.out = 100
+  )
+  tibble(i = seq_len(nrow(dbrain_std))) %>% 
+    mutate(d = map(i, ~ dbrain_std[-.x, ])) %>% 
+    mutate(
+      m_tmp = map(
+        d, 
+        ~ quap(
+          quap_fit@formula, 
+          data = .x, 
+          start = list(b = rep(0, as.integer(str_sub(model_name, 4L, 4L))))
+        )
+      )
+    ) %>% 
+    mutate(
+      l = map(
+        m_tmp, 
+        ~ link(.x, data = list(mass_std = mass_seq), refresh = 0) %>% 
+          as_tibble(.name_repair = ~ str_c(mass_seq)) %>% 
+          pivot_longer(
+            everything(), 
+            names_to = "mass_std", 
+            names_transform = list(mass_std = parse_number)
+          ) %>% 
+          group_by(mass_std) %>% 
+          summarise(mu = mean(value), .groups = "drop")
+      )
+    ) %>% 
+    select(i, l) %>% 
+    unnest(l) %>% 
+    ggplot(aes(x = mass_std)) + 
+    geom_line(aes(y = mu, group = i), colour = "grey30", alpha = 0.4) + 
+    geom_point(
+      aes(y = brain_std), 
+      data = dbrain_std, 
+      colour = "steelblue"
+    ) + 
+    geom_text_repel(
+      aes(y = brain_std, label = species), 
+      data = dbrain_std %>% 
+        filter(species == "sapiens")
+    ) + 
+    labs(
+      title = model_name, 
+      x = "body mass (std)", 
+      y = "brain volume (std)"
+    )
+}
+plot_brain_loo(m7_1) + 
+  plot_brain_loo(m7_4)
+```
+
+The lines on the left-hand plot (i.e. with an underfit model) are all very similar: the one that is much lower is the model that drops humans from the sample. The lines in the right-hand plot vary wildly depending on which observation is dropped. 
+
+## Entropy and accuracy
+
+RM outlines the process for measuring the trade-off between underfitting and overfitting in a rigorous way, using information theory. 
+
+1. Set a measurement scale for distance from perfect accuracy; 
+2. Approximate distance from perfect prediction with _deviance_; 
+3. Focus only on out-of-sample deviance. 
+
+### Firing the weatherperson
+
+Need to set the target, so that we can measure deviance effectively. 
+
+RM uses the example of a weatherperson who simply predicts whether or not it will rain. The established weatherperson predicts rain as follows: 
+
+```{r}
+wperson1_preds <- tibble(day = seq_len(10), pred = c(rep(1, 3), rep(0.6, 7)))
+wperson1_preds
+```
+
+Our observed rain is: 
+
+```{r}
+(observed <- tibble(rain = c(rep(1L, 3), rep(0L, 7))))
+```
+
+Then a new weatherperson turns up and announces that they perform better based on _hit rate_, which RM defines as the "average chance of a correct prediction". 
+
+```{r}
+(wperson2_preds <- tibble(day = seq_len(10), pred = rep(0, 10)))
+```
+
+We can calculate the hit rate for each. 
+
+```{r}
+map_chr(
+  1:2, 
+  ~ sprintf(
+    "Weatherperson %s hit rate: %s", 
+    .x, 
+    sprintf("wperson%s_preds", .x) %>% 
+      get() %>% 
+      bind_cols(observed) %>% 
+      summarise(
+        hit_rate = sum(((rain == 1L) * pred) + ((rain == 0L) * (1 - pred)))
+      ) %>% 
+      pull(hit_rate)
+  )
+) %>% 
+  reduce(~ str_c(.x, .y, sep = "\n")) %>% 
+  cat()
+```
+
+#### Costs and benefits
+
+If we change the standards by which we judge the forecasts then we get very different results. The costs of carrying an umbrella is deemed to be 1, and the cost of being caught without one when it rains is 5. Now recalculate the scores for each. 
+
+```{r}
+map_chr(
+  1:2, 
+  ~ sprintf(
+    "Weatherperson %s total cost: %s", 
+    .x, 
+    sprintf("wperson%s_preds", .x) %>% 
+      get() %>% 
+      bind_cols(observed) %>% 
+      summarise(cost = sum((5 * (1 - pred) * (rain == 1L)) + (1 * pred))) %>% 
+      pull(cost)
+  )
+) %>% 
+  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+  cat()
+```
+
+Now the first weatherperson comes out better: the cost of carrying a brolly is small compared to that of getting wet. We can play with the costs a bit as RM suggests. 
+
+Try setting cost of gettin wet as 3, cost of carrying a brolly as 2. 
+
+```{r}
+map_chr(
+  1:2, 
+  ~ sprintf(
+    "Weatherperson %s total cost: %s", 
+    .x, 
+    sprintf("wperson%s_preds", .x) %>% 
+      get() %>% 
+      bind_cols(observed) %>% 
+      summarise(cost = sum((3 * (1 - pred) * (rain == 1L)) + (2 * pred))) %>% 
+      pull(cost)
+  )
+) %>% 
+  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+  cat()
+```
+
+We can try iterating over a number of values to see how it varies. 
+
+```{r}
+expand_grid(
+  wet_cost = seq(0, 6, by = 0.2), 
+  brolly_cost = seq(0, 6, by = 0.2)
+) %>% 
+  mutate(
+    cost_diff = map2_dbl(
+      wet_cost, 
+      brolly_cost, 
+      function(W, U) {
+        map_dbl(
+          1:2, 
+          ~ sprintf("wperson%s_preds", .x) %>% 
+            get() %>% 
+            bind_cols(observed) %>% 
+            summarise(
+              cost = sum((W * (1 - pred) * (rain == 1L)) + (U * pred))
+            ) %>% 
+            pull(cost)
+        ) %>% 
+          reduce(~ .x - .y)
+      }
+    )
+  ) %>% 
+  mutate(
+    which_better = if_else(cost_diff < 0, "one", "two") %>% 
+      factor()
+  ) %>% 
+  ggplot(aes(wet_cost, brolly_cost, fill = which_better)) + 
+  geom_raster() + 
+  scale_fill_manual(values = c("steelblue", "firebrick")) + 
+  labs(
+    x = "Cost of getting wet", 
+    y = "Cost of carrying an umbrella", 
+    fill = NULL
+  ) + 
+  theme(legend.position = "bottom")
+```
+
+We can try something like log loss to see how each fares. 
+
+```{r}
+obs_fctr <- observed %>% 
+  mutate(
+    rain = if_else(rain == 1L, "rain", "dry") %>% 
+      factor(levels = c("rain", "dry"))
+  )
+
+map_chr(
+  1:2, 
+  ~ sprintf(
+    "Weatherperson %s log loss: %s", 
+    .x, 
+    sprintf("wperson%s_preds", .x) %>% 
+      get() %>% 
+      bind_cols(obs_fctr) %>% 
+      yardstick::mn_log_loss(truth = rain, pred) %>% 
+      pull(.estimate) %>% 
+      round(digits = 3)
+  )
+) %>% 
+  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+  cat()
+```
+
+#### Measuring accuracy
+
+RM then distinguishes between the average probability of being correct (which was the hit rate used above) and the joint probability of getting the sequence correct. We can calculate this for each of the forecasters. 
+
+```{r}
+map_chr(
+  1:2, 
+  ~ sprintf(
+    "Weatherperson %s joint probability: %s", 
+    .x, 
+    sprintf("wperson%s_preds", .x) %>% 
+      get() %>% 
+      bind_cols(observed) %>% 
+      summarise(
+        joint_prob = prod(((rain == 1L) * pred) + ((rain == 0L) * (1 - pred)))
+      ) %>% 
+      pull(joint_prob) %>% 
+      round(digits = 3)
+  )
+) %>% 
+  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+  cat()
+```
+
+### Information and uncertainty
