@@ -513,3 +513,107 @@ map_chr(
 ```
 
 ### Information and uncertainty
+
+RM uses a nice metaphor for the idea of accounting for uncertainty in our distance metric: the problem of hitting a bullseye becomes much harder if the archer also has to hit the bullseye at the right time. Adding an extra dimension makes the problem harder. The same would be true for the weather forecasters in the last problem if they had to forecast sun, rain, or snow. 
+
+So then the basic insight is to ask: 
+
+> How much is our uncertainty reduced by learning an outcome?
+
+That reduction in uncertainty is the **information**, which is a measureable quantity. 
+
+The measurement of uncertainty uses the following function (where there are $n$ possible events, and each event $i$ has probability $p_i$ of occurring): 
+
+$$
+\begin{align}
+H(p) &= - \mathbb{E}(\log{p_i}) \\
+     &= - \sum_{i = 1}^n p_i \log{p_i}
+\end{align}
+$$
+
+In other words: calculate the mean log-probability and take its negative. Taking the negative makes it a non-negative quantity, so that 0 means no uncertainty. 
+
+We also need to consider the situation when $p_i = 0$, in which case we cannot take its log. Then we need to work with its limit. 
+
+$$
+\begin{align}
+\lim_{p \to 0} p \log{p} 
+  &= \lim_{p \to 0} \frac{\log{p}}{p^{-1}} \\
+  &= \lim_{p \to 0} \frac{p^{-1}}{-p^{-2}} \: \text{by L'Hopital's rule} \\
+  &= \lim_{p \to 0} - p \\
+  &= 0
+\end{align}
+$$
+
+Now we can think about examples. Sticking with the weather forecasters: if the true probabilities of rain and sunshine are 0.3 and 0.7 then we can calculate the entropy: 
+
+```{r}
+- sum(c(0.3, 0.7) * log(c(0.3, 0.7)))
+```
+
+If the probabilities were instead 0.01 and 0.99 respectively then the entropy would be: 
+
+```{r}
+- sum(c(0.01, 0.99) * log(c(0.01, 0.99)))
+```
+
+This makes sense: there is much more uncertainty about the weather in the second example than the first. 
+
+Entropy values are not especially intuitive though: 0.06 entropy means what exactly? We can improve this a little bit by changing to base-2 logs, so that the units are bits. 
+
+```{r}
+- sum(c(0.3, 0.7) * log2(c(0.3, 0.7)))
+- sum(c(0.01, 0.99) * log2(c(0.01, 0.99)))
+```
+
+They are still not that useful on their own. 
+
+### From entropy to accuracy
+
+The next concept is **divergence**: by how far does one distribution diverge from another? Or more formally: 
+
+> **Divergence**: the additional uncertainty induced by using probabilities from one distribution to describe another distribution. 
+
+$$
+\begin{align}
+D_{KL}(p, q) &= \sum_i p_i (\log(p_i) - \log(q_i)) \\
+             &= \sum_i p_i \log \bigg( \frac{p_i}{q_i} \bigg)
+\end{align}
+$$
+
+If the two distributions are the same then the log term is zero and all summands are zero: no divergence. 
+
+We can show how the divergence changes in a plot: our true target distribution $p = \{0.3, 0.7\}$. Now we can use different $q$ to approximate it, ranging from $q = \{0.01, 0.99\}$ to $q = \{0.99, 0.01\}$. 
+
+```{r}
+tibble(q1 = seq(0.01, 0.99, by = 0.01)) %>% 
+  mutate(q2 = 1 - q1) %>% 
+  mutate(
+    kld = map2_dbl(q1, q2, ~ sum(c(0.3, 0.7) * log(c(0.3, 0.7) / c(.x, .y))))
+  ) %>% 
+  ggplot(aes(q1, kld)) + 
+  geom_line(colour = "steelblue") + 
+  geom_vline(xintercept = 0.3, linetype = 2) + 
+  geom_text(
+    aes(label = label), 
+    data = tibble(q1 = 0.35, kld = 1.5, label = "q = p")
+  ) + 
+  labs(
+    x = expression(q[1]), 
+    y = "Divergence of q from p"
+  )
+```
+
+The KL divergence is at its minimum when $q = p$. 
+
+RM also explains the concept of **cross-entropy**, which we can use to calculate KL divergence. 
+
+The cross entropy $H(p, q) = -\sum_i p_i \log(q_i)$. In other words: the events arise according to $p$ but are predicted according to $q$. We can expect then that $H(p, q) \geq H(p)$. 
+
+An important point is that KL divergence and cross-entropy are not symmetrical: in general $D_{KL}(p, q) \neq D_{KL}(q, p)$ and $H(p, q) \neq H(q, p)$.
+
+### Estimating divergence
+
+We now hit a problem, which is that in almost any modelling task we will not know the true probability distribution $p$: that is exactly what we are trying to discover!
+
+However we are typically not trying to judge just one model, but a number of them. In the previous examples with under-/overfitting we wanted to compare a model with two parameters to another with three, etc. 

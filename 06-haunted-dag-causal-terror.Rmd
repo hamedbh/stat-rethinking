@@ -1183,7 +1183,7 @@ dagitty("dag {X <- U <- A -> C -> Y; U -> B <- C; X -> Y; C <- V -> Y}") %>%
   adjustmentSets(exposure = "X", outcome = "Y")
 ```
 
-Seems we could also condition on $C$ and $V$: this makes sense, as conditioning on $C$ would open up that path but then conditioning on $V$ would close it.
+Seems we could also condition on $C$ and $V$: this makes sense, as conditioning on $C$ would open up that path but then conditioning on $V$ would close it. (Although $V$ is unobserved, so not an option.)
 
 6M2. 
 

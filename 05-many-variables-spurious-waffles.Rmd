@@ -1603,7 +1603,7 @@ d_hw_5h4 %>%
   summarise(across(D, .fns = ~ round(mean(.x), 2)), .groups = "drop")
 ```
 
-States in the South are about 0.55 standard deviations above the mean, qhile the other states are 0.21 standard deviations _below_ the mean. That's quite a difference. What sort of DAG would make sense? 
+States in the South are about 0.55 standard deviations above the mean, while the other states are 0.21 standard deviations _below_ the mean. That's quite a difference. What sort of DAG would make sense? 
 
 One question to consider is how $S$ (the indicator of being in the South) affects $D$: 
 
@@ -1615,10 +1615,10 @@ The last seems the most reasonable to me: we can expect that cultural and econom
 
 ```{r}
 dagify(
-  M ~ S, 
-  D ~ S + M, 
+  A ~ S, 
+  D ~ S + A, 
   coords = tibble(
-    name = c("M", "S", "D"), 
+    name = c("A", "S", "D"), 
     x = c(0, 2, 1), 
     y = c(1, 1, 0)
   )
@@ -1630,8 +1630,8 @@ dagify(
 What are the implied conditional independencies in this DAG?
 
 ```{r}
-dag("S -> M; M -> D <- S") %>% 
-  dagitty::impliedConditionalIndependencies()
+dag("dag {S -> A; A -> D <- S}") %>% 
+  impliedConditionalIndependencies()
 ```
 
 There are none. So we can move on to modelling. 
