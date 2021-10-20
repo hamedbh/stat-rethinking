@@ -12,6 +12,8 @@ library(ggdag)
 library(ggrepel)
 library(magrittr)
 library(corrr)
+library(furrr)
+library(xfun)
 library(tidyverse)
 # set up the theme
 theme_set(
@@ -616,4 +618,431 @@ An important point is that KL divergence and cross-entropy are not symmetrical: 
 
 We now hit a problem, which is that in almost any modelling task we will not know the true probability distribution $p$: that is exactly what we are trying to discover!
 
-However we are typically not trying to judge just one model, but a number of them. In the previous examples with under-/overfitting we wanted to compare a model with two parameters to another with three, etc. 
+However we are typically not trying to judge just one model, but a number of them. In the previous examples with under-/overfitting we wanted to compare a model with two parameters to another with three, etc. But we can see that if we are interested in the _difference_ between the divergences of those two models, we don't need to know $p$ at all. Suppose we have two models, $q$ and $r$, and we want to know which is 'better' with respect to KL divergence, i.e. $D_{KL}(p, q) - D_{KL}(p, r)$. Then: 
+
+$$
+\begin{align}
+D_{KL}(p, q) - D_{KL}(p, r) 
+  &= \big[ H(p, q) - H(p) \big] - \big[ H(p, r) - H(p) \big] \\
+  &= H(p, q) - H(p, r) \\
+  &= - \sum_i p_i \log(q_i) + \sum_i p_i \log(r_i) \\
+  &= \sum_i p_i [ \log(r_i) - \log(q_i) ] \\
+  &\propto \sum_i \log(r_i) - \log(q_i)
+\end{align}
+$$
+
+This leads us to the equation for the **score** of a model $q$, $S(q)$: 
+
+$$
+S(q) = \sum_i \log (q_i)
+$$
+Of course for a Bayesian model we must use the entire posterior distribution to calculate the score, which leads to the **log pointwise predictive density**: 
+
+$$
+\text{lppd}(y, \Theta) = \sum_i \log \frac{1}{N} \sum_j p(y_i | \Theta_j)
+$$
+
+Here $N$ is the number of samples, and $\Theta_j$ is the j-th set of sampled parameter values in the posterior distribution. 
+
+There is a function for this in {rethinking}: 
+
+```{r}
+set.seed(1)
+lppd(m7_1, n = 1e4)
+```
+
+Summing those values gives the total log-probability score for the model. 
+
+In practice we need to be careful when working with small values, as they may not be numerically stable. It is often best to work with logs. We can compute the log-prob score for `m7_1` manually as well. 
+
+```{r}
+set.seed(1)
+sim(m7_1, ll = TRUE, n = 1e4) %>% 
+  apply(
+    2, 
+    function(x) 
+      log_sum_exp(x) - log(1e4)
+    )
+```
+
+### Scoring the right data
+
+This gives the right ingredients, but pointing `lppd()` at the same data used for training will be useless for the same reason as $R^2$ was: the score will keep going up as we add parameters. 
+
+```{r}
+set.seed(1)
+str_c("m7_", 1:6) %>% 
+  map(get) %>% 
+  map(lppd) %>% 
+  map_dbl(sum)
+```
+
+The procedure needs to be better: 
+
+1. Start with training sample of $N$ observations. 
+2. Compute the posterior distribution for a given model on those data, compute the score on the training data, $D_{\text{train}}$. 
+3. Take a new sample of $N$ observations, the test sample. 
+4.Use the existing posterior to compute the score on those test data, $D_{\text{test}}$. 
+
+RM illustrates this with simulation, but the code takes ages to run. It generates the plots on page 212. 
+
+The true data generating model in this case is: 
+
+$$
+\begin{align}
+y_i   &\sim \mathcal{N}(\mu_i, 1) \\
+\mu_i &=    (0.15)x_{1, i} - (0.4)x_{2, i}
+\end{align}
+$$
+
+RM's code generates the 'true' predictors as well as extra noise. With the higher values of `k` we try to fit increasing amounts of the noise as well as the signal. Plots tell the story: the performance in-sample keeps getting better, as we are simply encoding more of the original sample in the model. But the out of sample performance peaks at the true model, then gets worse. 
+
+## Golem taming: regularisation
+
+Interesting quote in the Rethinking section: 
+
+> Despite how easy it is to use regularization, most traditional statistical methods use no regularization at all. Statisticians often make fun of machine learning for reinventing statistics under new names. But regularization is one area where machine learning is more mature. Introductory machine learning courses usually describe regularization. Most introductory statistics courses do not. 
+
+RM also creates plots to show the effects of regularising priors, but I'll skip that to save a bit of time. The message is that setting a prior that is more tightly centred at 0 (i.e. no effect) will require stronger evidence from the data in order to yield a posterior distribution away from 0. 
+
+## Predicting predictive accuracy
+
+As outlined at the start of the chapter there are broadly two approaches: cross-validation and information theory. 
+
+### Cross-validation
+
+Great quote that accords with my experience: 
+
+> How many folds should you use? **This is an understudied question**. 
+
+Leave-one-out cross-validation (LOOCV) is common, but quickly becomes impractical if we have many observations. But there are ways to approximate this very closely without actually fitting $N$ models. One way is to weight each observation by its importance: how much will be posterior change if that observation is removed?
+
+RM mentions **Pareto-smoothed Importance Sampling Cross-validation**, or PSIS. The Overthinking box gives more detail about it. 
+
+If we did LOOCV fully we would be fitting $N$ models, leaving out one observation each time. Then our estimate of the out of sample lppd is: 
+
+$$
+\text{lppd}_{CV} = 
+  \sum_{i = 1}^N 
+    \frac{1}{S} \sum_{s = 1}^{S} \log \text{P}(y_i | \theta_{-i, s})
+$$
+
+Now instead we want to just take $S$ samples from the full posterior distribution $p(\theta | y)$, but then reweight each of them in a useful way. Specifically we want to reweight each sample $s$ using $p(y_i | \theta_s)$, i.e. the posterior probability of the omitted observation given that particular posterior sample. We actually use the inverse: 
+
+$$
+r(\theta_s) = \frac{1}{p(y_i | \theta_s)}
+$$
+To put that into the calculation of lppd it has to be normalised: 
+
+$$
+\text{lppd}_{IS} = 
+  \sum_{i = 1}^N 
+    \log
+    \frac{\sum_{s = 1}^{S} r(\theta_s) p(y_i | \theta_s)}
+      {\sum_{s = 1}^{S} r(\theta_s)}
+$$
+
+So in the summand the numerator is the sum of all the posterior probability of each observation, weighted by $r(\theta_s)$; the denominator is the sum over all values of $r(\theta_s)$. Take its log, then sum over all observations. 
+
+This is the importance-based sampling part, but now comes the Pareto bit. The weights should follow a Pareto distribution: 
+
+$$
+p(r | u, \sigma, k) = \sigma^{-1}(1 + k(r - u) \sigma^{-1})^{-\frac{1}{k}-1}
+$$
+
+In this $u$ is the location of the distribution, $\sigma$ its scale, and $k$ the shape. For every $y_i$ we can fit a Pareto distribution, and then use that distribution to smooth the weights. (This is done by replacing a certain number of the largest weights with new values fit to the tail of the Pareto distribution.)
+
+An added bonus is that the method provides its own diagnostic: when $k > 0.7$ that indicates that the PSIS estimate may be unstable. 
+
+### Information criteria
+
+This approach uses information theory to estimate the score out of sample. Or rather, the relative out-of-sample KL divergence (so that two models can be compared to one another). 
+
+The most well-known of these information criteria is the **Akaike Information Criterion**, which estimates the out-of-sample deviance as: 
+
+$$
+\text{AIC} = D_{train} + 2p = -2\text{lppd} + 2p
+$$
+
+Here $p$ is what RM calls the "number of free parameters in the model", or what is often referred to as degrees of freedom. The factor of 2 in the right-hand side can be factored out without changing the relative deviance of models. 
+
+AIC is only reliable when certain criteria are met (as listed in the book), which means we need something more general. 
+
+RM mentions the **Deviance Information Criterion**, but quickly discounts it as a real alternative. 
+
+The thing we want is the **Widely Applicable Information Criterion** (WAIC). It relies on no assumptions about the shape of the posterior. The subtle point is that it approximates the out-of-sample KL deviance, and that approximation will converge to the cross-validation approximation in a sufficiently large sample. When the sample size is limited the two can disagree, because they are estimating different things. The formula for WAIC is: 
+
+$$
+WAIC(y, \Theta) = -2(\text{lppd} - \sum_i \text{var}_{\theta} \log p(y_i|\theta))
+$$
+
+The first term is just the log-posterior predictive density. The second term is the penalty (analogous to the $2p$ in AIC): for each observation compute the variance in the log-posterior probabilities, then sum those variances. Those observation-level penalty scores also act as a measure of overfitting risk for each observation. 
+
+RM shows a more detailed calculation of WAIC also. 
+
+```{r}
+waic_m <- quap(
+  flist = alist(
+    dist ~ dnorm(mu, sigma), 
+    mu <- a + (b * speed), 
+    a ~ dnorm(0, 100), 
+    b ~ dnorm(0, 10), 
+    sigma ~ dexp(1)
+  ), 
+  data = cars
+)
+set.seed(94)
+
+logprob <- extract.samples(waic_m, n = 1000) %>%
+  as_tibble() %>%
+  rowid_to_column("sample_id") %>%
+  full_join(
+    cars %>%
+      as_tibble() %>%
+      rowid_to_column("obs_id"),
+    by = character()
+  ) %>%
+  mutate(logprob = dnorm(dist, a + (b * speed), sigma, log = TRUE))
+
+# Now to get the lppd we average the logprob for each observation. Do this with
+# the log sum exp trick, as RM showed earlier. 
+example_lppd <- logprob %>%
+  group_by(obs_id) %>% 
+  summarise(
+    lppd = log_sum_exp(logprob) - log(1000), 
+    # Summing the lppd column gives the first term in WAIC, now need to compute
+    # the penalty.
+    pWAIC = var(logprob), 
+    .groups = "drop"
+  ) %>% 
+  mutate(WAIC = -2 * (lppd - pWAIC))
+
+example_lppd %>% 
+  summarise(across(WAIC, sum))
+
+# Compare that with the result of the WAIC() function. 
+WAIC(waic_m)
+```
+
+There is some difference because of simulation error, but an amount much smaller than the standard error estimate. It's possible to calculate that standard error directly also, as $\sqrt{(N \text{Var}(p_{\text{WAIC}}))}$ (where the $p_{\text{WAIC}}$ here is the figure for each observation). 
+
+```{r}
+sqrt(nrow(cars) * var(example_lppd$WAIC))
+```
+
+### Comparing CV, PSIS, and WAIC
+
+RM creates another set of plots with the five polynomial models, which I won't recreate. 
+
+RM points out that "CV and PSIS have higher variance as estimators of KL divergence, while WAIC has greater bias", and that "Watanabe recommends computing both WAIC and PSIS and contrasting them. If there are large differences, this implies one or both criteria are unreliable." Also reiterates that PSIS has the built-in warning for when it may be unreliable (viz. when $k$ is large). 
+
+## Model comparison
+
+### Model mis-selection
+
+Reminder that causal inference and prediction are different tasks, and that CV and WAIC will favour models that make good predictions. So a good PSIS or WAIC score will not in general mean we have a good causal model. 
+
+To show this we return to the models of plant growth and fungus from the last chapter. We can compute WAIC for all of the models we fit then. 
+
+```{r include=FALSE}
+set.seed(71)
+dfungus <- tibble(h0 = rnorm(100, 10, 2), treatment = rep(0:1, each = 50)) %>% 
+  mutate(fungus = rbinom(100, size = 1, prob = 0.5 - (treatment * 0.4))) %>% 
+  mutate(h1 = h0 + rnorm(100, 5 - (3 * fungus)))
+
+m6_6 <- quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p ~ dlnorm(0, 0.25), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfungus
+)
+
+m6_7 <- quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p <- a + (bT * treatment) + (bF * fungus), 
+    a ~ dlnorm(0, 0.25), 
+    bT ~ dnorm(0, 0.5), 
+    bF ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfungus
+)
+m6_8 <- quap(
+  alist(
+    h1 ~ dnorm(mu, sigma), 
+    mu <- h0 * p, 
+    p <- a + (bT * treatment), 
+    a ~ dlnorm(0, 0.25), 
+    bT ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfungus
+)
+```
+
+```{r}
+set.seed(77)
+compare(m6_6, m6_7, m6_8, func = WAIC)
+```
+
+The estimates from PSIS also: 
+
+```{r}
+set.seed(77)
+compare(m6_6, m6_7, m6_8, func = PSIS)
+```
+
+(NB. the warning about the high values of $k$ is for model `m6_7`. The values are above 0.5 but below 0.7, so we ignore the warning and carry one for now.)
+
+The values are near-identical. Model `m6_7` gives the best predictions and scores seem substantially better than the others. In fact the 'good' model (i.e. the one that is consistent with the causal model) is only slightly better than the intercept-only model. But are these big differences? To check that we need to consider the standard error, but not of the WAIC itself. Instead we compute the standard error of the difference between WAIC for two models. 
+
+```{r}
+set.seed(91)
+tibble(
+  waic_m6_7 = WAIC(m6_7, pointwise = TRUE) %>% pluck("WAIC"), 
+  waic_m6_8 = WAIC(m6_8, pointwise = TRUE) %>% pluck("WAIC")
+) %>% 
+  mutate(diff_waic = waic_m6_7 - waic_m6_8) %>% 
+  summarise(dSE = sqrt(nrow(.) * var(diff_waic)))
+```
+
+This is roughly what we see in the second row of the WAIC table under `dSE`, to within simulation variance. Since the actual difference (`dWAIC`) is 41, the 99% interval for the difference between the two models is: 
+
+```{r}
+41 + c(-1, 1) * 10.4 * 2.6
+```
+
+So the best model really is a lot better than the other in terms of prediction. But the right model for causal inference would never get chosen just on the basis of WAIC.
+
+NB. The `weight` column at the end of the `compare()` table is a "traditional way to summarise relative support for each model". For each model $i$ the weight is: 
+
+$$
+w_i = \frac{\exp(-0.5\Delta_i)}{\sum_j \exp(-0.5\Delta_j)}
+$$
+
+The denominator sums the $\exp(-0.5\Delta_i)$ term across all of the models. In the case above, where `m6_7` has much lower WAIC than the others, the $\Delta_j$ terms for `m6_6` and `m6_8` are very large, which means their weights end up being approximately $\frac{0}{1}$. 
+
+The weights are a useful heuristic but nothing more: to make judgements about the models we must consider the standard error in the WAIC estimates, which are not accounted for in the weights. 
+
+### Outliers and other illusions
+
+We return to the divorce data from chapter 5: Idaho was an outlier, and PSIS/WAIC may have revealed that to us. 
+
+```{r}
+data(WaffleDivorce, package = "rethinking")
+ddivorce <- WaffleDivorce %>% 
+  as_tibble() %>% 
+  mutate(
+    D = standardize(Divorce), 
+    M = standardize(Marriage), 
+    A = standardize(MedianAgeMarriage)
+  )
+
+m5_1 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+)
+
+m5_2 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+)
+
+m5_3 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+)
+```
+
+Now check the model scores with PSIS. 
+
+```{r}
+set.seed(24071847)
+compare(m5_1, m5_2, m5_3, func = PSIS)
+```
+
+We get the same warning about high values of $k$, which is happening because of outliers (like Idaho). We can get the pointwise PSIS and plot things to make it clearer. 
+
+```{r}
+set.seed(4)
+bind_cols(
+  ddivorce %>% 
+    select(Loc), 
+  PSIS(m5_3, pointwise = TRUE) %>% 
+    as_tibble() %>% 
+    select(k), 
+  WAIC(m5_3, pointwise = TRUE) %>% 
+    as_tibble() %>% 
+    select(penalty)
+) %>% 
+  ggplot(aes(k, penalty)) + 
+  geom_point(colour = "steelblue") + 
+  geom_text_repel(
+    aes(label = Loc), 
+    data = . %>% 
+      filter(Loc %in% c("ME", "ID"))
+  ) + 
+  geom_vline(xintercept = 0.5, linetype = 2, colour = "grey50") + 
+  scale_x_continuous(breaks = c(0, 0.5, 1), minor_breaks = NULL) + 
+  scale_y_continuous(breaks = seq(0, 2, by = 0.5), minor_breaks = NULL) + 
+  labs(
+    title = "Gaussian model (m5_3)", 
+    x = "PSIS Pareto k", 
+    y = "WAIC penalty"
+  )
+```
+
+The vertical dashed line is the point at which the variance of the Pareto distribution becomes infinite. Maine is slightly to the right, but still well below the practical limit for $k$ of 0.7. 
+
+Idaho is a problem though: its $k$ is over 1, and its contribution to the WAIC penalty term is over 2. Given that the total penalty term in an ordinary linear regression should roughly equal the number free parameters (in this case 4), this is very high. It pushes the total penalty for this model much higher. 
+
+```{r}
+WAIC(m5_3)
+```
+
+This equates to additional overfitting risk. 
+
+What to do? RM suggests that a good approach may be **robust regression**: in other words, using something with heavier tails than a Gaussian distribution to build the model. He gives the example of the student-t distribution, which we can use to refit the troublesome `m5_3` and then recalculate the PSIS. 
+
+```{r}
+m5_3_t <- quap(
+  flist = alist(
+    D ~ dstudent(2, mu, sigma), 
+    mu <- a + (bA * A) + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+)
+
+PSIS(m5_3_t)
+```
+
+No warnings about high values of $k$, because the probability of an outlier under student-t distribution is higher than it was with a Gaussian. 
+
