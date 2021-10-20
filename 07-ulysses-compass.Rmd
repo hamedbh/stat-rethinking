@@ -12,6 +12,7 @@ library(ggdag)
 library(ggrepel)
 library(magrittr)
 library(corrr)
+library(furrr)
 library(tidyverse)
 # set up the theme
 theme_set(
@@ -616,4 +617,193 @@ An important point is that KL divergence and cross-entropy are not symmetrical: 
 
 We now hit a problem, which is that in almost any modelling task we will not know the true probability distribution $p$: that is exactly what we are trying to discover!
 
-However we are typically not trying to judge just one model, but a number of them. In the previous examples with under-/overfitting we wanted to compare a model with two parameters to another with three, etc. 
+However we are typically not trying to judge just one model, but a number of them. In the previous examples with under-/overfitting we wanted to compare a model with two parameters to another with three, etc. But we can see that if we are interested in the _difference_ between the divergences of those two models, we don't need to know $p$ at all. Suppose we have two models, $q$ and $r$, and we want to know which is 'better' with respect to KL divergence, i.e. $D_{KL}(p, q) - D_{KL}(p, r)$. Then: 
+
+$$
+\begin{align}
+D_{KL}(p, q) - D_{KL}(p, r) 
+  &= \big[ H(p, q) - H(p) \big] - \big[ H(p, r) - H(p) \big] \\
+  &= H(p, q) - H(p, r) \\
+  &= - \sum_i p_i \log(q_i) + \sum_i p_i \log(r_i) \\
+  &= \sum_i p_i [ \log(r_i) - \log(q_i) ] \\
+  &\propto \sum_i \log(r_i) - \log(q_i)
+\end{align}
+$$
+
+This leads us to the equation for the **score** of a model $q$, $S(q)$: 
+
+$$
+S(q) = \sum_i \log (q_i)
+$$
+Of course for a Bayesian model we must use the entire posterior distribution to calculate the score, which leads to the **log pointwise predictive density**: 
+
+$$
+\text{lppd}(y, \Theta) = \sum_i \log \frac{1}{N} \sum_j p(y_i | \Theta_j)
+$$
+
+Here $N$ is the number of samples, and $\Theta_j$ is the j-th set of sampled parameter values in the posterior distribution. 
+
+There is a function for this in {rethinking}: 
+
+```{r}
+set.seed(1)
+lppd(m7_1, n = 1e4)
+```
+
+Summing those values gives the total log-probability score for the model. 
+
+In practice we need to be careful when working with small values, as they may not be numerically stable. It is often best to work with logs. We can compute the log-prob score for `m7_1` manually as well. 
+
+```{r}
+set.seed(1)
+sim(m7_1, ll = TRUE, n = 1e4) %>% 
+  apply(
+    2, 
+    function(x) 
+      log_sum_exp(x) - log(1e4)
+    )
+```
+
+### Scoring the right data
+
+This gives the right ingredients, but pointing `lppd()` at the same data used for training will be useless for the same reason as $R^2$ was: the score will keep going up as we add parameters. 
+
+```{r}
+set.seed(1)
+str_c("m7_", 1:6) %>% 
+  map(get) %>% 
+  map_dbl(~ sum(lppd(.x)))
+```
+
+The procedure needs to be better: 
+
+1. Start with training sample of $N$ observations. 
+2. Compute the posterior distribution for a given model on those data, compute the score on the training data, $D_{\text{train}}$. 
+3. Take a new sample of $N$ observations, the test sample. 
+4.Use the existing posterior to compute the score on those test data, $D_{\text{test}}$. 
+
+We can illustrate this with simulation. 
+
+```{r cache=TRUE}
+dev_020 <- sapply(
+  1:5, 
+  function(k) {
+    print(k)
+    r <- mcreplicate(1e3, sim_train_test(N = 20, k = k), mc.cores = 8) 
+    c(
+      mean(r[1, ]), 
+      mean(r[2, ]), 
+      sd(r[1, ]), 
+      sd(r[2, ])
+    )
+  }
+)
+
+dev_100 <- sapply(
+  1:5, 
+  function(k) {
+    print(k)
+    r <- mcreplicate(1e3, sim_train_test(N = 100, k = k), mc.cores = 8) 
+    c(
+      mean(r[1, ]), 
+      mean(r[2, ]), 
+      sd(r[1, ]), 
+      sd(r[2, ])
+    )
+  }
+)
+```
+
+The true data generating model in this case is: 
+
+$$
+\begin{align}
+y_i   &\sim \mathcal{N}(\mu_i, 1) \\
+\mu_i &=    (0.15)x_{1, i} - (0.4)x_{2, i}
+\end{align}
+$$
+
+The code block above generates the 'true' predictors as well as extra noise. With the higher values of `k` we try to fit increasing amounts of the noise as well as the signal. Plots help to tell the story. 
+
+```{r}
+(
+  dev_020 %>% 
+  t() %>% 
+  as_tibble(
+    .name_repair = ~ c("train_mean", "test_mean", "train_sd", "test_sd")
+  ) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_sep = "_", names_to = c("partition", "name")) %>% 
+  mutate(.id = .id + (partition == "test") * 0.1) %>% 
+  pivot_wider() %>% 
+  mutate(lower = mean - sd, upper = mean + sd) %>% 
+  mutate(partition = factor(partition, levels = c("train", "test"))) %>%
+  ggplot(aes(.id, colour = partition, shape = partition)) + 
+  geom_point(aes(y = mean)) + 
+  geom_linerange(aes(ymin = lower, ymax = upper)) + 
+  scale_shape_manual(values = c(19, 21)) + 
+  scale_colour_manual(
+    values = c("steelblue", "black"), 
+    aesthetics = c("colour", "fill")
+  ) + 
+  labs(
+    title = "N = 20", 
+    x = "number of parameters", 
+    y = "deviance"
+  ) + 
+  theme(
+    plot.title = element_text(hjust = 0.5), 
+    legend.position = "none"
+  )
+) + (
+  dev_100 %>% 
+  t() %>% 
+  as_tibble(
+    .name_repair = ~ c("train_mean", "test_mean", "train_sd", "test_sd")
+  ) %>% 
+  rowid_to_column(".id") %>% 
+  pivot_longer(-.id, names_sep = "_", names_to = c("partition", "name")) %>% 
+  mutate(.id = .id + (partition == "test") * 0.1) %>% 
+  pivot_wider() %>% 
+  mutate(lower = mean - sd, upper = mean + sd) %>% 
+  mutate(partition = factor(partition, levels = c("train", "test"))) %>%
+  ggplot(aes(.id, colour = partition, shape = partition)) + 
+  geom_point(aes(y = mean)) + 
+  geom_linerange(aes(ymin = lower, ymax = upper)) + 
+  scale_shape_manual(values = c(19, 21)) + 
+  scale_colour_manual(
+    values = c("steelblue", "black"), 
+    aesthetics = c("colour", "fill")
+  ) + 
+  labs(
+    title = "N = 100", 
+    x = "number of parameters", 
+    y = "deviance"
+  ) + 
+  theme(
+    plot.title = element_text(hjust = 0.5), 
+    legend.position = "none"
+  )
+)
+```
+
+
+## Golem taming: regularisation
+
+Interesting quote in the Rethinking section: 
+
+> Despite how easy it is to use regularization, most traditional statistical methods use no regularization at all. Statisticians often make fun of machine learning for reinventing statistics under new names. But regularization is one area where machine learning is more mature. Introductory machine learning courses usually describe regularization. Most introductory statistics courses do not. 
+
+RM also creates plots to show the effects of regularising priors, but I'll skip that to save a bit of time. 
+
+## Predicting predictive accuracy
+
+As outlined at the start of the chapter there are broadly two approaches: cross-validation and information theory. 
+
+### Cross-validation
+
+Great quote that accords with my experience: 
+
+> How many folds should you use? **This is an understudied question**. 
+
+Leave-one-out cross-validation (LOOCV) is common, but quickly becomes impractical if we have many observations. But there are ways to approximate this very closely without actually fitting $N$ models
