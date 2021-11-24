@@ -404,7 +404,7 @@ map_chr(
 
 Now the first weatherperson comes out better: the cost of carrying a brolly is small compared to that of getting wet. We can play with the costs a bit as RM suggests. 
 
-Try setting cost of gettin wet as 3, cost of carrying a brolly as 2. 
+Try setting cost of getting wet as 3, cost of carrying a brolly as 2. 
 
 ```{r}
 map_chr(
@@ -1046,3 +1046,538 @@ PSIS(m5_3_t)
 
 No warnings about high values of $k$, because the probability of an outlier under student-t distribution is higher than it was with a Gaussian. 
 
+## Summary
+
+RM points out that this chapter covers a lot! I feel more confident about what PSIS and WAIC are really doing now though. 
+
+## Practice
+
+### Easy
+
+7E1. 
+
+1. Continuity: very small changes in the inputs should only change the entropy by a small amount. 
+2. The uncertainty should go up as the number of options increases. 
+3. Additivity: when we combine different measures of entropy they should add. 
+
+7E2. 
+
+```{r}
+- sum(c(0.7, 0.3) * log(c(0.7, 0.3)))
+```
+
+7E3. 
+
+```{r}
+- sum(c(0.2, 0.25, 0.25, 0.3) * log(c(0.2, 0.25, 0.25, 0.3)))
+```
+
+7E4. 
+
+We must be careful here as $\log(0)$ is undefined. So if we just plug in the numbers to the code above we get: 
+
+```{r}
+- sum(c(1/3, 1/3, 1/3, 0) * log(c(1/3, 1/3, 1/3, 0)))
+```
+
+Instead we recall that $\lim_{p \to 0} p \log{p} = 0$, which means we can just drop the last term. 
+
+```{r}
+- sum(c(1/3, 1/3, 1/3) * log(c(1/3, 1/3, 1/3)))
+```
+
+The entropy of this die is less than the one in 7E3: we have effectively reduced the number of outcomes from four to three. 
+
+### Medium
+
+7M1. 
+
+$$
+\begin{align}
+\text{AIC} &= -2\text{lppd} + 2p \\
+           &= -2(\text{lppd} - p) \\
+WAIC(y, \Theta) &= -2(\text{lppd} - \sum_i \text{var}_{\theta} \log p(y_i|\theta))
+\end{align}
+$$
+
+The second form of AIC is more suggestive for this question. WAIC is more general, as its penalty term will take account of the variance of the posterior probabilities, rather than just the number of parameters.
+
+To make the two the same we would need $p \approx \sum_i \text{var}_{\theta} \log p(y_i|\theta)$. 
+
+7M2. 
+
+Model selection is the process of selecting a model based on a score (e.g. PSIS). Model comparison is when we compares the scores across models. 
+Model selection (as presented) is a rather mindless process. The information lost includes how much difference there is between the top-scoring model and the rest. 
+
+7M3. 
+
+The information criteria used all estimate at the level of the observation, then aggregate this. So if models were fit to different data we would not be comparing like with like (especially problematic in the case of outliers). 
+
+Having different numbers of observations would also pose problems because deviance is additive, so the information criteria are estimating that sum. Sums over different numbers of observations cannot be compared meaningfully. 
+
+7M4. 
+
+```{r}
+m_7m4_wide <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 1), 
+    bA ~ dnorm(mean = 0, sd = 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+)
+
+m_7m4_med <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+)
+
+m_7m4_tight <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 0.1), 
+    bA ~ dnorm(mean = 0, sd = 0.2), 
+    sigma ~ dexp(1)
+  ), 
+  data = ddivorce
+)
+set.seed(1940)
+compare(m_7m4_wide, m_7m4_med, m_7m4_tight)
+```
+
+The number of effective parameters gets lower as the priors get tighter. This corresponds to making the model less flexible: the tighter the priors, the fewer parameter values will be compatible with the model. 
+
+7M5. 
+
+The term _sceptical priors_ helps with understanding this: we are telling our model to be more sceptical about what it sees in the data. Overfitting is when our model overreacts to patterns in the training data: making our model sceptical means that the evidence required in the data will have to be stronger to move our posterior estimates away from the prior. 
+
+7M6. 
+
+Continuing from the last question: suppose we made our priors incredibly tight, e.g. $\mathcal{N}(0, 0.00001)$. Then our 99% interval for possible values would be: 
+
+```{r}
+qnorm(c(0.005, 0.995), mean = 0, sd = 0.00001)
+```
+
+This will make it incredibly hard for any amount of evidence in the data to shift us from our prior: we will be insensitive to the patterns in the data, and tend to underfit. 
+
+### Hard
+
+7H1. 
+
+```{r}
+data("Laffer")
+dlaffer <- Laffer %>% 
+  as_tibble() %>% 
+  mutate(
+    tax_rate_2 = tax_rate^2, 
+    tax_rate_3 = tax_rate^3
+  ) %>% 
+  mutate(across(.fns = standardize))
+```
+
+We will try three models: straight-line, quadratic, and cubic. 
+
+```{r}
+m_7h1_linear <- quap(
+  flist = alist(
+    tax_revenue ~ dnorm(mu, sigma), 
+    mu <- a + (b1 * tax_rate), 
+    a ~ dnorm(0, 0.2), 
+    b1 ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dlaffer
+)
+
+m_7h1_quad <- quap(
+  flist = alist(
+    tax_revenue ~ dnorm(mu, sigma), 
+    mu <- a + (b1 * tax_rate) + (b2 * tax_rate_2), 
+    a ~ dnorm(0, 0.2), 
+    c(b1, b2) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dlaffer
+)
+
+m_7h1_cubic <- quap(
+  flist = alist(
+    tax_revenue ~ dnorm(mu, sigma), 
+    mu <- a + (b1 * tax_rate) + (b2 * tax_rate_2) + (b3 * tax_rate_3), 
+    a ~ dnorm(0, 0.2), 
+    c(b1, b2, b3) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dlaffer
+)
+```
+
+Let's first check the PSIS scores
+
+```{r}
+compare(m_7h1_linear, m_7h1_quad, m_7h1_cubic, func = PSIS)
+```
+
+All of them are fairly similar (i.e. within two standard errors), but we get warnings about $k > 1$ for all of them. In other words: the estimate isn't too reliable. 
+
+It's hard to draw any conclusions about this. 
+
+7H2. 
+
+```{r}
+model_list_7h1 <- list(m_7h1_linear, m_7h1_quad, m_7h1_cubic)
+set.seed(629)
+total_penalty_7h1 <- map_dbl(model_list_7h1, ~ PSIS(.x)[["penalty"]])
+set.seed(629)
+max_penalty_7h1 <- map_dbl(
+  model_list_7h1, 
+  ~ PSIS(.x, pointwise = TRUE) %>% 
+    as_tibble() %>% 
+    slice_max(k) %>% 
+    pull(penalty)
+)
+tibble(
+  name = c("linear", "quadratic", "cubic"), 
+  total_penalty = total_penalty_7h1, 
+  max_penalty = max_penalty_7h1
+) %>% 
+  mutate(
+    penalty_prop = round(max_penalty / total_penalty, digits = 2)
+  )
+```
+
+That one point is contributing about 80% of the total penalty term. The overall penalty is roughly 8-10, which is far more than the number of actual parameters, suggesting an overfitting risk. Note that the cubic model has a much higher penalty term overall, but the penalty for the linear and quadratic models is essentially identical. 
+
+We can switch to the student-t distribution and repeat the model-fitting. 
+
+```{r}
+m_7h2_linear <- quap(
+  flist = alist(
+    tax_revenue ~ dstudent(2, mu, sigma), 
+    mu <- a + (b1 * tax_rate), 
+    a ~ dnorm(0, 0.2), 
+    b1 ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dlaffer
+)
+
+m_7h2_quad <- quap(
+  flist = alist(
+    tax_revenue ~ dstudent(2, mu, sigma), 
+    mu <- a + (b1 * tax_rate) + (b2 * tax_rate_2), 
+    a ~ dnorm(0, 0.2), 
+    c(b1, b2) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dlaffer
+)
+
+m_7h2_cubic <- quap(
+  flist = alist(
+    tax_revenue ~ dstudent(2, mu, sigma), 
+    mu <- a + (b1 * tax_rate) + (b2 * tax_rate_2) + (b3 * tax_rate_3), 
+    a ~ dnorm(0, 0.2), 
+    c(b1, b2, b3) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dlaffer
+)
+```
+
+```{r}
+set.seed(654)
+compare(m_7h2_linear, m_7h2_quad, m_7h2_cubic, func = PSIS)
+```
+
+Very little to choose between the models, but it might be worthwhile looking at the parameter estimates in all of the models. 
+
+```{r}
+coeftab(
+  m_7h1_linear, 
+  m_7h1_quad, 
+  m_7h1_cubic, 
+  m_7h2_linear, 
+  m_7h2_quad, 
+  m_7h2_cubic
+) %>% 
+  plot(pars = c("a", "b1", "b2", "b3"))
+```
+
+Some things to note: 
+
+- The robust regression models have all estimated the intercept below 0, but we know that's not correct because the data were standardised. 
+- All of the models have a mean estimate for `b1` (i.e. the linear coefficient) above 0, but with intervals that include 0. Hard to draw firm conclusions. 
+- The estimates for the quadratic coefficient are closer to zero. This suggests that the concave parabola shown by the WSJ is probably not a good model for these data. Intervals are very wide. 
+- Intervals on the cubic term are huge: many values are consistent with the data. 
+- In general the intervals on the parameter estimates in the curved models are much wider: adding those extra terms means that many more curves are plausible given the data. 
+
+We can repeat the exercise to check the highest proportion of the penalty generated by one observation in each model. 
+
+```{r}
+model_list_7h2 <- list(m_7h2_linear, m_7h2_quad, m_7h2_cubic)
+set.seed(629)
+total_penalty_7h2 <- map_dbl(model_list_7h2, ~ PSIS(.x)[["penalty"]])
+set.seed(629)
+max_penalty_7h2 <- map_dbl(
+  model_list_7h2, 
+  ~ PSIS(.x, pointwise = TRUE) %>% 
+    as_tibble() %>% 
+    slice_max(k) %>% 
+    pull(penalty)
+)
+tibble(
+  name = c("linear", "quadratic", "cubic"), 
+  total_penalty = total_penalty_7h2, 
+  max_penalty = max_penalty_7h2
+) %>% 
+  mutate(
+    penalty_prop = round(max_penalty / total_penalty, digits = 2)
+  )
+```
+
+No point is contributing more than 5% of the total penalty: given that there are 29 points this is only a little bit more than a $1/N$ share. The overall penalty has dropped a lot as well. 
+
+7H3. 
+
+```{r}
+d_7h3 <- tibble(
+  island = 1:3, 
+  A = c(0.2, 0.8, 0.05), 
+  B = c(0.2, 0.1, 0.15), 
+  C = c(0.2, 0.05, 0.7), 
+  D = c(0.2, 0.025, 0.05), 
+  E = c(0.2, 0.025, 0.05)
+)
+d_7h3  
+```
+
+First we calculate the entropy for each of the islands. 
+
+```{r}
+entropy_7h3 <- d_7h3 %>% 
+  transmute(
+    island, 
+    entropy = pmap_dbl(
+      ., 
+      ~ - sum(c(..2, ..3, ..4, ..5, ..6) * log2(c(..2, ..3, ..4, ..5, ..6)))
+    )
+  )
+entropy_7h3
+```
+
+Island 2, which has 80% of its population as just one bird has the lowest entropy. We can understand this as quantifying our information about what bird we are likely to see: island 2 is the one where we can be most sure about which bird we will see. Island 3 is a little bit higher, as its highest proportion is 70%. We have a little less information about what bird we will see, and therefore slightly higher entropy. Island 1, where all of the proportions are equal, is the one where we know the least about what to expect. So its entropy is rather higher than either of the others. 
+
+Because I've calculated the entropy in bits (i.e. $\log_2$ rather than $\ln$), the entropy score for island 1 has a clear interpretation: it is simply $\log_2 5$, because that is how many bits it takes to encode five equally possible outcomes. We can exponentiate each of the entropy scores to get this figure for all three islands. 
+
+```{r}
+entropy_7h3 %>% 
+  mutate(exp_2 = round(2^entropy, digits = 2))
+```
+
+Island 2 has entropy equivalent to encoding just over two equally likely outcomes, and island 3 a little less than three. 
+
+Now we compute the KL divergence of each island from the others. 
+
+```{r}
+island1_7h3 <- d_7h3 %>% 
+  group_by(island) %>% 
+  nest() %>% 
+  ungroup() %>% 
+  transmute(
+    island1 = island, 
+    bird_vec1 = map(data, ~ .x %>% t() %>% as.double())
+  )
+island2_7h3 <- island1_7h3 %>% 
+  rename_with(~ str_replace(.x, "1", "2"))
+D_KL_7h3 <- full_join(
+  island1_7h3, 
+  island2_7h3, 
+  by = character()
+) %>% 
+  filter(island1 != island2) %>% 
+  mutate(
+    D_KL = map2_dbl(
+      bird_vec1, 
+      bird_vec2, 
+      ~ sum(.x * (log(.x / .y)))
+    )
+  )
+
+D_KL_7h3 %>% 
+  arrange(D_KL)
+```
+
+The lowest pairwise scores are between islands 1 and 3. Which island predicts the others best?
+
+```{r}
+D_KL_7h3 %>% 
+  group_by(island2) %>% 
+  summarise(total_D_KL = sum(D_KL)) %>% 
+  arrange(total_D_KL)
+```
+
+Island 1 has a much lower overall KL divergence than the others. Why? Because its proportions are spread evenly, that distribution is less surprised than the others when it sees any particular bird. 
+
+7H4. 
+
+```{r}
+set.seed(11)
+dmarriage <- sim_happiness() %>% 
+  as_tibble()
+dmarriage_adults <- dmarriage %>% 
+  filter(age > 17L) %>% 
+  mutate(A = scales::rescale(age)) %>% 
+  mutate(mid = married + 1L)
+
+
+m6_9 <- quap(
+  alist(
+    happiness ~ dnorm(mu, sigma), 
+    mu <- a[mid] + (bA * A), 
+    a[mid] ~ dnorm(0, 1), 
+    bA ~ dnorm(0, 2), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmarriage_adults
+)
+
+m6_10 <- quap(
+  alist(
+    happiness ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(0, 1), 
+    bA ~ dnorm(0, 2), 
+    sigma ~ dexp(1)
+  ), 
+  data = dmarriage_adults
+)
+```
+
+Remember that `m6_10` is the correct model (i.e. it agrees with the data generating process that we used for the simulation). 
+
+```{r}
+compare(m6_9, m6_10)
+```
+
+This highlights the difference between causal inference and prediction. When we condition on a collider in `m6_9` (i.e. whether or not a person is married) we make the wrong inferences about the causal structure. But a person's marriage status is extremely informative about their happiness: we know from the DAG that the causality runs the other way, but marriage status helps us to make better predictions. 
+
+7H5. 
+
+```{r}
+data("foxes")
+dfox <- foxes %>% 
+  as_tibble() %>% 
+  mutate(across(c(avgfood, area, weight, groupsize), standardize))
+```
+
+Now we create the models as specified. 
+
+```{r}
+m_7h5_1 <- quap(
+  flist = alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + (bF * avgfood) + (bS * groupsize) + (bA * area), 
+    c(a, bF, bS, bA) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfox
+)
+
+m_7h5_2 <- quap(
+  flist = alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + (bF * avgfood) + (bS * groupsize), 
+    c(a, bF, bS) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfox
+)
+
+m_7h5_3 <- quap(
+  flist = alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + (bS * groupsize) + (bA * area), 
+    c(a, bS, bA) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfox
+)
+
+m_7h5_4 <- quap(
+  flist = alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + (bF * avgfood), 
+    c(a, bF) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfox
+)
+
+m_7h5_5 <- quap(
+  flist = alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + (bA * area), 
+    c(a, bA) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfox
+)
+```
+
+Now compare them with WAIC. 
+
+```{r}
+set.seed(849)
+compare(m_7h5_1, m_7h5_2, m_7h5_3, m_7h5_4, m_7h5_5)
+```
+
+Let's remind ourselves of the DAG also. 
+
+```{r}
+
+dag_fox <- dagify(
+  avgfood ~ area, 
+  groupsize ~ avgfood, 
+  weight ~ avgfood + groupsize, 
+  coords = tibble(
+    name = c("avgfood", "area", "weight", "groupsize"), 
+    x = c(1, 2, 2, 3), 
+    y = c(2, 3, 1, 2)
+  )
+)
+
+dag_plot_fox <- dag_fox %>% 
+  tidy_dagitty() %>%
+  as_tibble() %>% 
+  inner_join(
+    tibble(
+      name = c("avgfood", "area", "weight", "groupsize"), 
+      label = c("F", "A", "W", "S")
+    ), 
+    by = "name"
+  ) %>% 
+  ggplot(aes(x = x, y = y, xend = xend, yend = yend)) +
+  geom_dag_node() +
+  geom_dag_text(aes(label = label)) +
+  geom_dag_edges() +
+  theme_dag()
+
+dag_plot_fox
+```
+
+The model with all possible predictors scores the best by WAIC, which isn't too surprising: as we saw in the last question, even confounding variables can help predictions. 
+
+The model that was the most helpful for causal inference, and that was consistent with the DAG, was the second (with food and group size included but not area). It has almost identical WAIC to the first model with all predictors, and the difference is much smaller than the standard error. In other words: based on predictive accuracy these two models are indistinguishable. In fact the first three models all have about the same WAIC, well within one standard error. 
+
+The fourth and fifth models are also interesting: their WAIC scores seem much higher if we look only at the `dWAIC` column, but the overall WAIC scores are higher for these models in general. Looking at the standard error for models four and five, we see that they are each about 1.4 standard errors higher than the best WAIC score: this is suggestive that these models have worse predictive accuracy, but not conclusive. 
