@@ -13,7 +13,6 @@ library(ggrepel)
 library(magrittr)
 library(corrr)
 library(furrr)
-library(xfun)
 library(tidyverse)
 # set up the theme
 theme_set(
