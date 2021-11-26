@@ -1,0 +1,323 @@
+---
+title: "Conditional Manatees"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+library(patchwork)
+library(zeallot)
+library(dagitty)
+library(ggdag)
+library(ggrepel)
+library(magrittr)
+library(corrr)
+library(furrr)
+library(tidyverse)
+# set up the theme
+theme_set(
+  theme_light() + 
+    theme(panel.grid = element_blank())
+)
+```
+
+The chapter introduces the idea of interactions. 
+
+## Building an interaction
+
+RM introduces the dataset on terrain ruggedness and economic output. 
+
+```{r}
+data(rugged)
+drugged <- rugged %>% 
+  as_tibble() %>% 
+  drop_na(rgdppc_2000) %>% 
+  mutate(
+    log_gdp_std = log(rgdppc_2000) / mean(log(rgdppc_2000)), 
+    rugged_std = rugged / max(rugged), 
+    cid = as.integer(cont_africa + 1L)
+  )
+
+drugged %>% 
+  transmute(
+    country, 
+    gdp = log_gdp_std, 
+    rugged = rugged_std, 
+    continent = if_else(
+      cont_africa == 1L, 
+      "African nations", 
+      "Non-African nations"
+    )
+  ) %>% 
+  mutate(gdp = gdp / mean(gdp)) %>% 
+  ggplot(aes(rugged, gdp, colour = continent)) + 
+  geom_point() + 
+  stat_smooth(
+    colour = "grey30", 
+    method = "lm", 
+    formula = "y ~ x", 
+    fullrange = TRUE
+  ) + 
+  geom_text_repel(
+    aes(label = country), 
+    colour = "black", 
+    data = . %>% 
+      filter(
+        country %in% c("Lesotho", "Seychelles", "Tajikistan", "Switzerland")
+      )
+  ) + 
+  scale_fill_manual(
+    values = c("steelblue", "grey50"), 
+    aesthetics = c("colour", "fill")
+  ) + 
+  facet_wrap(~ continent, scales = "free_y") + 
+  labs(
+    x = "ruggedness (standardized)", 
+    y = "log GDP (as proportion of mean)"
+  ) + 
+  theme(
+    legend.position = "none"
+  )
+```
+
+The relationship is opposite within each group. RM suggests a DAG that may be consistent with this relationship: 
+
+```{r}
+dagify(
+  G ~ R + C + U, 
+  R ~ U, 
+  coords = tibble(
+    name = c("R", "G", "C", "U"), 
+    x = c(1, 2, 3, 2), 
+    y = c(1, 1, 1, 0)
+  )
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+So that GDP is some function of the ruggedness, R, and the continent, C. 
+
+RM discounts the idea of splitting the data and fitting models separately. One reason is that some parameters (e.g. the variance) should not necessarily vary across continents. The argument seems to be against sleepwalking into this sort of thing: if the variance should be different in each continent, model that explicitly. 
+
+He also points out that anything using information criteria will not allow for comparing models using all the data to approaches fitting two separate models for Africa and the rest. 
+
+### Making a rugged model
+
+Start by fitting one model to all of the data. First attempt at the model: 
+
+$$
+\begin{align}
+\log(y_i) &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i     &=    \alpha + \beta(r_i - \bar{r}) \\
+\alpha    &\sim \mathcal{N}(1, 1) \\
+\beta     &\sim \mathcal{N}(0, 1) \\
+\sigma    &\sim \text{Exponential}(1)
+\end{align}
+$$
+
+
+```{r}
+m8_1_bad <- quap(
+  flist = alist(
+    log_gdp_std ~ dnorm(mu, sigma), 
+    mu <- a + (b * (rugged_std - 0.215)), 
+    a ~ dnorm(1, 1), 
+    b ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = drugged
+)
+```
+
+Now do the prior predictive simulation to see if these priors give something reasonable. 
+
+```{r}
+rugged_seq <- seq(-0.1, 1.1, length.out = 30)
+set.seed(7)
+fig_8_3_1 <- link(
+  m8_1_bad, 
+  post = extract.prior(m8_1_bad), 
+  data = tibble(rugged_std = rugged_seq)
+) %>% 
+  as_tibble(
+    .name_repair = ~ str_c(rugged_seq)
+  ) %>% 
+  rowid_to_column() %>% 
+  slice_sample(n = 50) %>% 
+  pivot_longer(
+    cols = -rowid, 
+    names_to = "rugged_std", 
+    names_transform = list(rugged_std = parse_number), 
+    values_to = "log_gdp_std"
+  ) %>% 
+  ggplot(aes(rugged_std, log_gdp_std, group = rowid)) + 
+  geom_line(alpha = 0.5, colour = "grey50") + 
+  coord_cartesian(
+    xlim = c(0, 1), 
+    ylim = c(0.5, 1.5)
+  ) + 
+  geom_hline(yintercept = range(drugged$log_gdp_std), linetype = 2) + 
+  labs(
+    title = sprintf("a ~ dnorm(1, 1)\nb ~ dnorm(0, 1)"), 
+    x = "ruggedness", 
+    y = "log GDP (prop of mean)"
+  ) + 
+  theme(plot.title = element_text(hjust = 0.49))
+fig_8_3_1
+```
+
+This prior is useless: far too many of these lines are simply implausible. 
+
+We make the priors stricter, so our new model is: 
+
+$$
+\begin{align}
+\log(y_i) &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i     &=    \alpha + \beta(r_i - \bar{r}) \\
+\alpha    &\sim \mathcal{N}(1, 0.1) \\
+\beta     &\sim \mathcal{N}(0, 0.3) \\
+\sigma    &\sim \text{Exponential}(1)
+\end{align}
+$$
+
+Now refit the model and recreate the prior plot. 
+
+```{r}
+m8_1 <- quap(
+  flist = alist(
+    log_gdp_std ~ dnorm(mu, sigma), 
+    mu <- a + (b * (rugged_std - 0.215)), 
+    a ~ dnorm(1, 0.1), 
+    b ~ dnorm(0, 0.3), 
+    sigma ~ dexp(1)
+  ), 
+  data = drugged
+)
+```
+
+```{r}
+set.seed(7)
+fig_8_3_2 <- link(
+  m8_1, 
+  post = extract.prior(m8_1), 
+  data = tibble(rugged_std = rugged_seq)
+) %>% 
+  as_tibble(
+    .name_repair = ~ str_c(rugged_seq)
+  ) %>% 
+  rowid_to_column() %>% 
+  slice_sample(n = 50) %>% 
+  pivot_longer(
+    cols = -rowid, 
+    names_to = "rugged_std", 
+    names_transform = list(rugged_std = parse_number), 
+    values_to = "log_gdp_std"
+  ) %>% 
+  ggplot(aes(rugged_std, log_gdp_std, group = rowid)) + 
+  geom_line(alpha = 0.5, colour = "grey50") + 
+  coord_cartesian(
+    xlim = c(0, 1), 
+    ylim = c(0.5, 1.5)
+  ) + 
+  geom_hline(yintercept = range(drugged$log_gdp_std), linetype = 2) + 
+  labs(
+    title = sprintf("a ~ dnorm(1, 0.1)\nb ~ dnorm(0, 0.3)"), 
+    x = "ruggedness", 
+    y = "log GDP (prop of mean)"
+  ) + 
+  theme(plot.title = element_text(hjust = 0.49))
+fig_8_3_1 + fig_8_3_2
+```
+
+There are still some improbably strong relationships in that prior, but it's much more concentrated around values that could reasonably occur. 
+
+```{r}
+precis(m8_1)
+```
+
+The model fails to detect any relationship between ruggedness and GDP. 
+
+### Adding an indicator variable isn't enough
+
+The approach we used earlier with indicator variables won't work now. Why? Because that will only estimate different intercepts for each group (i.e. Africa and not-Africa). We can see from the earlier plot though that there are different _slopes_ in each group as well. So the model needs to account for this. 
+
+RM then illustrates why it isn't enough to just estimate separate intercepts for each group, which I'll skip as the lesson seems clear. I'll fit the model though as we use it later for comparison. 
+
+```{r}
+m8_2 <- quap(
+  flist = alist(
+    log_gdp_std ~ dnorm(mu, sigma), 
+    mu <- a[cid] + (b * (rugged_std - 0.215)), 
+    a[cid] ~ dnorm(1, 0.1), 
+    b ~ dnorm(0, 0.3), 
+    sigma ~ dexp(1)
+  ), 
+  data = drugged
+)
+```
+
+
+### Adding an interaction does work
+
+Now we build the better model with varying intercepts and slopes. The linear model part is: 
+
+$$
+\mu_i = \alpha_{\text{CID}[i]} + \beta_{\text{CID}[i]}(r_i - \bar{r})
+$$
+
+Here ${\text{CID}[i]}$ is the indicator for continent. RM notes that this is better than the conventional approach to specifying an interaction like this, which would be: 
+
+$$
+\mu_i = \alpha_{\text{CID}[i]} + (\beta + \gamma A_i)(r_i - \bar{r})
+$$
+
+This would require us to set a prior on $\gamma$ (which is hard, since it doesn't have an obvious interpretation), and would repeat the issue mentioned above of more variability in Africa than elsewhere. 
+
+Now fit the model. 
+
+```{r}
+m8_3 <- quap(
+  flist = alist(
+    log_gdp_std ~ dnorm(mu, sigma), 
+    mu <- a[cid] + (b[cid] * (rugged_std - 0.215)), 
+    a[cid] ~ dnorm(1, 0.1), 
+    b[cid] ~ dnorm(0, 0.3), 
+    sigma ~ dexp(1)
+  ), 
+  data = drugged
+)
+```
+
+```{r}
+precis(m8_3, depth = 2)
+```
+
+Now we get different slopes for each group: negative for non-African countries and positive for Africa (group 1 and 2 respectively). We also get estimates of the intercepts (i.e. the mean) that make sense: African countries on average have c. 90% of average GDP. 
+
+Now compare the models: 
+
+```{r}
+set.seed(1)
+compare(m8_1, m8_2, m8_3, func = PSIS)
+```
+
+We get a warning about high values for $k$, which we can plot. 
+
+```{r}
+set.seed(1)
+PSIS(m8_3, pointwise = TRUE) %>% 
+  rowid_to_column() %>% 
+  ggplot(aes(rowid, k)) + 
+  geom_point(colour = "steelblue", alpha = .6) + 
+  geom_hline(yintercept = 0.5, linetype = 2, alpha = 0.6) + 
+  scale_y_continuous(breaks = c(0.5, 1)) + 
+  labs(x = NULL) + 
+  theme(
+    axis.text.x = element_blank(), 
+    axis.ticks.x = element_blank()
+  )
+```
+
