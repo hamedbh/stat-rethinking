@@ -5,6 +5,8 @@ output: html_document
 
 ```{r setup}
 library(rethinking)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
 library(patchwork)
 library(zeallot)
 library(dagitty)
@@ -270,7 +272,6 @@ RM gives a neat description of underfit models as being "insensitive to the samp
 ```{r}
 plot_brain_loo <- function(quap_fit) {
   model_name <- deparse(match.call()[[2]])
-  # quap_fit <- get(quap_fit_chr)
   mass_seq <- seq(
     min(dbrain_std[["mass_std"]]), 
     max(dbrain_std[["mass_std"]]), 
@@ -521,7 +522,7 @@ So then the basic insight is to ask:
 
 > How much is our uncertainty reduced by learning an outcome?
 
-That reduction in uncertainty is the **information**, which is a measureable quantity. 
+That reduction in uncertainty is the **information**, which is a measurable quantity. 
 
 The measurement of uncertainty uses the following function (where there are $n$ possible events, and each event $i$ has probability $p_i$ of occurring): 
 
@@ -823,7 +824,7 @@ example_lppd %>%
 WAIC(waic_m)
 ```
 
-There is some difference because of simulation error, but an amount much smaller than the standard error estimate. It's possible to calculate that standard error directly also, as $\sqrt{(N \text{Var}(p_{\text{WAIC}}))}$ (where the $p_{\text{WAIC}}$ here is the figure for each observation). 
+There is some difference because of simulation error, but an amount much smaller than the standard error estimate. It's possible to calculate that standard error directly also, as $\sqrt{N \text{Var}(p_{\text{WAIC}})}$ (where the $p_{\text{WAIC}}$ here is the figure for each observation). 
 
 ```{r}
 sqrt(nrow(cars) * var(example_lppd$WAIC))
@@ -1105,7 +1106,8 @@ To make the two the same we would need $p \approx \sum_i \text{var}_{\theta} \lo
 
 7M2. 
 
-Model selection is the process of selecting a model based on a score (e.g. PSIS). Model comparison is when we compares the scores across models. 
+Model selection is the process of selecting a model based on a score (e.g. PSIS). Model comparison is when we compare the scores across models. 
+
 Model selection (as presented) is a rather mindless process. The information lost includes how much difference there is between the top-scoring model and the rest. 
 
 7M3. 
@@ -1544,7 +1546,6 @@ compare(m_7h5_1, m_7h5_2, m_7h5_3, m_7h5_4, m_7h5_5)
 Let's remind ourselves of the DAG also. 
 
 ```{r}
-
 dag_fox <- dagify(
   avgfood ~ area, 
   groupsize ~ avgfood, 
