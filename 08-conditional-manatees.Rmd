@@ -321,3 +321,376 @@ PSIS(m8_3, pointwise = TRUE) %>%
   )
 ```
 
+### Plotting an interaction
+
+In this case it's relatively easy as we have a binary variable in our interaction, so we can just make two plots side by side. 
+
+```{r}
+set.seed(1105)
+mu8_3 <- map_dfr(
+  1:2, 
+  ~ link(
+    m8_3, 
+    data = tibble(
+      cid = .x, 
+      rugged_std = rugged_seq
+    )
+  ) %>% 
+    as_tibble(.name_repair = ~ str_c(rugged_seq)) %>% 
+    rowid_to_column("sample_id") %>% 
+    pivot_longer(
+      -sample_id, 
+      names_to = "rugged_std", names_transform = list(rugged_std = parse_number)
+    ) %>% 
+    mutate(cid = .x)
+)
+mu8_3_summary <- mu8_3 %>%
+  group_by(cid, rugged_std) %>% 
+  summarise(
+    tibble(
+      tibble(
+        name = c("mean", "lower", "upper"), 
+        value = c(mean(value), PI(value, prob = 0.97))
+      )
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider() %>% 
+  mutate(
+    cid = if_else(
+      cid == 1L, 
+      "Non-African nations", 
+      "African nations"
+    )
+  )
+mu8_3_summary %>% 
+  ggplot(aes(x = rugged_std)) + 
+  geom_line(aes(y = mean)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = cid), alpha = 0.4) + 
+  geom_point(
+    aes(y = log_gdp_std, colour = cid), 
+    data = drugged %>% 
+      mutate(
+        cid = if_else(
+          cid == 1L, 
+          "Non-African nations", 
+          "African nations"
+        )
+      )
+  ) + 
+  geom_text_repel(
+    aes(y = log_gdp_std, label = country), 
+    data = drugged %>% 
+      mutate(
+        cid = if_else(
+          cid == 1L, 
+          "Non-African nations", 
+          "African nations"
+        )
+      ) %>% 
+      filter(
+        country %in% c(
+          "Equatorial Guinea", 
+          "South Africa", 
+          "Seychelles", 
+          "Swaziland", 
+          "Lesotho", 
+          "Rwanda", 
+          "Burundi", 
+          "Luxembourg", 
+          "Switzerland", 
+          "Greece", 
+          "Lebanon", 
+          "Nepal", 
+          "Tajikistan", 
+          "Yemen"
+        )
+      ), 
+    size = 3
+  ) + 
+  scale_fill_manual(
+    aesthetics = c("fill", "colour"), values = c("steelblue", "black")
+  ) + 
+  facet_wrap(~ cid, scales = "free_y") + 
+  labs(
+    x = "ruggedness (standardised)", 
+    y = "log GDP (as proportion of mean)"
+  ) + 
+  theme(legend.position = "none")
+```
+
+## Symmetry of interactions
+
+RM points out that our framing of the interaction can flip but the underlying maths stays the same. Either we are: 
+
+- Estimating the association between ruggedness and GDP conditional on the country being in Africa; or 
+- Estimating the association between being in Africa and GDP conditional on the ruggedness of the country. 
+
+The model for $\mu_i$ is: 
+
+$$
+\begin{align}
+\mu_i = \alpha_{\text{CID}[i]} + \beta_{\text{CID}[i]}(r - \bar{r})
+\end{align}
+$$
+
+This implies (particularly through the notation) that the slope is conditional on the continent. Rewriting the expression makes it easier to see the alternative interpretation though. 
+
+$$
+\begin{align}
+\mu_i = (2 - \text{CID}_i)(\alpha_1 + \beta_1(r - \bar{r})) + (\text{CID}_i - 1)(\alpha_2 + \beta_2(r - \bar{r}))
+\end{align}
+$$
+
+Exactly one of the terms in the sum will be non-zero for each country, and we can 'flip' the contintent for any country and get a different estimate for $\mu$ based on its ruggedness. 
+
+```{r}
+set.seed(1105)
+mu8_3_delta <- map(
+  1:2, 
+  ~ link(
+    m8_3, 
+    data = tibble(
+      cid = .x, 
+      rugged_std = rugged_seq
+    )
+  )
+) %>% 
+  reduce(~ .y - .x) %>% 
+  as_tibble(.name_repair = ~ str_c(rugged_seq)) %>% 
+  rowid_to_column("sample_id") %>% 
+  pivot_longer(
+    -sample_id, 
+    names_to = "rugged_std", names_transform = list(rugged_std = parse_number)
+  )
+
+mu8_3_delta_summary <- mu8_3_delta %>%
+  group_by(rugged_std) %>% 
+  summarise(
+    tibble(
+      tibble(
+        name = c("mean", "lower", "upper"), 
+        value = c(mean(value), PI(value, prob = 0.97))
+      )
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider()
+
+mu8_3_delta_summary %>% 
+  ggplot(aes(x = rugged_std)) + 
+  geom_line(aes(y = mean)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.4) + 
+  geom_hline(yintercept = 0, linetype = 2, alpha = 0.7) + 
+  geom_text(
+    aes(x = x, y = y, label = label), 
+    data = tibble(
+      x = c(0, 0), 
+      y = c(-0.05, 0.05), 
+      label = c("Africa lower GDP", "Africa higher GDP")
+    ), 
+    size = 4
+  ) + 
+  labs(
+    x = "ruggedness", 
+    y = "expected difference log GDP"
+  )
+```
+
+## Continuous interactions
+
+The previous example was relatively easy to visualise, but this becomes much harder with continuous interactions. 
+
+### A winter flower
+
+```{r}
+data(tulips)
+dtulips <- tulips %>% 
+  as_tibble() %>% 
+  mutate(
+    W = water - mean(water),
+    S = shade - mean(shade), 
+    B = scales::rescale(blooms)
+  )
+str(dtulips)
+```
+
+We predict blooms as a function of water and shade. However these variables are both continuous and we expect them to interact. 
+
+### The models
+
+Can set up two models: with and without the interaction. First the model without. 
+
+$$
+\begin{align}
+B_i   &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &=    \alpha + \beta_W(W_i - \bar{W}) + \beta_S(S_i - \bar{S})
+\end{align}
+$$
+
+So each predictor has been mean-centred. We also scale $B$ by its maximum, to make the interpretation easier. (All done above to make this step easier.)
+
+RM also goes through the priors, which I'll skip for time. 
+
+```{r}
+m8_4 <- quap(
+  flist = alist(
+    B ~ dnorm(mu, sigma), 
+    mu <- a + (bW * W) + (bS * S), 
+    a ~ dnorm(0.5, 0.25), 
+    c(bW, bS) ~ dnorm(0, 0.25), 
+    sigma ~ dexp(1)
+  ), 
+  data = dtulips
+)
+```
+
+RM suggests simulating from the prior, so we can do that. 
+
+```{r}
+set.seed(930)
+prior8_4 <- extract.prior(m8_4) %>% 
+  as_tibble() %>% 
+  rowid_to_column()
+
+(
+  prior8_4 %>% 
+  slice_sample(n = 100) %>% 
+  expand(
+    nesting(rowid, a, bW), 
+    W = seq(-1.5, 1.5, length.out = 50)
+  ) %>% 
+  mutate(B = a + (bW * W)) %>% 
+  ggplot(aes(W, B, group = rowid)) + 
+  geom_line(alpha = 0.3) + 
+  geom_hline(yintercept = c(0, 1), linetype = 2, alpha = 0.8)
+) + (
+  prior8_4 %>% 
+  slice_sample(n = 100) %>% 
+  expand(
+    nesting(rowid, a, bS), 
+    S = seq(-1.5, 1.5, length.out = 50)
+  ) %>% 
+  mutate(B = a + (bS * S)) %>% 
+  ggplot(aes(S, B, group = rowid)) + 
+  geom_line(alpha = 0.3) + 
+  geom_hline(yintercept = c(0, 1), linetype = 2, alpha = 0.8)
+)
+```
+
+There are some improbable lines but most of them are within the range of reasonable values. 
+
+Now we can build the model including the interaction. RM shows that the traditional presentation of an interaction term derives from replacing the coefficient for one of the predictors with a linear model, and then expanding it out. 
+
+$$
+\begin{align}
+\mu_i         &= \alpha + \gamma_{W, i} W_i + \beta_S S_i \\
+\gamma_{W, i} &= \beta_W + \beta_{WS} S_i \\
+\mu_i         &= \alpha + (\beta_W + \beta_{WS} S_i) W_i + \beta_S S_i \\
+              &= \alpha + \beta_W W_i + \beta_S S_i + \beta_{WS} W_i S_i
+\end{align}
+$$
+
+The process is completely symmetrical, so we could have replaced $\beta_S$ with a linear model instead and got the same answer. If we did both at once we would just find that instead of $\beta_{WS}$ as the coefficient for the product we would get $\beta_{WS} + \beta_{SW}$, which we can relabel easily as $\beta_{WS}$. So all of these are mathematically equivalent. 
+
+So the interaction model is: 
+
+$$
+\begin{align}
+B_i   &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &=    \alpha + \beta_W W_i + \beta_S S_i + \beta_{WS} W_i S_i
+\end{align}
+$$
+
+```{r}
+m8_5 <- quap(
+  flist = alist(
+    B ~ dnorm(mu, sigma), 
+    mu <- a + (bW * W) + (bS * S) + (bWS * W * S), 
+    a ~ dnorm(0.5, 0.25), 
+    c(bW, bS, bWS) ~ dnorm(0, 0.25), 
+    sigma ~ dexp(1)
+  ), 
+  data = dtulips
+)
+
+precis(m8_5)
+```
+
+### Plotting posterior predictions
+
+RM suggests triptych plots: each shows the effect of one predictor on the outcome with the other predictor held constant. The three plots would have low, medium, and high values for the constant predictor. It's easier here because we have just three possible values for each predictor. 
+
+```{r}
+plot_tulips <- function(quap_fit) {
+  mod_name <- deparse(match.call()[[2]])
+  map_dfr(
+    c(-1, 0, 1), 
+    ~ link(quap_fit, data = tibble(S = .x, W = c(-1, 0, 1))) %>% 
+      as_tibble(.name_repair = ~ str_c(c(-1, 0, 1))) %>% 
+      slice_sample(n = 20) %>% 
+      rowid_to_column("sample_id") %>% 
+      pivot_longer(
+        -sample_id, 
+        names_to = "W", 
+        names_transform = list(W = parse_number), 
+        values_to = "B"
+      ) %>% 
+      mutate(S = .x)
+  ) %>% 
+    mutate(S = sprintf("%s post: shade = %s", mod_name, S)) %>% 
+    ggplot(aes(W, B)) + 
+    geom_point(
+      data = dtulips %>% 
+        mutate(S = sprintf("%s post: shade = %s", mod_name, S)), 
+      colour = "steelblue"
+    ) + 
+    geom_line(aes(group = sample_id), alpha = 0.4) + 
+    scale_y_continuous("blooms", breaks = c(0, 0.5, 1)) + 
+    scale_x_continuous("water", breaks = c(0, 0.5, 1)) + 
+    facet_wrap(~ S)
+}
+set.seed(1033)
+plot_tulips(m8_4) /
+  plot_tulips(m8_5)
+```
+
+### Plotting prior predictions
+
+```{r}
+plot_prior_tulips <- function(quap_fit) {
+  mod_name <- deparse(match.call()[[2]])
+  map_dfr(
+    c(-1, 0, 1), 
+    ~ link(
+      quap_fit, 
+      data = tibble(S = .x, W = c(-1, 0, 1)), 
+      post = extract.prior(quap_fit)
+    ) %>% 
+      as_tibble(.name_repair = ~ str_c(c(-1, 0, 1))) %>% 
+      slice_sample(n = 20) %>% 
+      rowid_to_column("sample_id") %>% 
+      pivot_longer(
+        -sample_id, 
+        names_to = "W", 
+        names_transform = list(W = parse_number), 
+        values_to = "B"
+      ) %>% 
+      mutate(S = .x)
+  ) %>% 
+    mutate(S = sprintf("%s prior: shade = %s", mod_name, S)) %>% 
+    ggplot(aes(W, B)) + 
+    geom_line(aes(group = sample_id), alpha = 0.4) + 
+    geom_hline(yintercept = c(0, 1), linetype = 2, alpha = 0.8) + 
+    scale_y_continuous("blooms", breaks = c(0, 0.5, 1)) + 
+    scale_x_continuous("water", breaks = c(0, 0.5, 1), limits = c(-1, 1)) + 
+    facet_wrap(~ S)
+}
+set.seed(1033)
+plot_prior_tulips(m8_4) /
+  plot_prior_tulips(m8_5)
+```
+
+## Summary
+
+The embedded linear model thing was genuinely eye-opening. Also interesting that interactions are not specified in a DAG: the DAG shows only which variables affect another, but not how they may combine to do so. 
