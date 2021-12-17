@@ -510,7 +510,8 @@ dtulips <- tulips %>%
   mutate(
     W = water - mean(water),
     S = shade - mean(shade), 
-    B = scales::rescale(blooms)
+    B = scales::rescale(blooms), 
+    bed_idx = as.integer(bed)
   )
 str(dtulips)
 ```
@@ -694,3 +695,761 @@ plot_prior_tulips(m8_4) /
 ## Summary
 
 The embedded linear model thing was genuinely eye-opening. Also interesting that interactions are not specified in a DAG: the DAG shows only which variables affect another, but not how they may combine to do so. 
+
+## Practice
+
+### Easy
+
+8E1. 
+
+1. Ambient temperature; 
+2. Geographical location; 
+3. Which gear the car is in. 
+
+8E2. 
+
+Only the first one is an interaction, the others could be independent of one another (i.e. additive only). 
+
+8E3. 
+
+For the onions: 
+
+$$
+\mu_i = \alpha + \beta_T T_i + \beta_M M_i + \beta_{TM} T_i M_i
+$$
+
+For the car: 
+
+$$
+\mu_i = \alpha + \beta_C C_i + \beta_F F_i
+$$
+
+For the political beliefs: 
+
+$$
+\mu_i = \alpha + \beta_P P_i + \beta_F F_i
+$$
+
+For intelligence: 
+
+$$
+\mu_i = \alpha + \beta_S S_i + \beta_M M_i
+$$
+
+### Medium
+
+8M1. 
+
+If there were no blooms at all at the higher temperature $T$ then we can say there's an interaction between all three predictors: we know that water and shade interact, but they now interact with temperature also. 
+
+8M2. 
+
+We could rewrite the model from above as follows, supposing that $T$ takes the value 0 when it is low and 1 when it's high. 
+
+$$
+\begin{align}
+\mu_i &= (1 - T_i)(\alpha + \beta_W W_i + \beta_S S_i + \beta_{WS} W_i S_i) \\
+      &= \alpha + \beta_W W_i + \beta_S S_i + \beta_{WS} W_i S_i - 
+          T_i \alpha - T_i \beta_W W_i - T_i \beta_S S_i - T_i \beta_{WS} W_i S_i \\
+      &=  (1 - T_i)\alpha + (1 - T_i)\beta_W W_i + (1 - T_i)\beta_S S_i + (1 - T_i)\beta_{WS} W_i S_i
+\end{align}
+$$
+
+The last form is maybe the most suggestive: we see that $1 - T_i$ is just killing all of the terms whenever the temperature is high. 
+
+8M3. 
+
+The question says that ravens depend on wolves, but not the reverse. So the DAG would be: 
+
+```{r}
+dagify(
+  R ~ W
+) %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+There's no real interaction here though: when wolves go up so will ravens, but that association isn't conditional on anything else (at least not according to the question). Some example data might be: 
+
+```{r}
+tibble(wolves = rpois(10, 20)) %>% 
+  mutate(ravens = rpois(10, 3 * (wolves + rnorm(10, sd = 4))))
+```
+
+8M4. 
+
+```{r}
+set.seed(1126)
+quap(
+  flist = alist(
+    B ~ dnorm(mu, sigma), 
+    mu <- a + (bW * W) - (bS * S) + (bWS * W * S), 
+    a ~ dnorm(0.5, 0.25),
+    c(bW, bS) ~ dlnorm(0, 0.25), 
+    bWS ~ dnorm(0, 0.25), 
+    sigma ~ dexp(1)
+  ), 
+  data = dtulips
+) %>% 
+  plot_prior_tulips()
+```
+
+The priors need to be a bit tighter, these lines are too steep and the differences across the three panels seem a bit too stark. 
+
+```{r}
+set.seed(1126)
+m8m4 <- quap(
+  flist = alist(
+    B ~ dnorm(mu, sigma), 
+    mu <- a + (bW * W) - (bS * S) + (bWS * W * S), 
+    a ~ dnorm(0.5, 0.25),
+    c(bW, bS) ~ dlnorm(-2, 0.1), 
+    bWS ~ dnorm(0, 0.25), 
+    sigma ~ dexp(1)
+  ), 
+  data = dtulips
+) 
+
+m8m4 %>% 
+  plot_prior_tulips()
+```
+
+This seems better. 
+
+### Hard
+
+8H1.
+
+```{r}
+m8h1 <- quap(
+  flist = alist(
+    B ~ dnorm(mu, sigma), 
+    mu <- a[bed_idx] + (bW * W) - (bS * S) + (bWS * W * S), 
+    a[bed_idx] ~ dnorm(0.5, 0.25), 
+    c(bW, bS, bWS) ~ dnorm(0, 0.25), 
+    sigma ~ dexp(1)
+  ), 
+  data = dtulips
+)
+```
+
+8H2. 
+
+```{r}
+compare(m8_5, m8h1)
+```
+
+There seems to be very little difference between the models: certainly the dWAIC is much smaller then the dSE, and the model with `bed` has only 75% of the weight. 
+
+We can check the posterior estimates for the new model: 
+
+```{r}
+coeftab_plot(coeftab(m8h1))
+```
+
+The intervals for beds 2 and 3 are almost identical. There seems to be some difference with bed 1, but even that interval overlaps a little with bed 2. So the `bed` variable just isn't that helpful, which explains why the WAIC scores were so similar. 
+
+8H3. 
+
+```{r}
+set.seed(1250)
+tibble(
+  country = drugged[["country"]], 
+  k = PSIS(m8_3, pointwise = TRUE)[["k"]], 
+  penalty = WAIC(m8_3, pointwise = TRUE)[["penalty"]]
+) %>% 
+  ggplot(aes(k, penalty)) + 
+  geom_point(colour = "steelblue") + 
+  geom_vline(xintercept = 0.5, linetype = 2, alpha = 0.2) + 
+  geom_text_repel(
+    aes(label = country), 
+    data = . %>% 
+      filter(k > 0.5 | penalty > 0.4)
+  ) + 
+  scale_x_continuous("PSIS Pareto k", breaks = c(0, 0.5, 1))
+```
+
+Switzerland has a relatively high penalty, which is presumably because it is very rich and rugged. 
+
+Can now refit the model using robust regression. 
+
+```{r}
+m8h3b <- quap(
+  flist = alist(
+    log_gdp_std ~ dstudent(2, mu, sigma), 
+    mu <- a[cid] + (b[cid] * (rugged_std - 0.215)), 
+    a[cid] ~ dnorm(1, 0.1), 
+    b[cid] ~ dnorm(0, 0.3), 
+    sigma ~ dexp(1)
+  ), 
+  data = drugged
+)
+set.seed(1250)
+tibble(
+  country = drugged[["country"]], 
+  k = PSIS(m8h3b, pointwise = TRUE)[["k"]], 
+  penalty = WAIC(m8h3b, pointwise = TRUE)[["penalty"]]
+) %>% 
+  ggplot(aes(k, penalty)) + 
+  geom_point(colour = "steelblue") + 
+  geom_vline(xintercept = 0.5, linetype = 2, alpha = 0.2) + 
+  geom_text_repel(
+    aes(label = country), 
+    data = . %>% 
+      filter(k > 0.5 | penalty > 0.4)
+  ) + 
+  scale_x_continuous("PSIS Pareto k", breaks = c(0, 0.5, 1))
+```
+
+```{r}
+compare(m8_3, m8h3b)
+```
+We can also compute the effect of the continent for each model. 
+
+```{r}
+set.seed(1310)
+map2_dfr(
+  list(m8_3, m8h3b), 
+  c("Normal", "Student-t"), 
+  ~ extract.samples(.x) %>% 
+    pluck("b") %>% 
+    as_tibble(.name_repair = ~ c("one", "two")) %>% 
+    transmute(contrast = two - one) %>% 
+    mutate(model = .y)
+) %>% 
+  ggplot(aes(contrast, colour = model, fill = model)) + 
+  geom_density(alpha = 0.4) + 
+  scale_fill_viridis_d(
+    aesthetics = c("colour", "fill")
+  ) + 
+  labs(
+    y = NULL, 
+    colour = NULL, 
+    fill = NULL
+  ) + 
+  theme(
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(), 
+    legend.position = "bottom"
+  )
+```
+
+8H4. 
+
+```{r}
+data(nettle)
+dnettle <- nettle %>% 
+  as_tibble() %>% 
+  transmute(
+    country, 
+    A = log(area), 
+    M = mean.growing.season, 
+    S = sd.growing.season, 
+    L = log(num.lang / k.pop)
+  ) %>% 
+  mutate(across(where(is.double), standardize))
+dnettle
+```
+
+First build the model in part a, using $A$ and $M$ as the predictors. 
+
+```{r}
+m8h4a <- quap(
+  alist(
+    L ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bM * M), 
+    a ~ dnorm(0, 0.2), 
+    c(bA, bM) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dnettle
+)
+precis(m8h4a)
+```
+
+Now the part b model, using $A$ and $S$ as predictors. 
+
+```{r}
+m8h4b <- quap(
+  alist(
+    L ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bS * S), 
+    a ~ dnorm(0, 0.2), 
+    c(bA, bS) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dnettle
+)
+precis(m8h4b)
+```
+
+Let's pause and plot the parameters. 
+
+```{r}
+coeftab(m8h4a, m8h4b) %>% 
+  coeftab_plot()
+```
+
+The estimates for $\beta_A$ are very similar in both models. The coefficient on $M$ seems quite solidly positive, whereas that on $S$ is mostly negative but overlaps with 0. Now we can build the model with the interaction. 
+
+```{r}
+m8h4c <- quap(
+  alist(
+    L ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bS * S) + (bM * M) + (bSM * S * M), 
+    a ~ dnorm(0, 0.2), 
+    c(bA, bS, bM, bSM) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dnettle
+)
+precis(m8h4c)
+```
+
+Now we can compare the parameter estimates and PSIS scores for the models. 
+
+```{r}
+coeftab(m8h4a, m8h4b, m8h4c) %>% 
+  coeftab_plot()
+```
+
+```{r}
+compare(m8h4a, m8h4b, m8h4c, func = PSIS)
+```
+
+The model with all three predictors is top, but using just mean growing season gets similar performance (within one standard error). We are getting warnings about high values of $k$ though, so we can plot the points and check which are maybe too influential. 
+
+```{r}
+set.seed(1250)
+tibble(
+  country = dnettle[["country"]], 
+  k = PSIS(m8h4c, pointwise = TRUE)[["k"]], 
+  penalty = WAIC(m8h4c, pointwise = TRUE)[["penalty"]]
+) %>% 
+  mutate(penalty_prop = penalty / sum(penalty)) %>% 
+  ggplot(aes(k, penalty)) + 
+  geom_point(colour = "steelblue") + 
+  geom_vline(xintercept = c(0.5, 0.7), linetype = 2, alpha = 0.2) + 
+  geom_text_repel(
+    aes(label = country), 
+    data = . %>% 
+      filter(k > 0.5 | penalty_prop > 0.1)
+  ) + 
+  scale_x_continuous("PSIS Pareto k", breaks = c(0, 0.5, 1))
+```
+
+There are some countries with very high values for $k$, in particular Vanuatu. Do the data tell us anything when considered alongside the parameter estimates from this model?
+
+```{r}
+dnettle %>% 
+  filter(country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil"))
+```
+
+
+```{r}
+coeftab(m8h4c) %>% 
+  coeftab_plot()
+```
+
+It might be easier to simulate: generate parameter samples from the posterior, then use those to simulate
+
+```{r}
+set.seed(1649)
+sim(m8h4c) %>% 
+  as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) %>% 
+  rowid_to_column("sample_id") %>% 
+  select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") %>% 
+  pivot_longer(
+    -sample_id, 
+    names_to = "country", 
+    values_to = "L"
+  ) %>% 
+  group_by(country) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(L), PI(L))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider() %>% 
+  inner_join(
+    dnettle %>% 
+      filter(
+        country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil")
+      ) %>% 
+      select(country, L), 
+    by = "country"
+  ) %>% 
+  ggplot(aes(y = fct_rev(country), colour = country)) + 
+  geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
+  geom_point(aes(x = L), colour = "black") + 
+  scale_colour_viridis_d(option = "D") + 
+  labs(
+    title = "Posterior predictions for influential observations", 
+    subtitle = "Observed values in black", 
+    x = "log of languages per capita", 
+    y = NULL
+  ) + 
+  theme(legend.position = "none")
+```
+
+Now the picture is clearer: in three of the four countries the observed value is entirely outside the 89% posterior interval. The observed value for Brazil is in the interval but still near the edge. 
+
+Does a robust regression change things?
+
+```{r}
+m8h4d <- quap(
+  alist(
+    L ~ dstudent(2, mu, sigma), 
+    mu <- a + (bA * A) + (bS * S) + (bM * M) + (bSM * S * M), 
+    a ~ dnorm(0, 0.2), 
+    c(bA, bS, bM, bSM) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dnettle
+)
+
+precis(m8h4d)
+```
+
+We can repeat the plot of the posterior predictive simulation. 
+
+```{r}
+set.seed(1712)
+sim(m8h4d) %>% 
+  as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) %>% 
+  rowid_to_column("sample_id") %>% 
+  select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") %>% 
+  pivot_longer(
+    -sample_id, 
+    names_to = "country", 
+    values_to = "L"
+  ) %>% 
+  group_by(country) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(L), PI(L))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider() %>% 
+  inner_join(
+    dnettle %>% 
+      filter(
+        country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil")
+      ) %>% 
+      select(country, L), 
+    by = "country"
+  ) %>% 
+  ggplot(aes(y = fct_rev(country), colour = country)) + 
+  geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
+  geom_point(aes(x = L), colour = "black") + 
+  scale_colour_viridis_d(option = "D") + 
+  labs(
+    title = "Posterior predictions for influential observations", 
+    subtitle = "Observed values in black", 
+    x = "log of languages per capita", 
+    y = NULL
+  ) + 
+  theme(legend.position = "none")
+```
+
+The observed values are still solidly outside the intervals for three of the four. 
+
+```{r}
+compare(m8h4c, m8h4d, func = PSIS)
+```
+
+The two models are nearly identical, although the robust regression does not throw up the warning about $k$. We can check whether the parameter estimates are similar also. 
+
+```{r}
+coeftab(m8h4c, m8h4d) %>% 
+  coeftab_plot()
+```
+
+The most noticeable change is that $\sigma$ is much smaller in the robust regression: to make the values in the tails more plausible the standard regression must estimate a higher variance. 
+
+8H5. 
+
+```{r}
+data(Wines2012)
+dwines <- Wines2012 %>% 
+  as_tibble() %>% 
+  transmute(
+    judge = as.integer(judge), 
+    flight = as.integer(flight), 
+    wine = as.integer(wine), 
+    score = standardize(score), 
+    wine_US = wine.amer + 1L, 
+    judge_US = judge.amer + 1L, 
+    wine_US_ind = wine.amer, 
+    judge_US_ind = judge.amer, 
+    flight_ind = as.integer(flight) - 1L
+  )
+```
+
+Our linear model specification is: 
+
+$$
+\begin{align}
+S_i   &\sim \mathcal{N}(\mu, \sigma) \\
+\mu_i &=    \alpha_{\text{JID}[i]} + \alpha_{\text{WID}[i]}
+\end{align}
+$$
+
+In other words each score is just a weighted sum of the estimated means for the judge and wine. 
+
+```{r}
+m8h5 <- quap(
+  alist(
+    score ~ dnorm(mu, sigma), 
+    mu <- aJ[judge] + aW[wine], 
+    aJ[judge] ~ dnorm(0, 0.5), 
+    aW[wine] ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dwines
+)
+```
+
+
+```{r}
+m8h5 %>% 
+  precis(depth = 2) %>% 
+  as_tibble(rownames = "name") %>% 
+  filter(str_detect(name, "^a")) %>% 
+  set_names(c("name", "mean", "sd", "lower", "upper")) %>% 
+  mutate(param = if_else(str_detect(name, "^aJ"), "judge", "wine")) %>% 
+  ggplot(aes(y = reorder(name, mean), colour = param)) + 
+  geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
+  scale_colour_manual(values = c("steelblue", "firebrick")) + 
+  labs(
+    x = "score", 
+    y = NULL, 
+    colour = NULL
+  )
+```
+
+Based on the plot there seems to be more variation among the judges than the wines. 
+
+8H6. 
+
+```{r}
+m8h6 <- quap(
+  alist(
+    score ~ dnorm(mu, sigma), 
+    mu <- aF[flight] + aWUS[wine_US] + aJUS[judge_US], 
+    aF[flight] ~ dnorm(0, 0.5), 
+    aWUS[wine_US] ~ dnorm(0, 0.5), 
+    aJUS[judge_US] ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dwines
+)
+```
+
+
+```{r}
+m8h6 %>% 
+  precis(depth = 2) %>% 
+  as_tibble(rownames = "name") %>% 
+  filter(str_detect(name, "^a")) %>% 
+  set_names(c("name", "mean", "sd", "lower", "upper")) %>% 
+  mutate(
+    param = case_when(
+      str_detect(name, "^aF") ~ "flight", 
+      str_detect(name, "^aWUS") ~ "wine_US", 
+      str_detect(name, "^aJUS") ~ "judge_US", 
+      TRUE ~ "uncaught_exception"
+    ), 
+    name = fct_recode(
+      name, 
+      red_wine = "aF[1]", 
+      white_wine = "aF[2]", 
+      wine_US = "aWUS[2]", 
+      wine_non_US = "aWUS[1]", 
+      judge_US = "aJUS[2]", 
+      judge_non_US = "aJUS[1]"
+    )
+  ) %>% 
+  ggplot(aes(y = name, colour = param)) + 
+  geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
+  geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
+  labs(
+    x = "score", 
+    y = NULL, 
+    colour = NULL
+  )
+```
+
+The plot is suggestive of some things: 
+
+- American wines may tend to get lower scores; 
+- American judges may tend to give higher scores; 
+- No difference between red and white wine. 
+
+However to do this properly we need to calculate the contrasts and consider those directly. 
+
+```{r}
+set.seed(1135)
+contrasts_8h6 <- extract.samples(m8h6) %>% 
+  `[`(c("aF", "aWUS", "aJUS")) %>% 
+  reduce(cbind) %>% 
+  as_tibble() %>% 
+  transmute(
+    contrast_red_white = V1 - V2, 
+    contrast_wine_US = V4 - V3,
+    contrast_judge_US = V6 - V5
+  ) %>% 
+  pivot_longer(
+    everything(), 
+    names_to = "contrast", 
+    names_pattern = "contrast_(.+)"
+  )
+
+contrasts_8h6 %>% 
+  ggplot(aes(value, colour = contrast, fill = contrast)) + 
+  geom_density(alpha = 0.3) + 
+  geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
+  labs(
+    y = NULL, 
+    x = "contrast"
+  ) + 
+  theme(axis.ticks.y = element_blank(), axis.text.y = element_blank())
+```
+
+The flight contrast is squarely around zero, so we can set that aside. How likely is it that the US judges are giving higher scores, or that the US wines get lower scores?
+
+```{r}
+contrasts_8h6 %>% 
+  filter(contrast != "red_white") %>% 
+  mutate(split_loc = str_locate(.[["contrast"]], "_")[, 1]) %>% 
+  mutate(contrast = str_sub(contrast, end = split_loc - 1L)) %>% 
+  group_by(contrast) %>% 
+  summarise(p_gt_0 = round(mean(value > 0), digits = 2))
+```
+
+So there is a 95% chance of a US judge giving higher scores, and only a 10% chance of US wines getting higher scores. 
+
+8H7. 
+
+Now we revert to using indicator variables as suggested. 
+
+```{r}
+m8h7 <- quap(
+  alist(
+    score ~ dnorm(mu, sigma), 
+    mu <- a + 
+      # Based on the previous question this term should be close to zero, as we 
+      # expect little difference between red and white wine. 
+      (bF * flight_ind) + 
+      # The previous question suggests this term should be negative, as US wines 
+      # got lower scores in general
+      (bWUS * wine_US_ind) + 
+      # Expect this to be positive, US judges tended to give higher scores
+      (bJUS * judge_US_ind) + 
+      # This interaction term 'fires' when the wine was white and from the US
+      (bFW * flight_ind * wine_US_ind) + 
+      # This interaction fires when the wine is white and the judge is from the
+      # US
+      (bFJ * flight_ind * judge_US_ind) + 
+      # This interaction fires when the wine and judge are both from the US
+      (bWJ * wine_US_ind * judge_US_ind), 
+    # There is little domain knowledge we can bring to bear. However these 
+    # priors are all centred at zero, which is as much as we can do really. 
+    a ~ dnorm(0, 0.5), 
+    c(bF, bWUS, bJUS, bFW, bFJ, bWJ) ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dwines
+)
+```
+
+```{r}
+coeftab(m8h7) %>% 
+  coeftab_plot()
+```
+
+- The `bF` parameter is not centred at zero as we would expect. The unconditional expectation is that red wines score lower. 
+- `bWUS` is centred below zero as expected, but overlapping with zero. 
+- `bJUS` is centred above zero as expected, but overlapping with zero. 
+- `bFW` (the interaction of wine being white and from the US) is centred well above zero. This is new, not something we could have seen from the earlier models. 
+- `bFJ` and `bWJ` are both centred near zero. 
+
+We can then use `link()` as RM suggests to get draws from the linear model. The plot is inspired by [Gregor Mathes'](https://gregor-mathes.netlify.app/2021/03/22/rethinking-chapter-8/#hard-practices) effort. 
+
+```{r}
+sim_grid_8h7 <- expand_grid(
+  flight_ind = 0:1, 
+  wine_US_ind = 0:1, 
+  judge_US_ind = 0:1
+) %>% 
+  mutate(
+    label = str_c(
+      if_else(judge_US_ind == 1L, "A", "F"), 
+      if_else(wine_US_ind == 1L, "A", "F"),
+      if_else(flight_ind == 1L, "W", "R")
+    )
+  )
+set.seed(1649)
+link(
+  m8h7, 
+  data = sim_grid_8h7
+) %>% 
+  as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) %>% 
+  rowid_to_column("sample_id") %>% 
+  pivot_longer(-sample_id, names_to = "grp") %>% 
+  group_by(grp) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider() %>% 
+  ggplot(aes(y = reorder(grp, mean))) + 
+  geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
+  geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
+  labs(
+    subtitle = "AFR means American judge drinking French Red", 
+    x = "score", 
+    y = NULL
+  )
+```
+
+The really low score for French judges drinking American reds is maybe due to wine 18, which got a terrible score (as seen in the earlier plot). However that wine got bad scores in general, not just from the French judges. 
+
+What happens when we do posterior predictive simulation?
+
+```{r}
+set.seed(1703)
+sim(
+  m8h7, 
+  data = sim_grid_8h7
+) %>% 
+  as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) %>% 
+  rowid_to_column("sample_id") %>% 
+  pivot_longer(-sample_id, names_to = "grp") %>% 
+  group_by(grp) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider() %>% 
+  ggplot(aes(y = reorder(grp, mean))) + 
+  geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
+  geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
+  labs(
+    subtitle = "AFR means American judge drinking French Red", 
+    x = "score", 
+    y = NULL
+  )
+```
+
+Now there is very little to choose between them: the variation is greater than the contrasts. 
