@@ -1,0 +1,719 @@
+---
+title: "Markov Chain Monte Carlo"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+set_ulam_cmdstan(TRUE)
+library(patchwork)
+library(ggrepel)
+library(magrittr)
+library(corrr)
+library(furrr)
+library(tidyverse)
+library(tidybayes)
+library(bayesplot)
+library(shape)
+# set up the theme
+theme_set(
+  theme_light() + 
+    theme(panel.grid = element_blank())
+)
+```
+
+## Good King Markov and his island kingdom
+
+RM uses a story of a king visiting islands in proportion to their population, and the means by which he decides whether to leave his current island or not. 
+
+- Flip a coin to decide whether to consider moving clockwise/anticlockwise. That island is the _proposal_ island. 
+- Take the ratio of populations for the proposed island over the current island. Call this the probability of moving. 
+- Take a draw from a $\text{Uniform}(0, 1)$ distribution. If it's less than the probability of moving, make the move. (NB. if the proposal island had a higher population than the current this will always be true). 
+
+```{r}
+positions <- rep(0L, 1e5)
+current <- 10L
+set.seed(1128)
+for (i in seq_len(1e5)) {
+  positions[i] <- current
+  proposal <- current + sample(c(-1L, 1L), size = 1)
+  if (proposal < 1L) proposal <- 10L
+  if (proposal > 10L) proposal <- 1L
+  prob_move <- proposal / current
+  current <- if_else(runif(1) < prob_move, proposal, current)
+}
+```
+
+We can plot these to see how it works. 
+
+```{r}
+island_positions <- tibble(week = seq_len(1e5), positions) 
+
+(
+  island_positions %>% 
+  filter(week <= 100L) %>% 
+  ggplot(aes(week, positions)) + 
+  geom_point(colour = "steelblue", alpha = 0.4) + 
+  scale_x_continuous("week", breaks = seq(0, 100, by = 20)) + 
+  scale_y_continuous("island", breaks = seq(2, 10, by = 2))
+) + (
+  island_positions %>% 
+    count(positions) %>% 
+    transmute(
+      positions, 
+      observed = n / sum(n),
+      ideal = positions / sum(positions)
+    ) %>% 
+    pivot_longer(-positions) %>% 
+    ggplot(aes(positions, value, fill = name)) + 
+    geom_col(position = position_dodge(), width = 0.5) + 
+    scale_x_continuous("island", breaks = seq(2, 10, by = 2)) + 
+    scale_fill_manual(values = c("grey50", "steelblue")) + 
+    labs(
+      y = "proportion of time spent", 
+      fill = NULL
+    ) + 
+    theme(legend.position = "bottom")
+)
+```
+
+We get very close to the ideal proportions after 100,000 weeks. It's worth asking though: how many weeks must travel to reach this situation? In other words: after how long do our proportions converge on the ideal proportions?
+
+```{r}
+expand_grid(week = seq(1000, 1e5, by = 1000), island = seq_len(10)) %>% 
+  mutate(
+    n = map2_int(week, island, ~ sum(positions[seq_len(.x)] == .y))
+  ) %>% 
+  group_by(week) %>% 
+  mutate(
+    observed = n / sum(n),
+    ideal = island / sum(island)
+  ) %>% 
+  summarise(mse = mean((observed - ideal)^2)) %>% 
+  ggplot(aes(week, mse)) + 
+  geom_line() + 
+  geom_hline(yintercept = 0, linetype = 2)
+```
+
+We get very close to zero mean squared error after much less than the full time.
+
+## Metropolis algorithms
+
+### Gibbs sampling
+
+Gibbs sampling builds on the Metropolis algorithm by generating more efficient proposals (i.e. proposals that will give a better estimate of the posterior in fewer steps). It uses _adaptive proposals_, which rely on the use of conjugate priors. This method is the basis for [BUGS](https://www.mrc-bsu.cam.ac.uk/software/bugs/) and [JAGS](https://mcmc-jags.sourceforge.io/). 
+
+### High-dimensional problems
+
+Gibbs sampling has limitations though. We may not want to use conjugate priors (RM notes that this will become clearer in the chapters on multilevel modelling). We will also face problems as we move into higher dimensions: both Metro and GS get 'stuck' in certain small regions of the posterior. 
+
+We can recreate the illustrations from the book with the code from [Solomon Kurz's online book](https://bookdown.org/content/4857/markov-chain-monte-carlo.html#metropolis-algorithms), which in turn came from someone called [James Henegan](https://gist.github.com/jameshenegan/2048c8cb19f54b917e4fcd740a7031b9). 
+
+First we create the bivariate normal distribution with correlation -0.9. 
+
+$$
+\begin{align*}
+
+\begin{bmatrix}
+a_1 \\
+a_2
+\end{bmatrix} &\sim 
+  \operatorname{MVNormal} \left (
+    \begin{bmatrix} 0 \\ 0 \end{bmatrix}, \mathbf{\Sigma} 
+  \right) \\
+  
+\mathbf{\Sigma} &= \mathbf{SRS} \\
+
+\mathbf{S} &= \begin{bmatrix} 0.22 & 0 \\ 0 & 0.22 \end{bmatrix} \\
+
+\mathbf{R} &= \begin{bmatrix} 1 & -0.9 \\ -0.9 & 1 \end{bmatrix}
+\end{align*}
+$$
+
+We can sample from that distribution to give us $a_1$ and $a_2$ (although we won't be using these in the plot). 
+
+```{r}
+mu <- c(0, 0)
+S <- matrix(c(0.22, 0, 0, 0.22), ncol = 2)
+R <- matrix(c(1, -0.9, -0.9, 1), ncol = 2)
+Sigma <- S %*% R %*% S
+set.seed(1322)
+A <- mvtnorm::rmvnorm(n = 1e3, mean = mu, sigma = Sigma) %>% 
+  as_tibble(.name_repair = ~ str_c("a", 1:2))
+
+```
+
+Then we take a couple of functions in whole from Solomon/James. 
+
+```{r}
+set.seed(1328)
+# function to give the grid points for the contour lines
+x_y_grid <- function(x_start = -1.6,
+                     x_stop = 1.6,
+                     x_length = 100,
+                     y_start = -1.6,
+                     y_stop = 1.6,
+                     y_length = 100) {
+  
+  x_domain <- seq(from = x_start, to = x_stop, length.out = x_length)
+  y_domain <- seq(from = y_start, to = y_stop, length.out = y_length)
+  
+  x_y_grid_tibble <- tidyr::expand_grid(a1 = x_domain, a2 = y_domain)
+  
+  x_y_grid_tibble
+  
+}
+
+# Create a tibble with the densities at each point on that grid
+contour_plot_dat <- 
+  x_y_grid() %>% 
+  mutate(
+    d = mvtnorm::dmvnorm(as.matrix(.), mean = mu, sigma = Sigma)
+  )
+
+# Create the base contour plot, which will be used for both of the plots
+contour_plot <-
+  contour_plot_dat %>% 
+  ggplot() + 
+  geom_contour(
+    aes(x = a1, y = a2, z = d), 
+    colour = "grey50", 
+    size = 1/8,
+    breaks = 9^(-(10 * 1:25))
+  ) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0))
+
+metropolis <- function(num_proposals = 50,
+                       step_size = 0.1,
+                       starting_point = c(-1, 1)) {
+  
+  # Initialize vectors where we will keep track of relevant
+  candidate_x_history <- rep(-Inf, num_proposals)
+  candidate_y_history <- rep(-Inf, num_proposals)
+  did_move_history <- rep(FALSE, num_proposals)
+  
+  # Prepare to begin the algorithm...
+  current_point <- starting_point
+  
+  for(i in seq_len(num_proposals)) {
+    
+    # "Proposals are generated by adding random Gaussian noise
+    # to each parameter"
+    
+    noise <- rnorm(n = 2, mean = 0, sd = step_size)
+    candidate_point <- current_point + noise
+    
+    # store coordinates of the proposal point
+    candidate_x_history[i] <- candidate_point[1]
+    candidate_y_history[i] <- candidate_point[2]
+    
+    # evaluate the density of our posterior at the proposal point
+    candidate_prob <- mvtnorm::dmvnorm(candidate_point, mean = mu, sigma = Sigma)
+    
+    # evaluate the density of our posterior at the current point
+    current_prob <- mvtnorm::dmvnorm(current_point, mean = mu, sigma = Sigma)
+    
+    # Decide whether or not we should move to the candidate point
+    acceptance_ratio <- candidate_prob / current_prob
+    should_move <- runif(n = 1) < acceptance_ratio
+    
+    # Keep track of the decision
+    did_move_history[i] <- should_move
+    
+    # Move if necessary
+    if(should_move) {
+      current_point <- candidate_point
+    }
+  }
+  
+  # once the loop is complete, store the relevant results in a tibble
+  results <- tibble::tibble(
+    candidate_x = candidate_x_history,
+    candidate_y = candidate_y_history,
+    accept = did_move_history
+  )
+  
+  # compute the "acceptance rate" by dividing the total number of "moves"
+  # by the total number of proposals
+  
+  number_of_moves <- results %>% dplyr::pull(accept) %>% sum(.)
+  acceptance_rate <- number_of_moves / num_proposals
+  
+  list(results = results, accept_rate = acceptance_rate)
+  
+}
+```
+
+Now we are ready to run the sampling with each of the step sizes. 
+
+```{r}
+set.seed(1340)
+round_1 <- metropolis(num_proposals = 50, step_size = 0.1)
+round_2 <- metropolis(num_proposals = 50, step_size = 0.25)
+```
+
+And finally, the plots!
+
+```{r}
+(
+  contour_plot + 
+  geom_point(
+    data = round_1[["results"]],
+    aes(x = candidate_x, y = candidate_y, colour = accept, shape = accept)) +
+  labs(
+    subtitle = str_c("step size 0.1,\naccept rate ", round_1[["accept_rate"]]),
+    x = "a1",
+    y = "a2"
+  ) +
+  scale_shape_manual(values = c(21, 19)) +
+  scale_color_manual(values = c("black", "steelblue"))
+) + (
+  contour_plot + 
+  geom_point(
+    data = round_2[["results"]],
+    aes(x = candidate_x, y = candidate_y, colour = accept, shape = accept)) +
+  labs(
+    subtitle = str_c("step size 0.25,\naccept rate ", round_2[["accept_rate"]]),
+    x = "a1",
+    y = "a2"
+  ) +
+  scale_shape_manual(values = c(21, 19)) +
+  scale_color_manual(values = c("black", "steelblue"))
+) + 
+  plot_annotation(title = "Metropolis chains under high correlation") + 
+  plot_layout(guides = "collect")
+```
+
+The problems are fairly easy to see: with the small step size only half of the proposals are accepted and the chain gets stuck in one part of the posterior. In the second get get better exploration but even fewer proposals accepted. 
+We can repeat this many times to see how much it's affected by simulation variance. 
+
+```{r}
+expand_grid(seed = seq_len(200), step_size = c(0.1, 0.25)) %>% 
+  mutate(
+    accept_rate = map2_dbl(
+      seed, 
+      step_size,
+      function(seed, step_size) {
+        set.seed(seed)
+        metropolis(step_size = step_size) %>% 
+          pluck("accept_rate")
+      }
+    )
+  ) %>% 
+  ggplot(aes(accept_rate)) + 
+  geom_histogram(binwidth = 0.025) + 
+  facet_wrap(~ step_size)
+```
+
+RM then talks about **concentration of measure**: in short, as we move into higher dimensions then most of the probability density will be in a shell around the mode, getting further away as we move into higher dimensions. We can recreate plot 9.4 to show this. 
+
+```{r}
+set.seed(1415)
+tibble(dim = 10^(seq(0, 3))) %>%
+  mutate(
+    Y = map(
+      dim, 
+      ~ tibble(
+        i = seq_len(1e3), 
+        Y = rmvnorm(1e3, rep(0, .x), sigma = diag(.x)) %>% 
+          apply(MARGIN = 1, FUN = function(y) sqrt(sum(y^2)))
+      )
+    )
+  ) %>% 
+  unnest(Y) %>% 
+  mutate(dim = factor(dim)) %>% 
+  ggplot(aes(Y, fill = dim)) + 
+  geom_density(size = 0, alpha = 0.7) + 
+  scale_x_continuous(
+    "Radial distance from node", 
+    breaks = seq(0, 35, by = 5)
+    ) + 
+  scale_y_continuous(
+    "Density", 
+    breaks = seq(0, 0.8, by = 0.2)
+  ) + 
+  scale_fill_brewer(type = "qual") + 
+  theme(legend.position = c(0.7, 0.625)) + 
+  labs(fill = "No. of dimensions")
+```
+
+On the x-axis, 0 is the mode for all of these distributions. The samples rapidly get further away from that peak as the dimensions increase. RM notes that even at 10 dimensions there are no samples at/near the mode. At 100 dimensions we are very far from the mode. The thin shell in which most of the probability density lives is hard for Metropolis and GS to navigate. 
+
+## Hamiltonian Monte Carlo
+
+HMC improves on Metro and GS by being even more efficient in its proposals (i.e. far more of them are accepted). This comes at the cost of computational complexity (and cost), but overall performance is better. 
+
+### Another parable
+
+RM now gives an example with another King, Monty, who rules in a valley. We've now switched to continuous settlements throughout the valley (oriented North-South), rather than discrete islands. Now the plan is: 
+
+- Move either North or South (chosen randomly), at a random momentum. Depending on the starting momentum and slope the King's velocity will change. 
+- After a set period of time stop. 
+
+This will guarantee that the King visits each location at a rate inversely proportional to its elevation (which is what was needed). 
+
+### Particles in space
+
+RM gives a good explanation of the whole business, which I need not repeat. However I will use his code to generate the plots and make them a bit more tidyverse. 
+
+The model for the example is: 
+
+$$
+\begin{align*}
+x_i &\sim \mathcal{N}(\mu_x, 1) \\
+y_i &\sim \mathcal{N}(\mu_y, 1) \\
+
+\mu_x &\sim \mathcal{N}(0, 0.5) \\
+\mu_y &\sim \mathcal{N}(0, 0.5)
+\end{align*}
+$$
+
+First we need a function that will compute the log-probability of the data and parameters (although we end up working with its negative). 
+
+$$
+\begin{align*}
+\sum_i \log \phi(x_i | \mu_x, 1) + 
+  \sum_i \log \phi(y_i | \mu_y, 1) + 
+  \log \phi(\mu_x | 0, 0.5) + 
+  \log \phi(\mu_y | 0, 0.5)
+\end{align*}
+$$
+
+Here $\phi(x|a, b)$ is the Normal PDF with mean $a$ and standard deviation $b$ evaluated at $x$. So we sum the log-probability for all observations $x_i$ and $y_i$, and add that to the log-probabilities for each of $\mu_x$ and $\mu_y$. 
+
+Then we need the gradient (i.e. the vector of partial derivatives). Taking those derivatives of a Gaussian is easy, and of its log even easier. 
+
+$$
+\begin{align*}
+\frac{\partial \log \phi(y|a, b)}{\partial a} = \frac{y - a}{b^2}
+\end{align*}
+$$
+
+It follows then that the partial derivative of the log-probability function $U$ with respect to $\mu_x$ is: 
+
+$$
+\begin{align*}
+\frac{\partial U}{\partial \mu_x} 
+  &= \frac{\partial \log \phi(x | \mu_x, 1)}{\partial \mu_x} + 
+    \frac{\partial \log \phi(\mu_x | 0, 0.5)}{\partial \mu_x} \\
+  &= \sum_i \frac{x_i - \mu_x}{1^2} + \frac{\mu_x - 0}{0.5^2}
+\end{align*}
+$$
+
+The partial with respect to $\mu_y$ follows easily in the same form. 
+
+RM then gives a detailed breakdown of the steps involved. Key breakthrough for me was realising that the leapfrog steps are essentially a number of small, linear approximations: from a certain set of parameter values we calculate the p's and q's, and the gradient, then set off **in a straight line** for a distance of `step_size`. Then compute everything again, repeat. 
+
+This also points to one of the issues with HMC: when the log-posterior bends sharply the linear approximation may be poor, leading to a **divergent transition**. HMC can spot this happening based on the total energy of the system (which must be conserved). If it deviates by much then something bad has happened. 
+
+### Limitations
+
+RM mentions that we can only use continuous parameters directly with HMC (although there will be something later in the book on sampling from discrete parameters). 
+
+RM also points out that **divergent transitions** can be a problem. More on this later. 
+
+## Easy HMC: `ulam`
+
+At last, we build a model with HMC! I'm going to try building the models with direct Stan code, rather than using `ulam()`. 
+
+```{r}
+data(rugged)
+drugged <- rugged %>% 
+  as_tibble() %>% 
+  mutate(log_gdp = log(rgdppc_2000)) %>% 
+  drop_na(log_gdp) %>% 
+  mutate(
+    log_gdp_std = log_gdp / mean(log_gdp), 
+    rugged_std = rugged / max(rugged), 
+    region = factor(
+      if_else(cont_africa == 1L, "Africa", "Not Africa")
+    )
+  )
+```
+
+We start by fitting the old quap model. 
+
+```{r}
+m8_3 <- quap(
+  flist = alist(
+    log_gdp_std ~ dnorm(mu, sigma), 
+    mu <- a[region] + (b[region] * (rugged_std - 0.215)), 
+    a[region] ~ dnorm(1, 0.1), 
+    b[region] ~ dnorm(0, 0.3), 
+    sigma ~ dexp(1)
+  ), 
+  data = drugged
+)
+precis(m8_3, depth = 2)
+```
+
+### Preparation
+
+Two steps: 
+
+1. Do all preprocessing outside of the model-fitting (which RM has been doing anyway); 
+2. Create a new list/data frame with only the variables in which we are interested. 
+
+```{r}
+drugged_slim <- drugged %>% 
+  select(log_gdp_std, rugged_std, region) %>% 
+  compose_data()
+str(drugged_slim)
+```
+
+Using a list removes the constraint that all variables must be the same length: RM extols this as a benefit, although it seems to me that there would be good reasons to prefer the extra, built-in check on consistency. The `tidybayes::compose_data()` function does some nice extra stuff, such as adding a variable `n` to the list that can be used for setting lengths of vectors.
+
+### Sampling from the posterior
+
+Now we fit the model. We can skip straight to the step of running things in parallel though. 
+
+### Sampling again, in parallel
+
+I will try writing the Stan code separately in scripts to keep things tidier, and to get the benefit of the syntax highlighting in RStudio. 
+
+```{r}
+m9_1 <- stan_model(file = here::here("inst/Stan/m9_1.stan")) %>% 
+  sampling(data = drugged_slim, seed = 949)
+```
+
+```{r}
+m9_1
+```
+
+```{r}
+precis(m9_1, depth = 2)
+```
+
+Estimates are near-identical to the quap model, but with the extra columns: 
+
+- `n_eff` is the number of effective samples, which in this case is greater than the actual number of samples (2,000). This is because the samples are anti-correlated, so we get better-than-random samples. 
+- `Rhat4` is the Gelman-Rubin $\hat{R}$ diagnostic. This should be 1 (or very slightly higher). 
+
+### Visualisation
+
+Pairs plots are a quick method of checking the posterior. 
+
+```{r}
+mcmc_pairs(
+  m9_1, 
+  pars = vars(matches("^[a-b]")), 
+  diag_fun = "dens"
+)
+```
+
+The density plots on the diagonal give an idea of the shapes of the posteriors. These are no longer constrained to be Gaussian. 
+
+### Checking the chain
+
+We need to check for problems with the HMC process. Fortunately HMC provides some of its own diagnostics, such as checking for divergent transitions by ensuring that the energy in the system remains constant. We can also use plots, such as a trace plot: 
+
+```{r}
+mcmc_trace(m9_1, n_warmup = 500)
+```
+
+We can highlight individual chains also: 
+
+```{r}
+mcmc_trace_highlight(m9_1, n_warmup = 500, highlight = 1)
+```
+
+We want three things: 
+
+1. Stationarity (the mean value of the plot should be similar from beginning to end); 
+2. Good mixing (the traces zigzags around rapidly); 
+3. Convergence (the different chains all occupy the same region). 
+
+The grey bit is the warmup, which gets discarded for inference. 
+
+We can also use a trank plot (trace rank plot). 
+
+```{r}
+mcmc_rank_overlay(m9_1)
+```
+
+If the chains are exploring the same space well then these histograms should overlap each other, as they do here. 
+
+## Care and feeding of your Markov chain
+
+RM reiterates that the best feature of Stan is that it will often tell us when things are going wrong. 
+
+### How many samples do you need?
+
+Firstly, need to pay attention to the effective number of samples (as mentioned earlier). Due to autocorrelation/anticorrelation this can often be less/more than the actual number of samples. 
+
+Secondly, different tasks need different numbers of samples. We can expect that the posterior mean will converge much faster than the tails, so if the whole distribution is important we will need more samples. 
+
+RM also notes that for simple models we can get away with fewer warmup samples: given that the model compilation takes much longer than the sampling (especially for these simple models), I shall probably leave it as-is. 
+
+RM also notes that the warmup used by Stan is different to burn-in, which is simply discarding the first $k$ samples on the basis that they are unlikely to have reached stationarity. However with burn-in the whole process is done identically. Whereas in warmup the sampler is adapting the step size and number of leapfrog steps in order to sample effectively: there is a categorical difference between that and the rest of the sampling. 
+
+### How many chains do you need?
+
+RM notes that when debugging a model it's best to use a single chain: some error messages will only appear for a single chain. 
+
+However to check convergence you need multiple chains, so you will need to change that at some point. 
+
+### Taming a wild chain
+
+RM mentions that wide, flat areas of the posterior can cause problems. 
+
+```{r}
+m9_2 <- stan_model(file = here::here("inst/Stan/m9_2.stan")) %>% 
+  sampling(
+    data = tibble(y = c(-1, 1)) %>% 
+      compose_data(), 
+    seed = 1157, 
+    chains = 3
+  )
+```
+
+```{r}
+precis(m9_2)
+```
+
+The mean of our $y$ values is 0, so alpha should be near that. The problem is with all those divergent transitions. This becomes easier to see in a pairs plot. 
+
+```{r}
+mcmc_pairs(m9_2, np = nuts_params(m9_2))
+```
+
+The red points are divergent transitions. 
+
+We can also inspect the traceplot and trankplot. First let's skip ahead to fixing the problem, refit and then compare the diagnostic plots before and after. 
+
+```{r}
+mcmc_trace(m9_2, np = nuts_params(m9_2))
+```
+
+The problem with `m9_2` was the priors, which were far too flat. We can see this in the Stan code: 
+
+```{r}
+readLines(here::here("inst/Stan/m9_2.stan")) %>% 
+  cat(sep = "\n")
+```
+
+This can be fixed by adding only slightly informative priors. 
+
+$$
+\begin{align*}
+y_i &\sim \mathcal{N}(\mu, \sigma) \\
+\mu &= \alpha \\
+\alpha &\sim \mathcal{N}(1, 10) \\
+\sigma &\sim \operatorname{Exponential}(1)
+\end{align*}
+$$
+
+Note that the prior for $\alpha$ isn't even centred at the right value. Now we refit. 
+
+```{r}
+m9_3 <- stan_model(file = here::here("inst/Stan/m9_3.stan")) %>% 
+  sampling(
+    data = tibble(y = c(-1, 1)) %>% 
+      compose_data(), 
+    seed = 1529, 
+    chains = 3
+  )
+```
+
+No warnings about divergent transitions. We can check the fit and compare it with the previous one. 
+
+```{r}
+precis(m9_3)
+```
+
+```{r}
+map(
+  list(m9_2, m9_3), 
+  ~ list(
+    mcmc_trace(.x, n_warmup = 500, pars = c("alpha", "sigma")) + 
+      theme(legend.position = "none"), 
+    mcmc_rank_overlay(.x, pars = c("alpha", "sigma")) + 
+      theme(legend.position = "none")
+  )
+) %>% 
+  reduce(c) %>% 
+  wrap_plots(ncol = 1)
+```
+
+The top two plots are for the first model, the others for the second. The differences are easy to see. 
+
+This example illustrates Andrew Gelman's **Folk Theorem of Statistical Computing**: when you have computational problems, often there's a problem with your model. 
+
+
+### Non-identifiable parameters
+
+This is a sort-of follow-on from the previous exercise on highly-correlated predictors (the two leg lengths). 
+
+```{r}
+set.seed(41)
+y <- tibble(y = rnorm(100))
+```
+
+Now we specify a model: 
+
+$$
+\begin{align*}
+y_i &\sim \mathcal{N}(\mu, \sigma) \\
+\mu &= \alpha_1 + \alpha_2 \\
+\alpha_1 &\sim \mathcal{N}(0, 1000) \\
+\alpha_2 &\sim \mathcal{N}(0, 1000) \\
+\sigma &\sim \operatorname{Exponential}(1)
+\end{align*}
+$$
+
+As RM puts it the linear model now contains two parameters that cannot be identified individually, only the sum can be. That sum should be about zero, which is what we simulated. 
+
+```{r}
+m9_4 <- stan_model(file = here::here("inst/Stan/m9_4.stan")) %>% 
+  sampling(data = compose_data(y), seed = 1554, chains = 3)
+```
+
+```{r}
+precis(m9_4)
+```
+
+Estimates are terrible, many divergent transitions, etc. We can fix this again with weakly informative priors. 
+
+$$
+\begin{align*}
+y_i &\sim \mathcal{N}(\mu, \sigma) \\
+\mu &= \alpha_1 + \alpha_2 \\
+\alpha_1 &\sim \mathcal{N}(0, 10) \\
+\alpha_2 &\sim \mathcal{N}(0, 10) \\
+\sigma &\sim \operatorname{Exponential}(1)
+\end{align*}
+$$
+
+```{r}
+m9_5 <- stan_model(file = here::here("inst/Stan/m9_5.stan")) %>% 
+  sampling(data = compose_data(y), seed = 1613, chains = 3)
+```
+
+```{r}
+precis(m9_5)
+```
+
+The model still isn't good, exactly, but if we consider the sum of the two $\alpha$ posteriors we get something like the right answer (albeit with very wide intervals). We can see what we get from posterior samples though, to see if the sums work in general. 
+
+```{r}
+set.seed(1619)
+rstan::extract(m9_5, pars = c("a1", "a2")) %>% 
+  as_tibble() %>% 
+  mutate(mu = a1 + a2) %>% 
+  ggplot(aes(mu)) + 
+  geom_density()
+  summarise(
+    lower = quantile(mu, 0.055), 
+    mean = mean(mu), 
+    upper = quantile(mu, 0.945)
+  )
+```
+
+Not exactly good, but much better than before. 
+
+## Summary
+
+I finally feel like I get HMC: a big step forward. 
