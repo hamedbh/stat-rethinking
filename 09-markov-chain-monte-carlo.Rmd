@@ -884,11 +884,14 @@ map_dfr(
       mod9_1, 
       chains = 1, 
       warmup = n_warmup, 
+      iter = 1000L + n_warmup, 
       data = drugged_slim, 
-      show_messages = FALSE
+      show_messages = FALSE, 
+      refresh = 0
     ) %>% 
     precis(depth = 2) %>% 
       as_tibble(rownames = "param") %>% 
+      filter(param != "sigma") %>% 
       select(param, n_eff) %>% 
       mutate(
         n_warmup = n_warmup, 
@@ -899,18 +902,10 @@ map_dfr(
   ggplot(aes(n_warmup, n_eff, colour = param)) + 
   geom_point() + 
   geom_line() + 
-  geom_vline(
-    data = . %>% 
-      group_by(param) %>% 
-      slice_max(n_eff) %>% 
-      ungroup(), 
-    aes(xintercept = n_warmup, colour = param), 
-    linetype = 2
-  ) + 
   scale_colour_brewer(type = "qual") + 
   scale_y_continuous(labels = scales::label_comma()) + 
   labs(
-    subtitle = "Effective number of samples for 2,000 iterations", 
+    subtitle = "Effective number of samples for 1,000 sampling iterations", 
     x = "Number of warmup samples", 
     y = NULL, 
     colour = NULL
@@ -918,6 +913,202 @@ map_dfr(
   theme(legend.position = "bottom")
 ```
 
-It seems clear that less is more for this simple model: $N_{\text{eff}}$ drops off dramatically for all parameters at or before 750 warmup runs. 
+We get some improvement in $N_{\text{eff}}$ as the number of warmup runs increases, but only up to about 1,000, and it's not that dramatic. Certainly having more than 1,000 warmup runs doesn't seem to be worthwhile: the trend beyond that is mostly quite flat. 
 
 ### Hard
+
+9H1. 
+
+The model does not link the parameters with the data, so what we will get are just samples from the priors. 
+
+```{r}
+m_hw9h1 <- stan_model(file = here::here("inst/Stan/m_hw9h1.stan")) %>% 
+  sampling(data = list(y = 1), seed = 1451)
+```
+
+```{r}
+m_hw9h1 %>% 
+  rstan::extract(pars = c("a", "b")) %>% 
+  as_tibble(.name_repair = ~ c("Normal", "Cauchy")) %>% 
+  pivot_longer(everything()) %>% 
+  ggplot(aes(value, fill = name)) + 
+  geom_density(size = 0, alpha = 0.8) + 
+  scale_fill_brewer(type = "qual") + 
+  facet_wrap(~ name, scales = "free_x")
+```
+
+The infinite mean and variance of the Cauchy give us many large outliers, which is why its range is so large. 
+
+We can check the trace plots too, highlighting any divergent transitions in red. 
+
+```{r}
+mcmc_trace(
+  m_hw9h1, 
+  pars = c("a", "b"), 
+  n_warmup = 500, 
+  np = nuts_params(m_hw9h1)
+)
+```
+
+The trace for `a` (i.e. the Normal) looks like the model trace plots for healthy chains. The Cauchy trace doesn't, but there are no divergent transitions. The 'hairy caterpillar' bit is just compressed, because the chains occasionally shoot off to relatively large values. This isn't wrong though: this is just how the Cauchy behaves. 
+
+9H2. 
+
+```{r}
+data("WaffleDivorce")
+d <- WaffleDivorce %>% 
+  as_tibble() %>% 
+  mutate(
+    D = standardize(Divorce), 
+    M = standardize(Marriage), 
+    A = standardize(MedianAgeMarriage)
+  ) %>% 
+  select(D, M, A) %>% 
+  compose_data()
+```
+
+
+```{r}
+m_hw9h2_1 <- stan_model(file = here::here("inst/Stan/m_hw9h2_1.stan")) %>% 
+  sampling(data = d, seed = 1519, refresh = 0)
+```
+
+
+```{r}
+m_hw9h2_2 <- stan_model(file = here::here("inst/Stan/m_hw9h2_2.stan")) %>% 
+  sampling(data = d, seed = 1519, refresh = 0)
+```
+
+
+```{r}
+m_hw9h2_3 <- stan_model(file = here::here("inst/Stan/m_hw9h2_3.stan")) %>% 
+  sampling(data = d, seed = 1519, refresh = 0)
+```
+
+```{r}
+compare(m_hw9h2_1, m_hw9h2_2, m_hw9h2_3)
+```
+
+We have a virtual tie between model 1 (with only median age of marriage $M$ as a predictor) and model 3 (with $M$ and marriage rate $M$). Even model 2 (with just $M$) is within about 1.25 standard errors of the best model by WAIC. This is almost identical to what we got with `quap()`. 
+
+```{r include=FALSE}
+m5_1 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+m5_2 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+m5_3 <- quap(
+  flist = alist(
+    D ~ dnorm(mu, sigma), 
+    mu <- a + (bA * A) + (bM * M), 
+    a ~ dnorm(mean = 0, sd = 0.2), 
+    bA ~ dnorm(mean = 0, sd = 0.5), 
+    bM ~ dnorm(mean = 0, sd = 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = d
+)
+```
+
+```{r}
+compare(m5_1, m5_2, m5_3)
+```
+
+The explanation is the same as it was then: 
+
+- $M$ has little value as a predictor once we know $A$, so including it in the model makes little difference to performance; 
+- If we don't know $A$ then $M$ is a somewhat useful predictor, so model 2 gives worse performance that is still within 2 standard errors. 
+
+9H3. 
+
+We simulate the data again exactly as in Chapter 6: 
+
+```{r}
+set.seed(909)
+dheight <- tibble(
+  # heights are Gaussian around 10
+  height = rnorm(100, 10, 2), 
+  # What proportion of height is the leg?
+  prop = runif(100, 0.4, 0.5)
+) %>% 
+  mutate(
+    # Each leg is prop * height plus some error
+    left = prop * height + rnorm(100, 0, 0.02), 
+    right = prop * height + rnorm(100, 0, 0.02)
+  ) %>% 
+  select(height, left, right) %>% 
+  compose_data()
+```
+
+
+```{r}
+m5_8s <- stan_model(file = here::here("inst/Stan/m5_8s.stan")) %>% 
+  sampling(data = dheight, seed = 1645, refresh = 0)
+```
+
+
+```{r}
+m5_8s2 <- stan_model(file = here::here("inst/Stan/m5_8s2.stan")) %>% 
+  sampling(data = dheight, seed = 1701, refresh = 0)
+```
+
+There are warnings for both models, but let's inspect the posterior draws. 
+
+```{r}
+map_dfr(
+  c(m5_8s = "m5_8s", m5_8s2 = "m5_8s2"), 
+  ~ get(.x) %>% 
+    spread_draws(a, bR, bL), 
+  .id = "model"
+) %>% 
+  pivot_longer(c(a, bR, bL)) %>% 
+  ggplot(aes(value, fill = model)) + 
+  geom_density(size = 0, alpha = 0.5) + 
+  facet_wrap(~ name) + 
+  scale_fill_brewer(type = "qual")
+```
+
+The difference is quite clear: setting just a simple constraint on one of the $\beta$ parameters gave much narrower estimates. Of course to get correct inferences we would need to build a different model. 
+
+```{r}
+m5_8s3 <- stan_model(file = here::here("inst/Stan/m5_8s3.stan")) %>% 
+  sampling(data = dheight, seed = 1701, refresh = 0)
+```
+
+```{r}
+map_dfr(
+  c(m5_8s = "m5_8s", m5_8s2 = "m5_8s2", m5_8s3 = "m5_8s3"), 
+  ~ get(.x) %>% 
+    spread_draws(a, bL), 
+  .id = "model"
+) %>% 
+  pivot_longer(c(a, bL)) %>% 
+  ggplot(aes(value, fill = model)) + 
+  geom_density(size = 0, alpha = 0.5) + 
+  facet_wrap(~ name) + 
+  scale_fill_brewer(type = "qual")
+```
+
+The third model correctly estimates the value at 1. 
+
+9H4. 
+
+```{r}
+compare(m5_8s, m5_8s2, m5_8s3)
+```
+
