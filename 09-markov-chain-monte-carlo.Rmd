@@ -705,11 +705,6 @@ rstan::extract(m9_5, pars = c("a1", "a2")) %>%
   mutate(mu = a1 + a2) %>% 
   ggplot(aes(mu)) + 
   geom_density()
-  summarise(
-    lower = quantile(mu, 0.055), 
-    mean = mean(mu), 
-    upper = quantile(mu, 0.945)
-  )
 ```
 
 Not exactly good, but much better than before. 
@@ -717,3 +712,212 @@ Not exactly good, but much better than before.
 ## Summary
 
 I finally feel like I get HMC: a big step forward. 
+
+## Practice
+
+### Easy
+
+9E1. 
+
+c.: the proposal distribution must be symmetric. 
+
+9E2. 
+
+Gibbs sampling is more efficient because it produces better proposals (i.e. with a higher acceptance rate) by using conjugate priors. However we may not want to use conjugate priors, especially in multilevel models, and GS can get stuck in certain areas of the posterior. 
+
+9E3. 
+
+HMC can only work with continuous parameters. This is because it relies on taking derivatives and then moving smoothly through the space, which is not possible in discrete space. 
+
+9E4. 
+
+Markov chain samples are dependent (whether correlated or anticorrelated), so we cannot use $N$ itself when calculating our estimating power. From the Stan reference manual: 
+
+> Given dependent samples, the number of independent samples is replaced with the effective sample size $N_{eff}$, which is the number of independent samples with the same estimation power as the $N$ autocorrelated samples. ... The no-U-turn sampling (NUTS) algorithm used in Stan can produce $N_{eff} > N$ for parameters which have close to Gaussian posterior and little dependency on other parameters.
+
+9E5. 
+
+$\hat{R}$ should approach 1 from above. It measures the ratio of the average variance of samples within each chain to the variance of the pooled samples across chains. When this is higher than 1 it suggests that the chains have not converged. 
+
+9E6. 
+
+Rather than sketching we can use part of the same plot as earlier: 
+
+```{r}
+map(
+  list(m9_2, m9_3), 
+  ~ mcmc_trace(.x, n_warmup = 500, pars = c("alpha")) + 
+      theme(legend.position = "none")
+) %>% 
+  wrap_plots(ncol = 1)
+```
+
+In the top plot we see an unhealthy trace plot: no stationarity (local averages are very different to the global average); poor mixing (chains get stuck); poor convergence (per-chain means are very different to each other). In the bottom plot we have the desired properties. 
+
+9E7. 
+
+```{r}
+map(
+  list(m9_2, m9_3), 
+  ~ mcmc_rank_overlay(.x, pars = c("alpha", "sigma"))
+) %>% 
+  wrap_plots(ncol = 1, guides = "collect")
+```
+
+In the top plot the histograms do not overlap throughout: we see chains staying high across many ranks. In the bottom plot the histograms are crossing each other frequently, as expected: the ranks should be similar and fluctuating across the chains. 
+
+### Medium
+
+9M1. 
+
+```{r}
+m_hw9m1 <- stan_model(file = here::here("inst/Stan/m_hw9m1.stan")) %>% 
+  sampling(data = drugged_slim, seed = 1112)
+```
+
+Now we can compare the posterior estimates for $\sigma$ in each model. 
+
+```{r}
+set.seed(1116)
+tibble(
+  sigma_expo_prior = rstan::extract(m9_1, pars = "sigma")[["sigma"]], 
+  sigma_flat_prior = rstan::extract(m_hw9m1, pars = "sigma")[["sigma"]]
+) %>% 
+  mutate(difference = sigma_expo_prior - sigma_flat_prior) %>% 
+  ggplot(aes(difference)) + 
+  geom_density() + 
+  geom_vline(
+    data = . %>% 
+      summarise(tibble(name = c("lower", "upper"), value = PI(difference))), 
+    aes(xintercept = value), 
+    linetype = 2, 
+    colour = "grey50"
+  ) + 
+  labs(
+    title = "Difference between posterior samples of sigma", 
+    subtitle = "Dashes lines are the 89% interval", 
+    y = NULL
+  ) + 
+  theme(
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank()
+  )
+```
+
+The posterior distribution of the difference is basically zero: there was so much data that it overwhelmed the priors. 
+
+9M2. 
+
+```{r}
+m_hw9m2 <- stan_model(file = here::here("inst/Stan/m_hw9m2.stan")) %>% 
+  sampling(data = drugged_slim, seed = 1125)
+```
+
+Those warnings don't look good, but we can repeat the steps above to see whether it's affected the posterior estimates for the $\beta$ parameters. 
+
+```{r}
+set.seed(1116)
+map_dfr(
+  list(
+    normal = m9_1, 
+    expo = m_hw9m2
+  ), 
+  ~ rstan::extract(.x, pars = "b") %>% 
+    pluck("b") %>% 
+    as_tibble(.name_repair = ~ str_c("b", 1:2)) %>% 
+    rowid_to_column(".id"), 
+  .id = "prior"
+) %>% 
+  pivot_longer(starts_with("b")) %>% 
+  pivot_wider(names_from = prior) %>% 
+  mutate(difference = expo - normal) %>% 
+  select(.id, name, difference) %>% 
+  ggplot(aes(difference, fill = name)) + 
+  geom_density(size = 0, alpha = 0.4) + 
+  geom_vline(
+    data = . %>%
+      group_by(name) %>% 
+      summarise(
+        tibble(bound = c("lower", "upper"), value = PI(difference)), 
+        .groups = "drop"
+      ),
+    aes(xintercept = value, colour = name),
+    linetype = 2
+  ) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey30") + 
+  geom_label_repel(
+    data = tibble(
+      x = c(-0.03, 0.03), 
+      y = 4, 
+      label = str_c("Expo prior ", c("lower", "higher"))
+    ),
+    aes(x = x, y = y, label = label), 
+    inherit.aes = FALSE, 
+    colour = "grey30"
+  ) +
+  scale_fill_brewer(type = "qual", aesthetics = c("fill", "colour")) + 
+  labs(
+    title = "Difference between posterior samples of beta",
+    caption = "Dashed lines are the 89% interval", 
+    y = NULL
+  ) + 
+  # theme(
+  #   axis.text.y = element_blank(), 
+  #   axis.ticks.y = element_blank()
+  # )
+  NULL
+```
+
+We see that the new prior had little effect on $\beta_1$, where the difference is clustered around zero; but a substantial effect on $\beta_2$. The exponential prior does not allow for negative values, which biases the estimates upwards. 
+
+9M3. 
+
+We can use the ruggedness model, but change the number of warmup samples. 
+
+```{r}
+set.seed(1323)
+mod9_1 <- read_rds(here::here("inst/Stan/m9_1.rds"))
+map_dfr(
+  seq(250, 1750, by = 250), 
+  function(n_warmup) {
+    sampling(
+      mod9_1, 
+      chains = 1, 
+      warmup = n_warmup, 
+      data = drugged_slim, 
+      show_messages = FALSE
+    ) %>% 
+    precis(depth = 2) %>% 
+      as_tibble(rownames = "param") %>% 
+      select(param, n_eff) %>% 
+      mutate(
+        n_warmup = n_warmup, 
+        param = str_remove_all(param, "[\\[\\]]")
+      )
+  }
+) %>% 
+  ggplot(aes(n_warmup, n_eff, colour = param)) + 
+  geom_point() + 
+  geom_line() + 
+  geom_vline(
+    data = . %>% 
+      group_by(param) %>% 
+      slice_max(n_eff) %>% 
+      ungroup(), 
+    aes(xintercept = n_warmup, colour = param), 
+    linetype = 2
+  ) + 
+  scale_colour_brewer(type = "qual") + 
+  scale_y_continuous(labels = scales::label_comma()) + 
+  labs(
+    subtitle = "Effective number of samples for 2,000 iterations", 
+    x = "Number of warmup samples", 
+    y = NULL, 
+    colour = NULL
+  ) + 
+  theme(legend.position = "bottom")
+```
+
+It seems clear that less is more for this simple model: $N_{\text{eff}}$ drops off dramatically for all parameters at or before 750 warmup runs. 
+
+### Hard
