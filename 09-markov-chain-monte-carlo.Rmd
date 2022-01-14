@@ -1112,3 +1112,157 @@ The third model correctly estimates the value at 1.
 compare(m5_8s, m5_8s2, m5_8s3)
 ```
 
+The original model has more effective parameters, because there really _are_ more parameters in that model.
+
+9H5. 
+
+We need to rerun the island-hopping example, but where the populations and island numbers are no longer the same. Start by reassigning populations to the islands. 
+
+```{r}
+set.seed(1707)
+island_pops <- sample(10) 
+hw_9h5_pos <- rep(0L, 1e5)
+current <- sample(10, 1)
+for (i in seq_len(1e5)) {
+  hw_9h5_pos[i] <- current
+  proposal <- current + sample(c(-1L, 1L), size = 1)
+  if (proposal < 1L) proposal <- 10L
+  if (proposal > 10L) proposal <- 1L
+  prob_move <- island_pops[proposal] / island_pops[current]
+  current <- if_else(runif(1) < prob_move, proposal, current)
+}
+```
+
+```{r}
+inner_join(
+  tibble(island = 1:10, island_pops) %>% 
+    transmute(island, prop = island_pops / sum(island_pops)), 
+  tibble(island = hw_9h5_pos) %>% 
+    count(island) %>% 
+    transmute(island, obs_prop = n / sum(n)), 
+  by = "island"
+) %>% 
+  mutate(err_pct = scales::percent_format()((obs_prop - prop) / prop))
+```
+
+Mostly the estimates are decent enough. 
+
+9H6. 
+
+Now need to adapt this further to the globe-tossing example: the job is to estimate the proportion of water, $p$, given our data (6 tosses water, 3 tosses land). I put this in a function to reduce the amount of junk built up in the environment. 
+
+```{r}
+metro_globe <- function(N = 1e5) {
+  res <- rep(0L, N)
+  current <- runif(1)
+  step_directions <- sample(c(-1, 1), size = N, replace = TRUE)
+  unif_draws <- runif(N)
+  for (i in seq_len(N)) {
+    res[i] <- current
+    proposal <- current + (step_directions[i] * 0.01)
+    if (proposal < 0) proposal <- -proposal
+    if (proposal > 1) proposal <- 2 - proposal
+    prob_move <- dbinom(6, 9, proposal) / dbinom(6, 9, current)
+    current <- if_else(unif_draws[i] < prob_move, proposal, current)
+  }
+  tibble(p = res) %>% 
+    rowid_to_column(".id")
+}
+```
+
+
+```{r}
+set.seed(1738)
+
+metro_globe(1e5) %>% 
+  ggplot(aes(p)) + 
+  geom_density(fill = "steelblue", alpha = 0.6) + 
+  stat_function(
+    fun = dbeta, 
+    args = list(shape1 = 7, shape2 = 4), 
+    colour = "firebrick"
+  ) + 
+  labs(
+    title = "10,000 draws from Metropolis sampler", 
+    subtitle = "Red line is analytical solution", 
+    y = NULL
+  ) + 
+  theme(axis.ticks.y = element_blank(), axis.text.y = element_blank())
+```
+
+9H7. 
+
+Now we rip off code from McElreath to do the sampling (pages 276-278). 
+
+```{r}
+# First a function to give the negative log likelihood
+U <- function(q) {
+  # Note: no need to add the loglik for the uniform part as it will always be 0.
+  -1 * dbinom(6, 9, prob = q, log = TRUE)
+}
+
+# Now a function for the gradient
+U_gradient <- function(q) {
+  -1 * (6 - (9 * q)) / (q * (1 - q))
+}
+```
+
+Now we have to loop. Do this inside a function to keep the environment cleaner. Also create a function to plot the results. 
+
+```{r}
+set.seed(1818)
+HMC_globe <- function(N) {
+  draws <- double(N)
+  accept <- double(N)
+  q <- runif(1)
+  for (i in seq_len(N)) {
+    Q <- HMC2(U, U_gradient, 0.01, 20, current_q = q)
+    draws[i] <- Q$q
+    accept[i] <- Q$accept
+    q <- Q$q
+  }
+  tibble(draws, accept) %>% 
+    rowid_to_column(".id")
+}
+plot_HMC_globe <- function(N) {
+  HMC_globe(N) %>% 
+    rename(p = draws) %>% 
+    ggplot(aes(p)) + 
+    geom_density(fill = "steelblue", alpha = 0.6) + 
+    stat_function(
+      fun = dbeta, 
+      args = list(shape1 = 7, shape2 = 4), 
+      colour = "firebrick"
+    ) + 
+    labs(
+      title = sprintf("%s draws from HMC sampler", scales::comma_format()(N)), 
+      subtitle = "Red line is analytical solution", 
+      y = NULL
+    ) + 
+    theme(axis.ticks.y = element_blank(), axis.text.y = element_blank())
+}
+```
+
+We can run it for 10,000 samples as we did previously. 
+
+```{r}
+plot_HMC_globe(1e5)
+```
+
+But we can get rather good results with far fewer samples. 
+
+```{r}
+plot_HMC_globe(100)
+```
+
+
+```{r}
+plot_HMC_globe(1e3)
+```
+
+
+```{r}
+plot_HMC_globe(1e4)
+```
+
+1,000 draws is enough to get a very good approximation to the analytical solution. 

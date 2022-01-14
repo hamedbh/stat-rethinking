@@ -7,7 +7,7 @@ output: html_document
 library(rethinking)
 library(patchwork)
 library(zeallot)
-# library(dagitty)
+library(dagitty)
 library(ggdag)
 library(ggrepel)
 library(magrittr)
