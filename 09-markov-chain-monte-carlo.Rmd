@@ -860,12 +860,7 @@ map_dfr(
     title = "Difference between posterior samples of beta",
     caption = "Dashed lines are the 89% interval", 
     y = NULL
-  ) + 
-  # theme(
-  #   axis.text.y = element_blank(), 
-  #   axis.ticks.y = element_blank()
-  # )
-  NULL
+  )
 ```
 
 We see that the new prior had little effect on $\beta_1$, where the difference is clustered around zero; but a substantial effect on $\beta_2$. The exponential prior does not allow for negative values, which biases the estimates upwards. 
@@ -902,6 +897,7 @@ map_dfr(
   ggplot(aes(n_warmup, n_eff, colour = param)) + 
   geom_point() + 
   geom_line() + 
+  geom_hline(yintercept = 1000, linetype = 2, colour = "grey50") + 
   scale_colour_brewer(type = "qual") + 
   scale_y_continuous(labels = scales::label_comma()) + 
   labs(
@@ -1246,6 +1242,7 @@ plot_HMC_globe <- function(N) {
 We can run it for 10,000 samples as we did previously. 
 
 ```{r}
+set.seed(1309)
 plot_HMC_globe(1e5)
 ```
 
