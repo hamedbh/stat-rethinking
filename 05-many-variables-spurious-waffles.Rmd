@@ -1688,4 +1688,395 @@ post_hw_5h4 %>%
 
 The interval on `south_diff` is rather wide. This feels like an OK model, but probably the material in the next chapter on DAGS, colliders, etc. would improve it. 
 
+### Week 2 Homework
+
+1. 
+
+```{r}
+data("Howell1")
+adult_kung <- Howell1 %>% 
+  as_tibble() %>%  
+  filter(age >= 18)
+m_hw_height <- quap(
+  alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + (bH * (height)), 
+    a ~ dnorm(0, 1), 
+    bH ~ dnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = adult_kung
+)
+hw_new_heights <- tibble(
+  height = c(140, 160, 175)
+)
+set.seed(1112)
+sim(m_hw_height, data = hw_new_heights) %>% 
+  as_tibble(.name_repair = ~ str_c("ht_", seq_len(nrow(hw_new_heights)))) %>% 
+  pivot_longer(everything()) %>% 
+  group_by(name) %>% 
+  summarise(
+    across(
+      value, 
+      .fns = list(
+        mean = mean, 
+        PI_lower = ~ PI(.x)[1], 
+        PI_upper = ~ PI(.x)[2]
+      ), 
+      .names = "{.fn}"
+    )
+  )
+```
+
+2. 
+
+```{r}
+young_kung <- Howell1 %>% 
+  as_tibble() %>% 
+  filter(age < 13) %>% 
+  mutate(sex = male + 1L)
+```
+
+We could set up our model for the total causal effect of age on weight as follows: 
+
+$$
+\begin{align*}
+W_i &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta_A A_i \\
+\end{align*}
+$$
+
+Now we need to set priors for our parameters, for which we must do some simulation. We can set some constraints based on knowledge of biology: 
+
+- The intercept for the linear model should be positive: children have positive weight at birth. 
+- The beta parameter should be non-negative: a model where children shrink as they get older does not make sense.
+- The variance parameter must be positive. 
+
+```{r}
+N <- 100
+set.seed(901)
+tibble(
+  rowid = seq_len(N), 
+  a = rnorm(N, mean = 10, 1), 
+  bA = rlnorm(N), 
+  sigma = rexp(1)
+) %>% 
+  mutate(A = map(rowid, ~ seq(0, 12.5, by = 0.5))) %>% 
+  unnest(A) %>% 
+  mutate(W = rnorm(nrow(.), mean = a + (bA * A), sd = sigma)) %>% 
+  ggplot(aes(A, W)) + 
+  geom_point(alpha = 0.4) + 
+  geom_hline(yintercept = 0, linetype = 2)
+```
+
+This looks reasonable. Our full model, with priors, is now: 
+
+$$
+\begin{align*}
+W_i &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta_A A_i \\
+\alpha &\sim \mathcal{N}(10, 1) \\
+\beta_A &\sim \operatorname{Lognormal}(0, 1) \\
+\sigma &\sim \operatorname{Exponential}(1) \\
+\end{align*}
+$$
+
+Now we can build the model. 
+
+```{r}
+m_hw_weight <- quap(
+  alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + (bA * age), 
+    a ~ dnorm(10, 1), 
+    bA ~ dlnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = young_kung
+)
+precis(m_hw_weight)
+```
+
+```{r}
+set.seed(1047)
+extract.samples(m_hw_weight)
+```
+
+3. 
+
+We simply use the same model as above, but with varying slops and intercepts. 
+
+```{r}
+m_hw_weight_sex <- quap(
+  alist(
+    weight ~ dnorm(mu, sigma), 
+    mu <- a[sex] + (bA[sex] * age), 
+    a[sex] ~ dnorm(10, 1), 
+    bA[sex] ~ dlnorm(0, 1), 
+    sigma ~ dexp(1)
+  ), 
+  data = young_kung
+)
+precis(m_hw_weight_sex, depth = 2)
+```
+
+Here the groups are 1 = female, 2 = male. 
+
+If we wish to consider the difference between the sexes, we need to compute its posterior directly. 
+
+```{r}
+age_seq <- seq(0, 12.5, by = 0.5)
+set.seed(1103)
+post_weight_sex <- map(
+  1:2, 
+  ~ sim(m_hw_weight_sex, data = tibble(age = age_seq, sex = .x))
+) %>% 
+  {
+    .[[2]] - .[[1]]
+  } %>% 
+  as_tibble(.name_repair = ~ str_c(age_seq)) %>% 
+  rowid_to_column() %>% 
+  pivot_longer(
+    -rowid, 
+    names_to = "age", 
+    names_transform = list(age = as.double), 
+    values_to = "weight"
+  )
+
+post_weight_sex %>% 
+  group_by(age) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower89", "upper89", "lower50", "upper50"), 
+      value = c(mean(weight), PI(weight), PI(weight, 0.5))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider() %>% 
+  ggplot(aes(x = age)) + 
+  geom_line(aes(y = mean)) + 
+  geom_ribbon(aes(ymin = lower89, ymax = upper89), alpha = 0.3) + 
+  geom_ribbon(aes(ymin = lower50, ymax = upper50), alpha = 0.5) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_label(
+    aes(y = y, label = label), 
+    data = tibble(
+      age = 2, 
+      y = c(-3, 5), 
+      label = c("females heavier", "males heavier")
+    )
+  ) + 
+  labs(
+    title = "Contrast between male and female weights", 
+    subtitle = "Mean line shown plus 50% and 89% intervals", 
+    x = "Age", 
+    y = NULL
+  ) + 
+  theme(panel.grid = element_blank())
+```
+
+Boys are, on average, heavier. This tallies with the parameter estimates from the model, where the intercept and slope were both higher for boys. However there is a lot of uncertainty: plenty of girls are heavier than boys at the same age. 
+
+```{r}
+post_weight_sex %>% 
+  filter(age %in% c(3, 6, 9, 12)) %>% 
+  mutate(age = factor(age)) %>% 
+  ggplot(aes(weight, colour = age, fill = age)) + 
+  geom_density(alpha = 0.2) + 
+  labs(
+    title = "Distributions of contrast at specific ages", 
+    colour = NULL, 
+    fill = NULL, 
+    y = NULL
+  ) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  geom_label(
+    aes(x = x, y = y, label = label), 
+    data = tibble(
+      x = c(-8, 10), 
+      y = 0.08, 
+      label = c("females heavier", "males heavier")
+    ), 
+    inherit.aes = FALSE
+  ) + 
+  theme(
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(), 
+    panel.grid = element_blank(), 
+    legend.position = "bottom"
+  )
+```
+
+There's not much difference we can discern in the distributions like this. We can also summarise how many girls are heavier at these ages.
+
+```{r}
+post_weight_sex %>% 
+  filter(age %in% c(3, 6, 9, 12)) %>% 
+  group_by(age) %>% 
+  summarise(prop_heavier_girls = scales::percent_format()(mean(weight < 0)))
+```
+
+It does seem that the proportion of girls who are heavier is decreasing, but it is still more than one quarter at 12 years old. 
+
+4. 
+
+```{r}
+data(Oxboys)
+oxboys <- Oxboys %>%
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  arrange(subject, occasion) %>% 
+  group_by(subject) %>% 
+  mutate(increment = height - lag(height)) %>% 
+  ungroup()
+oxboys
+```
+
+We will start with a simplifying assumption: the distribution of the increments will be the same regardless of the `occasion` variable. We can set up our model as: 
+
+$$
+\begin{align*}
+\log(x_i) &\sim \mathcal{N}(\mu, \sigma) \\
+\mu &\sim \mathcal{N}(0, 1) \\
+\sigma &\sim \operatorname{Exponential}(1)
+\end{align*}
+$$
+
+This way the increments (the $x_i$) will always be positive. We can do some simulation from the prior, to see if this gives us reasonable results. 
+
+```{r}
+N <- 1e3
+set.seed(1307)
+tibble(
+  mu = rnorm(N), 
+  sigma = rexp(N)
+) %>% 
+  mutate(x = exp(rnorm(N, mu, sigma))) %>% 
+  ggplot(aes(x)) +
+  geom_density() +
+  scale_x_log10(breaks = c(1, 100, 10000)) + 
+  labs(
+    title = "Prior predictive distributions of height increases",
+    x = "Increase in height",
+    y = NULL
+  ) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+This is absurd: many of these observations are simply not possible (note that the x-axis is now on a common log scale because of how many huge values there were). A bit of tinkering with the priors gives us:
+
+```{r}
+set.seed(1307)
+tibble(
+  mu = rnorm(N, sd = 0.4), 
+  sigma = rexp(N, 4)
+) %>% 
+  mutate(x = exp(rnorm(N, mu, sigma))) %>% 
+  ggplot(aes(x)) +
+  geom_density() +
+  labs(
+    title = "Prior predictive distributions of height increases",
+    x = "Increase in height",
+    y = NULL
+  ) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+We see some big increases in the right tail but nothing physically impossible. Most of the increases are small, but our model will only allow them to be positive. The updated model is: 
+
+$$
+\begin{align*}
+\log(x_i) &\sim \mathcal{N}(\mu, \sigma) \\
+\mu &\sim \mathcal{N}(0, 0.4) \\
+\sigma &\sim \operatorname{Exponential}(4)
+\end{align*}
+$$
+
+Can now fit the model.
+
+```{r}
+m_oxboys <- quap(
+  alist(
+    log(increment) ~ dnorm(mu, sigma), 
+    mu ~ dnorm(0, 0.4), 
+    sigma ~ dexp(4)
+  ), 
+  data = oxboys %>% 
+    filter(occasion > 1)
+)
+precis(m_oxboys)
+```
+
+And we can plot the posterior distribution. 
+
+```{r}
+set.seed(1321)
+extract.samples(m_oxboys) %>% 
+  as_tibble() %>% 
+  mutate(x = exp(rnorm(nrow(.), mu, sigma))) %>% 
+  ggplot(aes(x)) +
+  geom_density() +
+  geom_vline(
+    aes(xintercept = x), 
+    data = . %>% 
+      summarise(x = PI(x)), 
+    linetype = 2, 
+    colour = "grey30"
+  ) + 
+  labs(
+    title = "Posterior distribution of height increases",
+    subtitle = "Dotted lines show 89% PI", 
+    x = "Increase in height",
+    y = NULL
+  ) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+The posterior for the total growth across the whole period will just be the sum of eight increments, which can can get from a sample. 
+
+```{r}
+set.seed(1325)
+extract.samples(m_oxboys, n = 80000) %>% 
+  as_tibble() %>% 
+  mutate(
+    x = exp(rnorm(nrow(.), mu, sigma)), 
+    id = rep(seq_len(1e4), each = 8), 
+    occasion = rep(2:9, 1e4)
+  ) %>% 
+  group_by(id) %>% 
+  summarise(total = sum(x), .groups = "drop") %>% 
+  ggplot(aes(total)) +
+  geom_density() +
+  geom_vline(
+    aes(xintercept = total), 
+    data = . %>% 
+      summarise(total = PI(total)), 
+    linetype = 2, 
+    colour = "grey30"
+  ) + 
+  labs(
+    title = "Posterior distribution of total growth",
+    subtitle = "Dotted lines show 89% PI", 
+    x = "Increase in height",
+    y = NULL
+  ) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
 [1]: https://en.wikipedia.org/wiki/The_Church_of_Jesus_Christ_of_Latter-day_Saints_membership_statistics_(United_States)
