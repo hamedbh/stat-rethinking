@@ -498,7 +498,7 @@ Our model expects far fewer boys to be born than we actually see. Possibly this 
 
 ### Week 1 Homework
 
-1. 
+Q1. 
 
 ```{r}
 plot_hw_globe <- function(w, l, prior = rep(1, length(p_grid))) {
@@ -513,13 +513,13 @@ plot_hw_globe <- function(w, l, prior = rep(1, length(p_grid))) {
 plot_hw_globe(4, 11)
 ```
 
-2. 
+Q2. 
 
 ```{r}
 plot_hw_globe(4, 2, if_else(p_grid < 0.5, 0, 1))
 ```
 
-3. 
+Q3. 
 
 ```{r}
 set.seed(830)
@@ -542,7 +542,7 @@ The PI is wider because it needs to be centred, with equal probability density o
 
 Neither of those intervals tell us anything about the discontinuity at 0.5 though, which is why we need the whole posterior. 
 
-4. 
+Q4. 
 
 ```{r}
 set.seed(846)

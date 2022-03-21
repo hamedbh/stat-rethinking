@@ -1690,7 +1690,7 @@ The interval on `south_diff` is rather wide. This feels like an OK model, but pr
 
 ### Week 2 Homework
 
-1. 
+Q1. 
 
 ```{r}
 data("Howell1")
@@ -1728,7 +1728,7 @@ sim(m_hw_height, data = hw_new_heights) %>%
   )
 ```
 
-2. 
+Q2. 
 
 ```{r}
 young_kung <- Howell1 %>% 
@@ -1802,7 +1802,7 @@ set.seed(1047)
 extract.samples(m_hw_weight)
 ```
 
-3. 
+Q3. 
 
 We simply use the same model as above, but with varying slops and intercepts. 
 
@@ -1918,7 +1918,7 @@ post_weight_sex %>%
 
 It does seem that the proportion of girls who are heavier is decreasing, but it is still more than one quarter at 12 years old. 
 
-4. 
+Q4. 
 
 ```{r}
 data(Oxboys)

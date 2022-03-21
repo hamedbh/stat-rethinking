@@ -13,6 +13,7 @@ library(ggrepel)
 library(magrittr)
 library(corrr)
 library(tidyverse)
+library(furrr)
 # set up the theme
 theme_set(theme_light())
 ```
@@ -1787,3 +1788,178 @@ quap(
 ```
 
 We still see a negative association between $S$ and $W$, but it is much weaker than when we close the backdoor path $SFW$. 
+
+### Week 3 Homework
+
+Q1. 
+
+This question extends the exercises from the book. Now we need to find total causal effect of area on food. 
+
+```{r}
+dag_fox %>% 
+  adjustmentSets(exposure = "area", outcome = "avgfood")
+```
+
+No need to condition, we can regress directly. 
+
+$$
+\begin{align*}
+F &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha +\beta_A A_i\\
+\alpha &\sim \mathcal{N}(0, 0.2) \\
+\beta_A &\sim \mathcal{N}(0, 0.5) \\
+\sigma &\sim \text{Expo}(1)
+\end{align*}
+$$
+
+```{r}
+quap(
+  alist(
+    avgfood ~ dnorm(mu, sigma), 
+    mu <- a + (bA * area), 
+    a ~ dnorm(0, 0.2), 
+    bA ~ dnorm(0, 0.5), 
+    sigma ~ dexp(1)
+  ), 
+  data = dfox
+) %>% 
+  precis()
+```
+
+This suggests a very strong association between area and avgfood: increasing area by 1 standard deviation increases food by 0.8-0.95 standard deviations. 
+
+Q2. 
+
+This is a repeat of question 6H4 from the book. Just as a reminder we can check the adjustment sets again. 
+
+```{r}
+dag_fox %>% 
+  adjustmentSets("avgfood", "weight")
+```
+
+No controls necessary, we just regress directly. This is model `m6h4`.
+
+```{r}
+m6h4 %>% 
+  precis()
+```
+
+There is very little effect on weight of changing food. However the picture changes when we wish to isolate the direct causal effect. This was covered from a different angle in question 6H5 from the book: then we wanted the effect of groupsize on weight, for which we had to shut the backdoor path from avgfood (which was a fork). Now the focus is different but the approach is the same: regress weight jointly on groupsize (which is a pipe from avgfood to weight) and avgfood. This was model `m6h5`. 
+
+```{r}
+m6h5 %>% 
+  precis()
+```
+
+We see that the direct causal effect of avgfood on weight seems positive, 0.19-0.76. 
+
+Q3. 
+
+```{r}
+stroke_dag <- dagify(
+  Y ~ U + X + S + A, 
+  X ~ S + A, 
+  S ~ U + A, 
+  coords = tibble(
+    name = c("S", "A", "X", "U", "Y"), 
+    x = c(0, 0, 1, 1.5, 2), 
+    y = c(2, 0, 1, 2, 1)
+  )
+)
+stroke_dag %>% 
+  ggdag() + 
+  theme_dag()
+```
+
+We can check our adjustment set for $Y ~ X$. 
+
+```{r}
+adjustmentSets(stroke_dag, "X", "Y")
+```
+
+Both $A$ and $S$ are pipes in this DAG, with backdoor paths into $X$. So we need to include both in the regression, something like: 
+
+$$
+\begin{align*}
+Y_i &\sim \mathcal{N}(\mu, \sigma) \\
+\mu &= \alpha + \beta_A A + \beta_S S
+\end{align*}
+$$
+
+The coefficient for $X$ in our model will be what we intend. However including $S$ in the model opens up the backdoor through $U$ (fork), so we cannot trust its coefficient. This same fork will bias our estimate for $A$ (which has a path running $ASUY$).
+
+Q4. 
+
+```{r}
+sim_stroke_data <- function(N = 1000) {
+  tibble(
+  A = rnorm(N), 
+  U = rnorm(N)
+) %>% 
+  mutate(S = rnorm(N, A + U)) %>% 
+  mutate(X = rnorm(N, A + S)) %>% 
+  mutate(Y = rnorm(N, A + S + X + U))
+}
+sim_stroke_data()
+```
+
+If our model is working effectively then it should recover the true coefficient for X, i.e. 1. 
+
+```{r}
+model_stroke_XY <- function(N = 1000) {
+  mod <- quap(
+    alist(
+      Y ~ dnorm(mu, sigma), 
+      mu <- a + (bX * X) + (bA * A) + (bS * S), 
+      a ~ dnorm(0, 0.2), 
+      c(bX, bA, bS) ~ dnorm(0, 0.5), 
+      sigma ~ dexp(1)
+    ), 
+    data = sim_stroke_data(N = N)
+  )
+  summ <- precis(mod)
+  tibble(
+    N = N,
+    mean = mod@coef["bX"], 
+    lower = summ@.Data[[3]][summ@row.names == "bX"], 
+    upper = summ@.Data[[4]][summ@row.names == "bX"]
+  )
+}
+model_stroke_XY()
+```
+
+Now we can address the question of what sort of sample size we need through simulation. 
+
+```{r}
+stroke_repeats <- xfun::cache_rds({
+  future_imap_dfr(
+    rep(2^(6:10), each = 50), 
+    ~ model_stroke_XY(N = .x), 
+    .progress = TRUE, 
+    .options = furrr_options(seed = TRUE)
+  )}, 
+  file = "stroke_repeats.rds"
+)
+```
+
+Now we can check how close our estimates were, and how narrow the PI for the estimate. 
+
+```{r}
+stroke_repeats %>% 
+  mutate(err = abs(mean - 1), width = upper - lower) %>% 
+  pivot_longer(c(err, width), names_to = "measure") %>% 
+  group_by(N, measure) %>% 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), PI(value))
+    ), 
+    .groups = "drop"
+  ) %>% 
+  pivot_wider() %>% 
+  ggplot(aes(x = N)) + 
+  geom_pointrange(aes(y = mean, ymin = lower, ymax = upper)) + 
+  facet_wrap(~ measure)
+```
+
+The error proportion has levelled off by 256 samples. The width of the PI at 256 samples is extremely small, and has collapsed almost entirely by the time we get to 512 samples. So it would seem that 256 samples should be quite sufficient to give accurate estimates. 
