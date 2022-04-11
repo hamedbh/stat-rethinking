@@ -1263,3 +1263,352 @@ plot_HMC_globe(1e4)
 ```
 
 1,000 draws is enough to get a very good approximation to the analytical solution. 
+
+### Week 4 Homework
+
+Q1. 
+
+```{r}
+dmarriage <- xfun::cache_rds({
+  set.seed(11)
+  sim_happiness() %>% 
+    as_tibble()},
+  file = "wk4_hw_dmarriage.rds"
+)
+
+dmarriage_adults <- dmarriage %>% 
+  filter(age > 17L) %>% 
+  mutate(A = scales::rescale(age)) %>% 
+  mutate(mid = as.integer(married + 1L)) %>% 
+  select(happiness, A, mid) %>% 
+  compose_data()
+```
+
+
+```{r}
+m6_9 <- stan_model(file = here::here("inst/Stan/m6_9.stan")) %>% 
+  sampling(data = dmarriage_adults, seed = 1707)
+
+m6_10 <- stan_model(file = here::here("inst/Stan/m6_10.stan")) %>% 
+  sampling(data = dmarriage_adults, seed = 1711)
+```
+
+```{r}
+compare(m6_9, m6_10, func = PSIS)
+```
+
+The difference in PSIS is several times larger than the standard error, so we can be reasonably confident that the difference is meaningful. So in this case the model that gives the wrong inference also gives much more accurate predictions. We can revisit the parameter estimates: 
+
+```{r}
+precis(m6_9, depth = 2, pars = c("a[1]", "a[2]", "bA", "sigma"))
+```
+
+None of these estimates can be interpreted causally: they simply describe associations in the model. For example: the estimate for `bA` is solidly negative. If this were unbiased it would imply that people become unhappier as they get older. In this case though it is simply describing the association between age and unhappiness in our data. We know that this is not causal, because the simulation ensures it! However because we've stratified by marriage status, we see an association: older people are, within either the married or unmarried population, likely to be unhappier than younger ones. 
+
+Q2. 
+
+In the interests of speed let's just use `quap()` to fit these models, since there are seven possible models: 
+
+- One model with all three predictors; 
+- Three models with two predictors; 
+- Three models with one predictor. 
+
+```{r}
+data("foxes")
+dfox <- foxes %>% 
+  as_tibble() %>% 
+  transmute(across(c(avgfood, groupsize, area, weight), standardize))
+hw_q2_models <- list(
+  m1 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood) + (bG * groupsize) + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      c(bF, bG, bA) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m2 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood) + (bG * groupsize), 
+      a ~ dnorm(0, 0.2), 
+      c(bF, bG) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m3 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood) + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      c(bF, bA) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m4 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bG * groupsize) + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      c(bG, bA) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m5 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood), 
+      a ~ dnorm(0, 0.2), 
+      bF ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m6 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bG * groupsize), 
+      a ~ dnorm(0, 0.2), 
+      bG ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m7 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      bA ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  )
+)
+```
+
+```{r}
+compare(
+  hw_q2_models[[1]], 
+  hw_q2_models[[2]], 
+  hw_q2_models[[3]], 
+  hw_q2_models[[4]],
+  hw_q2_models[[5]], 
+  hw_q2_models[[6]], 
+  hw_q2_models[[7]]
+)
+```
+
+The first three models (in order: using all three predictors; using groupsize and area; using avgfood and groupsize) are all within one standard error of each other. We can examine the parameter estimates for the best model: 
+
+```{r}
+precis(hw_q2_models[[1]])
+```
+
+All of these are confounded though, as we have adopted the 'causal salad' approach. The estimate for area is confounded by including its descendant; the estimate for avgfood is confounded by including the pipe through groupsize; the estimate for groupsize is confounded by including the fork from avgfood. So we cannot interpret any of them causally. We can check the implied conditional independencies though.
+
+```{r}
+dagitty::impliedConditionalIndependencies(
+  ggdag::dagify(W ~ F + G, G ~ F, F ~ A)
+)
+```
+We see that area should be independent of weight conditional on avgfood, in which case the estimate on area should be zero. In this case though it is estimated between -0.04 and 0.37. This might indicate that there is something wrong with the DAG, or that this sample is just a little strange. 
+
+Q3. 
+
+```{r}
+data("cherry_blossoms")
+cherry_full <- cherry_blossoms %>% 
+  as_tibble() %>% 
+  drop_na(doy, temp) %>% 
+  select(doy, temp) %>% 
+  mutate(doy = doy - mean(doy), temp = standardize(temp))
+```
+
+We can build two models: one with just an intercept, the other as a linear model on `doy`. 
+
+```{r}
+m_hwk4_q3a <- stan_model(file = here::here("inst/Stan/m_hwk4_q3a.stan")) %>% 
+  sampling(data = compose_data(cherry_full), seed = 1841)
+```
+
+```{r}
+m_hwk4_q3b <- stan_model(file = here::here("inst/Stan/m_hwk4_q3b.stan")) %>% 
+  sampling(data = compose_data(cherry_full), seed = 1843)
+```
+
+Now we can compare the two models. 
+
+```{r}
+compare(
+  m_hwk4_q3a, 
+  m_hwk4_q3b, 
+  func = PSIS
+)
+```
+
+The linear model is substantially better than the intercept-only model. We can now use that to generate predictions for a temperature of 9 degrees. First we have to convert that to the scale of the data, then use that to generate predictions. 
+
+```{r}
+new_temp <- cherry_blossoms %>% 
+  as_tibble() %>% 
+  drop_na(doy, temp) %>% 
+  summarise(sigma = sd(temp), mu = mean(temp)) %>% 
+  transmute(temp = (9 - mu) / sigma) %>% 
+  pull(temp)
+new_temp
+# Note: this temperature is more than 4 standard deviations above the mean we've
+# seen in the data, so we should treat this with caution.
+set.seed(1900)
+post_cherry <- spread_draws(m_hwk4_q3a, a, bT, sigma) %>% 
+  mutate(doy = rnorm(nrow(.), a + (bT * new_temp), sigma)) %>% 
+  mutate(
+    doy = (doy * sd(cherry_blossoms$doy, na.rm = TRUE)) + 
+      mean(cherry_blossoms$doy, na.rm = TRUE)
+  )
+post_cherry
+```
+
+Let's see what we get in a plot.
+
+```{r}
+post_cherry %>% 
+  ggplot(aes(doy)) + 
+  geom_density() + 
+  geom_vline(
+    aes(xintercept = x), 
+    data = . %>% 
+      summarise(x = HPDI(doy)), 
+    linetype = 2, 
+    colour = "grey50"
+  ) + 
+  labs(
+    title = "Distribution of day of year for first blossom", 
+    subtitle = "Dotted lines are 89% HPDI", 
+    x = NULL, 
+    y = NULL
+  ) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.text.y = element_blank()
+  )
+```
+
+Given that our new data point was extreme it's not so surprising that we get some extreme predictions. We even get a few predictions below zero, i.e. the first blossom will occur in the previous year. 
+
+Q4. 
+
+```{r}
+data("Dinosaurs")
+Dinosaurs %>% 
+  as_tibble() %>% 
+  group_by(sp_id, species) %>% 
+  count(sort = TRUE)
+```
+
+Growth should be positive in our model. It's also unlikely that the rate of growth will be the same throughout the dinosaur's life, but we can test this with a model that assumes a linear rate of growth for the whole lifetime. 
+
+Peeking at the [answers](https://github.com/rmcelreath/stat_rethinking_2022/blob/main/homework/week04_solutions.pdf) I see that there is a biological model, the [Von Bertalanffy model](https://en.wikipedia.org/wiki/Von_Bertalanffy_function), that we can use. This is based on the following differential equation (and solution):
+
+$$
+\begin{align*}
+\frac{dL}{da} &= k(L_{\infty} - L) \\
+L(a) &= L_{\infty}(1 - \exp(-k(a - t_0)))
+\end{align*}
+$$
+
+Here $a$ is the age; $k$ is the growth coefficient; $t_0$ is the age when size is zero; $L$ is the size (in our case will be mass); $L_{\infty}$ is the asymptotic size (i.e. how big the animal can get). We can simplify this a little by assuming that the dinosaurs have mass zero at birth: this will also simplify the linear model as it means we will have no intercept. With that change and some renaming of variables for this problem the equation becomes: 
+
+$$
+\begin{align*}
+M(a) &= S(1 - \exp(-ka))
+\end{align*}
+$$
+
+Now we can build up both models and compare results. We need to run some prior predictive checks for both models though. 
+
+```{r}
+set.seed(1854)
+tibble(
+  id = seq_len(100), 
+  bA = rexp(100, 5), 
+  sigma = rexp(1)
+) %>% 
+  expand(
+    nesting(id, bA, sigma), 
+    age = seq(0, 20)
+  ) %>% 
+  mutate(mass = rnorm(nrow(.), age * bA, sigma)) %>% 
+  ggplot(aes(x = age, y = mass, group = id)) + 
+  geom_point(alpha = 0.3)
+```
+
+This was after a bit of tinkering. There are some wild predictions, but mostly they are concentrated in the physically possible range.
+
+Now we can set up something similar for the VB model. 
+
+```{r}
+set.seed(1907)
+tibble(
+  id = seq_len(100), 
+  S = rnorm(100, 1, 0.5), 
+  k = rexp(100, 1)
+) %>% 
+  expand(
+    nesting(id, S, k), 
+    age = seq(0, 20)
+  ) %>% 
+  mutate(mass = S * (1 - exp(-k * age))) %>% 
+  ggplot(aes(x = age, y = mass, group = id)) + 
+  geom_line(alpha = 0.3)
+```
+
+Again these lines seem mostly to be reasonable. Now we can start modelling.
+
+```{r}
+ddino <- Dinosaurs %>%
+  as_tibble() %>% 
+  select(sp_id, age, mass) %>% 
+  group_by(sp_id) %>% 
+  mutate(mass = mass / max(mass)) %>% 
+  ungroup() %>% 
+  compose_data()
+```
+
+```{r}
+hwk4_dino_lin <- stan_model(file = here::here("inst/Stan/hwk4_dino_lin.stan")) %>% 
+  sampling(data = ddino, seed = 1914)
+```
+
+```{r}
+hwk4_dino_VB <- stan_model(file = here::here("inst/Stan/hwk4_dino_VB.stan")) %>% 
+  sampling(data = ddino, seed = 758)
+```
+
+```{r}
+compare(hwk4_dino_lin, hwk4_dino_VB, func = PSIS)
+```
+
+The linear model is better than the fancier VB model. But why? We can see it in the shapes of the growth curves in the prior predictive checks: they are all monotone, because that's what the function demands. By raising the whole thing to a power, $c$, we can get accelerating growth. 
+
+```{r}
+hwk4_dino_VB2 <- stan_model(
+  file = here::here("inst/Stan/hwk4_dino_VB2.stan")
+) %>% 
+  sampling(data = ddino, seed = 758)
+```
+
+```{r}
+compare(
+  hwk4_dino_lin, 
+  hwk4_dino_VB, 
+  hwk4_dino_VB2, 
+  func = PSIS
+)
+```
+
