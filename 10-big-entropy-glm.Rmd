@@ -1,0 +1,304 @@
+---
+title: "Big Entropy and the Generalised Linear Model"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+set_ulam_cmdstan(TRUE)
+library(patchwork)
+library(ggrepel)
+library(magrittr)
+library(corrr)
+library(furrr)
+library(tidyverse)
+library(tidybayes)
+library(bayesplot)
+library(shape)
+# set up the theme
+theme_set(
+  theme_light() + 
+    theme(panel.grid = element_blank())
+)
+```
+
+## Maximum entropy
+
+RM revisits entropy with an example where 10 pebbles are distributed across five buckets in five different ways. 
+
+```{r}
+buckets <- tibble(
+  A = c(0, 0, 10, 0, 0), 
+  B = c(0, 1, 8, 1, 0), 
+  C = c(0, 2, 6, 2, 0), 
+  D = c(1, 2, 4, 2, 1), 
+  E = c(2, 2, 2, 2, 2)
+) %>% 
+  rowid_to_column("bucket")
+buckets
+```
+
+Then we calculate the entropy for each of the distributions A to E. 
+
+```{r}
+H <- buckets %>% 
+  mutate(across(-bucket, ~ .x / sum(.x))) %>% 
+  pivot_longer(-bucket) %>% 
+  group_by(name) %>% 
+  mutate(H = -1 * coalesce(value * log(value), 0)) %>% 
+  summarise(across(H, sum))
+H
+```
+
+We can also recreate RM's plots. 
+
+```{r}
+buckets %>% 
+  pivot_longer(-bucket) %>% 
+  mutate(bucket = factor(bucket)) %>% 
+  ggplot(aes(bucket, value)) + 
+  geom_col(width = 0.15) + 
+  scale_y_continuous("pebbles", breaks = c(0, 5, 10)) + 
+  facet_wrap(~ name)
+```
+
+```{r}
+inner_join(
+  H, 
+  buckets %>%
+    pivot_longer(-bucket) %>%
+    group_by(name) %>%
+    summarise(ways = factorial(10) / prod(map_dbl(value, factorial))) %>% 
+    mutate(logwayspp = log(ways) / 10), 
+  by = "name"
+) %>% 
+  ggplot(aes(logwayspp, H, label = name)) +
+  geom_smooth(
+    formula = y ~ x, 
+    method = "lm", 
+    linetype = 2, 
+    size = 0.5, 
+    colour = "grey10", 
+    se = FALSE
+  ) + 
+  geom_point() + 
+  geom_text_repel(nudge_y = -0.011, seed = 1805) + 
+  labs(
+    x = "log(ways) per pebble", 
+    y = "entropy"
+  )
+```
+
+We will then spend a couple of sections deriving the Gaussian and binomial distributions as maximum entropy distributions under particular constraints. 
+
+### Gaussian
+
+RM uses the [generalised normal distribution](https://en.wikipedia.org/wiki/Generalized_normal_distribution) to illustrate the fact that the Gaussian is the maximum entropy distribution for a given variance. 
+
+The PDF of the generalised normal distribution is:
+
+$$
+\begin{align*}
+\operatorname{P}(y | \mu, \alpha, \beta) = 
+  \frac{\beta}{2 \alpha \Gamma(1 / \beta)} e^{-(\frac{| y - \mu |}{\alpha})^{\beta}}
+\end{align*}
+$$
+
+When $\beta = 2$ this is just the Gaussian. We can fix the variance at 1, vary the $\alpha$ and $\beta$ parameters, and see how the entropy varies. RM doesn't show the working for how $\alpha$ and $\beta$ relate to the variance, but from the Wiki link above we get the formula for the variance, from which we can derive: 
+
+$$
+\begin{alignat*}{2}
+  &&&\sigma^2 &&= \frac{\alpha^2 \Gamma(3/\beta)}{\Gamma(1 / \beta)}\\
+  &\Rightarrow\quad
+  &&\alpha &&= \sqrt{\frac{\sigma^2 \Gamma(1 / \beta)}{\Gamma(3 / \beta)}}
+\end{alignat*}
+$$
+
+So for any value of $\beta$ we can solve for $\alpha$ and compute the PDF. Then we use a grid to generate the plots and compute the entropy. (RM helpfully provides a `dgnorm()` function for computing the density of the generalised normal.)
+
+```{r}
+solve_for_alpha <- function(beta, variance = 1) {
+  sqrt((variance * gamma(1 / beta)) / (gamma(3 / beta)))
+}
+
+(
+  tibble(beta = c(1, 1.5, 2, 4)) %>% 
+    mutate(alpha = solve_for_alpha(beta)) %>% 
+    mutate(Gaussian = beta == 2) %>% 
+    expand(nesting(beta, alpha, Gaussian), x = seq(-4, 4, length.out = 101)) %>% 
+    mutate(y = dgnorm(x, 0, alpha, beta)) %>% 
+    ggplot(aes(x, y, group = beta, colour = Gaussian, size = Gaussian)) + 
+    geom_line() + 
+    scale_colour_manual(values = c("grey70", "steelblue")) + 
+    scale_size_manual(values = c(0.75, 1.25)) + 
+    labs(x = "value", y = "Density") + 
+    theme(legend.position = "none")
+) + (
+  
+  tibble(beta = seq(1, 4, length.out = 100)) %>% 
+    mutate(alpha = solve_for_alpha(beta)) %>% 
+    mutate(
+      entropy = (1 / beta) - log((beta) / (2 * alpha * gamma(1 / beta)))
+    ) %>% 
+    ggplot(aes(beta, entropy)) + 
+    geom_line(colour = "steelblue") + 
+    geom_vline(xintercept = 2, linetype = 2, colour = "grey50") + 
+    scale_x_continuous("shape", breaks = seq(1, 5, by = 0.5))
+)
+```
+
+### Binomial
+
+We return to marbles. RM sets up four probability distributions for drawing two marbles from a bag with an unknown number of blue and white marbles. The constraint is that our expected number of blue marbles must be 1 for all of them. 
+
+```{r}
+marble_dist <- tribble(
+  ~Distribution, ~ww, ~bw, ~wb, ~bb, 
+  "A",           1/4, 1/4, 1/4, 1/4, 
+  "B",           2/6, 1/6, 1/6, 2/6, 
+  "C",           1/6, 2/6, 2/6, 1/6, 
+  "D",           1/8, 4/8, 2/8, 1/8
+)
+marble_dist %>% 
+  pivot_longer(-Distribution) %>% 
+  mutate(name = fct_inorder(name)) %>% 
+  ggplot(aes(name, value, group = 1)) + 
+  geom_point(colour = "steelblue") + 
+  geom_path(colour = "steelblue") + 
+  facet_wrap(~ Distribution) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.title.y = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.line.y = element_blank()
+  )
+```
+
+We can verify that they all have the right expected value, and compute the entropy for each. 
+
+```{r}
+marble_dist %>% 
+  transmute(
+    Distribution, 
+    Expectation = bw + wb + (2 * bb)
+  )
+
+marble_dist %>% 
+  pivot_longer(-Distribution) %>% 
+  group_by(Distribution) %>% 
+  summarise(Entropy = -sum(value * (log(value))))
+```
+
+A is a $\operatorname{Binomial}(2, 0.5)$ distribution and has the highest entropy. 
+
+We can generalise this to any expected value: RM gives an example of the binomial with expected value 1.4. Since it has mean $np$ then $p = 0.7$. 
+
+```{r}
+p <- 0.7
+marble_dist_2 <- tribble(
+  ~Distribution, ~ww,       ~bw,         ~wb,         ~bb, 
+  "A",           (1 - p)^2, p * (1 - p), (1 - p) * p, p^2
+)
+marble_dist_2
+```
+
+It isn't flat, but it is the flattest distribution under the constraint that the expected number of blue marbles is 1.4. We can also compute the entropy. 
+
+```{r}
+marble_dist_2 %>% 
+  pivot_longer(-Distribution) %>% 
+  group_by(Distribution) %>% 
+  summarise(Entropy = -sum(value * (log(value))))
+```
+
+We can use simulation to show that this is the maximum entropy for that expectation. We simulate arbitrary PMFs with the same expected value and compute their entropies: we should find that none of them is higher than the one above. 
+
+```{r}
+sim_p <- function(id, N) {
+  set.seed(id)
+  matrix(
+  runif(3 * N), 
+  nrow = N
+) %>% 
+  {
+    cbind(
+      ., 
+      apply(., 1, function(x) ((1.4 * sum(x)) - x[2] - x[3]) / (2 - 1.4))
+    )
+  } %>% 
+  {
+    . / rowSums(.)
+  } %>% 
+  {
+    cbind(
+      ., 
+      apply(., 1, function(p) -sum(p * log(p)))
+    )
+  } %>% 
+  as_tibble(.name_repair = ~ c("ww", "bw", "wb", "bb", "H")) %>% 
+  rowid_to_column("id") %>% 
+  pivot_longer(-c(id, H)) %>% 
+  transmute(id, H, p = value, key = fct_inorder(name))
+}
+d <- sim_p(1135, 1e5)
+d
+```
+
+```{r}
+ranked_d <- d %>% 
+  group_by(id) %>% 
+  arrange(desc(H)) %>% 
+  ungroup() %>%
+  # here's the rank order step
+  mutate(rank = rep(seq_len(1e5), each = 4))
+ranked_d
+```
+
+```{r}
+subset_d <- ranked_d %>% 
+  filter(rank %in% c(99991L, 98539L, 87516L, 1L)) %>% 
+  mutate(
+    height = rep(c(8, 2.25, .55, .5), each = 4), 
+    distribution = rep(LETTERS[1:4], each = 4)
+  )
+
+d %>% 
+  distinct(id, H) %>% 
+  ggplot(aes(H)) + 
+  geom_density(colour = "steelblue", adjust = 1/4) + 
+  geom_linerange(
+    aes(ymin = 0, ymax = height), 
+    data = subset_d %>% group_by(id) %>% slice(1), 
+    colour = "grey30"
+  ) + 
+  geom_text(
+    aes(y = height + 0.3, label = distribution), 
+    data = subset_d %>% group_by(id) %>% slice(1)
+  ) + 
+  scale_x_continuous("Entropy", breaks = seq(0.7, 1.2, by = 0.1)) + 
+  coord_cartesian(
+    xlim = c(0.62, 1.24), 
+    ylim = c(0, 8.6), 
+    expand = FALSE
+  ) + 
+  labs(
+    y = "Density"
+  )
+```
+
+```{r}
+subset_d %>% 
+  ggplot(aes(key, p, group = 1)) + 
+  geom_point(colour = "steelblue") + 
+  geom_path(colour = "steelblue") + 
+  facet_wrap(~ distribution) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.title.y = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.line.y = element_blank()
+  )
+```
+
