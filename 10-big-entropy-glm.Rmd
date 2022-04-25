@@ -111,7 +111,7 @@ When $\beta = 2$ this is just the Gaussian. We can fix the variance at 1, vary t
 $$
 \begin{alignat*}{2}
   &&&\sigma^2 &&= \frac{\alpha^2 \Gamma(3/\beta)}{\Gamma(1 / \beta)}\\
-  &\Rightarrow\quad
+  &\implies\quad
   &&\alpha &&= \sqrt{\frac{\sigma^2 \Gamma(1 / \beta)}{\Gamma(3 / \beta)}}
 \end{alignat*}
 $$
@@ -302,3 +302,236 @@ subset_d %>%
   )
 ```
 
+## Generalised linear models
+
+We go from models like: 
+
+$$
+\begin{align*}
+y_i   &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta x_i .
+\end{align*}
+$$
+
+To models like: 
+
+$$
+\begin{align*}
+y_i   &\sim \operatorname{Binomial}(n, p_i) \\
+f(p_i) &= \alpha + \beta (x_i - \bar{x})
+\end{align*}
+$$
+
+The choice of the binomial here is just a placeholder: it could be any other maximum entropy distribution appropriate for the problem. The more important change is on the second line, where instead of the linear terms being equal to the parameter we care about, they are equal to some function of that parameter. The function $f$ here is the **link function**. 
+
+In this particular case the link function keeps the estimate for $p$ within bounds, i.e. $p_i \in [0, 1]$. We aren't modelling the mean directly: instead we are modelling a probability. And this is why we need a link function:
+
+```{r}
+tibble(x = seq(-1, 3, by = 0.01)) %>% 
+  mutate(natural = 0.35 + (0.5 * x)) %>% 
+  ggplot(aes(x, probability)) + 
+  geom_hline(yintercept = c(0, 1), linetype = 2, size = 0.3, colour = "grey50") + 
+  geom_line(
+    aes(linetype = probability > 1), 
+    colour = "steelblue"
+  ) + 
+  scale_linetype_manual(values = c(1, 2)) + 
+  geom_segment(
+    aes(x = 1.3, y = 1, xend = 3, yend = 1), 
+    colour = "steelblue", 
+    size = 0.38
+  ) + 
+  scale_y_continuous(breaks = c(0, .5, 1)) +
+  coord_cartesian(xlim = c(0, 2), ylim = c(0, 1.2)) +
+  theme(legend.position = "none")
+```
+
+Without something to constrain it the linear part will be unbounded. 
+
+### Meet the family
+
+RM plots the most commonly-used members of the exponential family. It would take too much work to rebuild his plots, so just refer back to page 315 of the book for them. 
+
+### Linking linear models to distributions
+
+We now get introduced to the logit link function, and its inverse (the logistic function). 
+
+$$
+\begin{align*}
+  &&\operatorname{logit}(p_i) &= \log \frac{p_i}{1 - p_i} \\
+  \implies 
+  && p_i &= \frac
+    {\operatorname{exp}{(\alpha + \beta x_i)}}
+    {1 + \operatorname{exp}{(\alpha + \beta x_i)}}
+\end{align*}
+$$
+
+The second equation is the logistic function applied to $\alpha + \beta x_i$. 
+
+We can see the logistic function in action. 
+
+```{r}
+logistic_lines <- tibble(x = seq(from = -1, to = 1, by = .25)) %>% 
+  mutate(log_measurement  = 4 * x) %>% 
+  mutate(natural = inv_logit(log_odds))
+logistic_example <- tibble(x = seq(-1, 1, length.out = 101)) %>% 
+  mutate(log_measurement = 2.1 * x) %>% 
+  mutate(natural = inv_logit(log_odds))
+
+(
+  ggplot(logistic_example, aes(x, log_odds)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(aes(yintercept = log_odds), data = logistic_lines, alpha = 0.2) + 
+    labs(y = "log-odds")
+) + (
+  ggplot(logistic_example, aes(x, probability)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(
+      aes(yintercept = probability), data = logistic_lines, alpha = 0.2
+    ) + 
+    scale_y_continuous(position = "right", breaks = c(0, 0.5, 1))
+)
+```
+
+RM discusses situations where we might use a log link instead, for example to constrain a value to be positive. He uses the example of modelling the standard deviation $\sigma$ in a linear model to itself be some function of a predictor, $x$. Then we have: 
+
+$$
+\begin{align*}
+&&y_i &\sim \mathcal{N}(\mu, \sigma_i) \\
+&&\log(\sigma_i) &= \alpha + \beta x_i \\
+\implies && \sigma_i &= e^{\alpha + \beta x_i}
+\end{align*}
+$$
+
+The effects can be plotted, just as for the logit link. 
+
+```{r}
+loglink_lines <- tibble(log_measurement = seq(from = -3, to = 3)) %>% 
+  mutate(natural = exp(log_measurement))
+loglink_example <- tibble(x = seq(-1, 1, length.out = 101)) %>% 
+  mutate(log_measurement = 2.25 * x) %>% 
+  mutate(natural = exp(log_measurement))
+
+(
+  ggplot(loglink_example, aes(x, log_measurement)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(
+      aes(yintercept = log_measurement), data = loglink_lines, alpha = 0.2
+    ) + 
+    labs(y = "log measurement")
+) + (
+  ggplot(loglink_example, aes(x, natural)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(
+      aes(yintercept = natural), 
+      data = loglink_lines %>% 
+        filter(natural <= 10), 
+      alpha = 0.2
+    ) + 
+    scale_y_continuous(
+      position = "right", breaks = seq(0, 10, by = 2), limits = c(0, 10)
+    )
+)
+```
+
+RM points out that the job is done of keeping $\sigma$ positive, but at a cost: we now have exponential growth in the parameter. This means that unexpectedly large values for $x$ will cause $\sigma$ to blow up. 
+
+RM then delves deeper in the Overthinking box, taking derivatives to calculate the rate of change for the output of a GLM as the predictors change. 
+
+Start by reverting to the linear model, where we model $\mu = \alpha + \beta x$. Then $\partial \mu / \partial x = \beta$, which is just a constant. The rate of change is the same for all values of $x$. 
+
+Now for the GLM, let's consider a binary outcome with probability $p$. Then: 
+
+$$
+\begin{align*}
+  &&p &= \frac{e^{\alpha + \beta x}}{1 + e^{\alpha + \beta x}} \\
+  \implies &&\frac{\partial p}{\partial x} &= 
+    \frac{\beta}{2(1 + \cosh(\alpha + \beta x))}.
+\end{align*}
+$$
+
+So the impact of a change in $x$ depends on $x$: it interacts with itself. We can also compute the rate of change for the log-odds. 
+
+$$
+\begin{align*}
+\frac{\partial \operatorname{log-odds}(p)}{\partial x} &= 
+    \beta e^{\alpha + \beta x}
+\end{align*}
+$$
+
+This is a little simpler as we avoid $\cosh$, but we still have the same interaction between $x$ and itself. 
+
+### Omitted variable bias again
+
+RM explains a situation where our inferences may be wrong: $X$ and $Z$Z both predict $Y$ independently, and if either is large enough then $Y = 1$. In this case we might decide to measure just $X$, maybe to save money or something. But this might lead us to underestimate the effects of $X$. 
+
+```{r}
+set.seed(840)
+domitted <- tibble(x = rnorm(1000), z = rnorm(1000)) %>% 
+  mutate(y = as.integer(x > 0.5 | z > 0.5))
+
+m_omitted_full <- xfun::cache_rds({
+  ulam(
+    alist(
+      y ~ dbinom(1, p), 
+      logit(p) <- a + (bX * x) + (bZ * z), 
+      a ~ dnorm(0, 0.5), 
+      c(bX, bZ) ~ dnorm(0, 0.5)
+    ), 
+    data = domitted, 
+    chains = 4, 
+    cores = 4, 
+    log_lik = TRUE
+  )}, 
+  file = "m_omitted_full.rds"
+)
+precis(m_omitted_full)
+```
+
+Now we build a model with just $X$. 
+
+```{r}
+m_omitted_partial <- xfun::cache_rds({
+  ulam(
+    alist(
+      y ~ dbinom(1, p), 
+      logit(p) <- a + (bX * x), 
+      a ~ dnorm(0, 0.5), 
+      bX ~ dnorm(0, 0.5)
+    ), 
+    data = domitted, 
+    chains = 4, 
+    cores = 4, 
+    log_lik = TRUE
+  )}, 
+  file = "m_omitted_partial.rds"
+)
+precis(m_omitted_partial)
+```
+
+Why do we get a much lower estimate for the effect of $X$? It's because there are instances when $X$ is low but $Y = 1$ because $Z$ was sufficiently large, so the model assumes that $X$ must have less of an effect.
+
+### Absolute and relative differences
+
+RM points out that we can no longer interpret coefficients directly because we are interested in the absolute difference in a change from the predictor, whereas the coefficients tell us about the relative differences when holding everything else constant. 
+
+### GLMs and information criteria
+
+Now that we are using different likelihoods we must only use something like WAIC to compare two models with the same likelihood. This is because of the normalising constant in Bayes theorem: when the likelihoods are the same this just subtracts out, but this won't work when the likelihoods are different. 
+
+
+Since we used the binomial likelihood for both models in the omitted variable example we can compare them with WAIC. 
+
+```{r}
+compare(m_omitted_full, m_omitted_partial)
+```
+
+The difference is very large. 
+
+## Maximum entropy priors
+
+RM reiterates the value of maximum entropy distributions in the choice of likelihood and priors. 
+
+## Summary
+
+This chapter was quite theoretical, but had some good examples to rebuild with code. 
