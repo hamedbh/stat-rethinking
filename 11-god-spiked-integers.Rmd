@@ -24,3 +24,215 @@ theme_set(
 )
 ```
 
+## Binomial regression
+
+In the globe-tossing example we denoted the binomial distribution as: 
+
+$$
+\begin{align*}
+y \sim \operatorname{Binomial}(n, p).
+\end{align*}
+$$
+
+Here $y$ is a count (often called the number of 'successes'), $p$ is the probability that any one trial is a success, and $n$ is the number of trials. RM distinguishes between two varieties of binomial regression, which differ only in how the data are structured. 
+
+1. **Logistic regression** is when the data are organised as single trials, so that the outcome variable is $\in \{0, 1\}$. 
+2. **Aggregated binomial regression** is when all trials with the same covariate values are combined together, and the outcome variable will be in $\in \{0, 1, \dots , n\}$.
+
+### Logistic regression: Prosocial chimpanzees
+
+RM outlines the experiment: in short, we want to see if the presence of another chimpanzee affects whethert chimpanzees will pick the prosocial option that gives food to both.
+
+```{r}
+data(chimpanzees)
+dchimp <- chimpanzees %>% 
+  as_tibble() %>% 
+  # Create the treatment variable that RM shows a bit later
+  mutate(treatment = 1L + prosoc_left + (2L * condition))
+dchimp
+```
+
+Here `pulled_left` is the outcome variable: an indicator of whether the focal chimp pulled the left lever. Then `prosoc_left` is a predictor: an indicator of whether the left side was the prosocial option. Finally `condition` indicates whether or not a partner was present. 
+
+Now we can set up our model: 
+
+$$
+\begin{align*}
+  L_i &\sim \operatorname{Bernoulli}(p_i) \\
+  \operatorname{logit}(p_i) &= \alpha_{\text{ACTOR}[i]} + 
+    \beta_{\text{TREATMENT}[i]} \\
+  \alpha_j &\sim \text{TBC} \\
+  \beta_k &\sim \text{TBC}
+\end{align*}
+$$
+
+$L_i$ is the indicator variable for `pulled_left`. In this model the $\alpha$ parameters are for each chimp, but the $\beta$ parameters are shared across all the chimps. RM teases that we will try estimating $\beta$ for each chimp later in the book. 
+
+Now we need to fill in those priors. RM illustrates a poor version of a simplified model to start with using `quap()`: let's do the same for speed. 
+
+$$
+\begin{align*}
+  L_i &\sim \operatorname{Bernoulli}(p_i) \\
+  \operatorname{logit}(p_i) &= \alpha\\
+  \alpha_j &\sim \mathcal{N}(0, \omega)
+\end{align*}
+$$
+
+So we need to pick $\omega$: we can recreate the plot from RM showing the effect of $\omega = 10$ vs. a more sensible value of $\omega = 1.5$
+
+```{r}
+set.seed(1999)
+fig11_3_1 <- list(
+  bad = quap(
+    alist(
+      pulled_left ~ dbinom(1, p), 
+      logit(p) <- a, 
+      a ~ dnorm(0, 10)
+    ), 
+    data = dchimp
+  ), 
+  good = quap(
+    alist(
+      pulled_left ~ dbinom(1, p), 
+      logit(p) <- a, 
+      a ~ dnorm(0, 1.5)
+    ), 
+    data = dchimp
+  )
+) %>% 
+  imap_dfr(
+    ~ extract.prior(.x, n = 1e4) %>% 
+      as_tibble() %>% 
+      mutate(across(a, inv_logit)), 
+    .id = "prior"
+  ) %>% 
+  ggplot(aes(a, colour = prior)) + 
+  geom_density(adjust = 0.2, size = 1.1) + 
+  geom_label_repel(
+    aes(x = x, y = y, label = label, colour = prior), 
+    data = tibble(
+      x = c(0.1, 0.5), 
+      y = c(4, 1.7), 
+      label = c("a ~ dnorm(0, 10)", "a ~ dnorm(0, 1.5)"), 
+      prior = c("bad", "good")
+    ), 
+    size = 4
+  ) + 
+  scale_colour_manual(values = c("black", "steelblue")) + 
+  scale_x_continuous("prior prob pulled left", breaks = seq(0, 1, by = 0.2)) + 
+  theme(
+    legend.position = "none", 
+    axis.ticks.y = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.title.y = element_blank()
+  )
+fig11_3_1
+```
+
+RM also shows the effect of a wide prior on the $\beta$ parameters. Let's do that, recreate the plot, and put it together to get the whole of figure 11.3. 
+
+```{r}
+set.seed(1999)
+fig11_3_1 + (
+  list(
+    bad = quap(
+      alist(
+        pulled_left ~ dbinom(1, p), 
+        logit(p) <- a + b[treatment], 
+        a ~ dnorm(0, 1.5), 
+        b[treatment] ~ dnorm(0, 10)
+      ), 
+      data = dchimp
+    ), 
+    good = quap(
+      alist(
+        pulled_left ~ dbinom(1, p), 
+        logit(p) <- a + b[treatment], 
+        a ~ dnorm(0, 1.5), 
+        b[treatment] ~ dnorm(0, 0.5)
+      ), 
+      data = dchimp
+    )
+  ) %>% 
+    imap_dfr(
+      ~ .x %>% 
+        extract.prior(n = 1e4) %>% 
+        map(as_tibble, .name_repair = "universal") %>% 
+        reduce(bind_cols) %>% 
+        set_names(c("a", str_c("b", 1:4))) %>% 
+        mutate(across(starts_with("b"), ~ inv_logit(a + .x))) %>% 
+        transmute(contrast = abs(b1 - b2)), 
+      .id = "prior"
+    ) %>% 
+    ggplot(aes(contrast, colour = prior)) + 
+    geom_density(adjust = 0.2, size = 1.1) + 
+    geom_label_repel(
+      aes(x = x, y = y, label = label, colour = prior), 
+      data = tibble(
+        x = c(0.9, 0.32), 
+        y = c(5, 2), 
+        label = c("b ~ dnorm(0, 10)", "b ~ dnorm(0, 0.5)"), 
+        prior = c("bad", "good")
+      ), 
+      size = 4
+    ) + 
+    scale_colour_manual(values = c("black", "steelblue")) + 
+    scale_x_continuous(
+      "prior diff between treatments", 
+      breaks = seq(0, 1, by = 0.2)
+    ) + 
+    theme(
+      legend.position = "none", 
+      axis.ticks.y = element_blank(), 
+      axis.text.y = element_blank(), 
+      axis.title.y = element_blank()
+    )
+)
+```
+
+In both plots we can see the effect of the wide prior: the prior gives too much plausibility to large values (in absolute terms), and on the log-odds scale that translates to near-certainty of success or failure. The better priors (in blue) are a bit more sceptical about large values: in the left plot this shows in the even spread of prior values across the range $[0, 1]$; in the right plot the model expects that smaller differences are more likely than large ones, but allows for all of them. 
+
+Now that we have the priors we can start fitting models. 
+
+```{r}
+chimp_list <- dchimp %>% 
+  select(pulled_left, actor, treatment) %>% 
+  compose_data()
+```
+
+```{r}
+m11_4 <- stan_model(file = here::here("inst/Stan/m11_4.stan")) %>% 
+  sampling(data = chimp_list, seed = 1144)
+```
+
+```{r}
+ulam(
+  alist(
+    pulled_left ~ dbinom(1, p), 
+    logit(p) <- a[actor] + b[treatment], 
+    a[actor] ~ dnorm(0, 1.5), 
+    b[treatment] ~ dnorm(0, 0.5)
+  ), 
+  data = chimp_list, 
+  log_lik = TRUE
+) %>% 
+  stancode()
+```
+
+```{r}
+brms::make_stancode(
+  formula = brms::bf(
+    pulled_left | trials(1) ~ a + b,
+    a ~ 0 + actor, 
+    b ~ 0 + treatment,
+    nl = TRUE
+  ), 
+  data = chimp_list, 
+  family = binomial, 
+  prior = c(
+    brms::prior(normal(0, 1.5), nlpar = a), 
+    brms::prior(normal(0, 0.5), nlpar = b)
+  )
+)
+```
+
