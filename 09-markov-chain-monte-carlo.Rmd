@@ -52,21 +52,21 @@ We can plot these to see how it works.
 island_positions <- tibble(week = seq_len(1e5), positions) 
 
 (
-  island_positions %>% 
-  filter(week <= 100L) %>% 
+  island_positions |> 
+  filter(week <= 100L) |>  
   ggplot(aes(week, positions)) + 
   geom_point(colour = "steelblue", alpha = 0.4) + 
   scale_x_continuous("week", breaks = seq(0, 100, by = 20)) + 
   scale_y_continuous("island", breaks = seq(2, 10, by = 2))
 ) + (
-  island_positions %>% 
-    count(positions) %>% 
+  island_positions|> 
+    count(positions)|> 
     transmute(
       positions, 
       observed = n / sum(n),
       ideal = positions / sum(positions)
-    ) %>% 
-    pivot_longer(-positions) %>% 
+    )|> 
+    pivot_longer(-positions)|> 
     ggplot(aes(positions, value, fill = name)) + 
     geom_col(position = position_dodge(), width = 0.5) + 
     scale_x_continuous("island", breaks = seq(2, 10, by = 2)) + 
@@ -82,16 +82,16 @@ island_positions <- tibble(week = seq_len(1e5), positions)
 We get very close to the ideal proportions after 100,000 weeks. It's worth asking though: how many weeks must travel to reach this situation? In other words: after how long do our proportions converge on the ideal proportions?
 
 ```{r}
-expand_grid(week = seq(1000, 1e5, by = 1000), island = seq_len(10)) %>% 
+expand_grid(week = seq(1000, 1e5, by = 1000), island = seq_len(10)) |> 
   mutate(
     n = map2_int(week, island, ~ sum(positions[seq_len(.x)] == .y))
-  ) %>% 
-  group_by(week) %>% 
+  ) |> 
+  group_by(week) |> 
   mutate(
     observed = n / sum(n),
     ideal = island / sum(island)
-  ) %>% 
-  summarise(mse = mean((observed - ideal)^2)) %>% 
+  ) |> 
+  summarise(mse = mean((observed - ideal)^2)) |> 
   ggplot(aes(week, mse)) + 
   geom_line() + 
   geom_hline(yintercept = 0, linetype = 2)
@@ -140,7 +140,7 @@ S <- matrix(c(0.22, 0, 0, 0.22), ncol = 2)
 R <- matrix(c(1, -0.9, -0.9, 1), ncol = 2)
 Sigma <- S %*% R %*% S
 set.seed(1322)
-A <- mvtnorm::rmvnorm(n = 1e3, mean = mu, sigma = Sigma) %>% 
+A <- mvtnorm::rmvnorm(n = 1e3, mean = mu, sigma = Sigma)|> 
   as_tibble(.name_repair = ~ str_c("a", 1:2))
 
 ```
@@ -167,15 +167,15 @@ x_y_grid <- function(x_start = -1.6,
 }
 
 # Create a tibble with the densities at each point on that grid
-contour_plot_dat <- 
-  x_y_grid() %>% 
-  mutate(
-    d = mvtnorm::dmvnorm(as.matrix(.), mean = mu, sigma = Sigma)
-  )
+contour_plot_dat <- x_y_grid() |> 
+  {
+    function(.x) {
+      mutate(.x, d = mvtnorm::dmvnorm(as.matrix(.x), mean = mu, sigma = Sigma))
+    }
+  }()
 
 # Create the base contour plot, which will be used for both of the plots
-contour_plot <-
-  contour_plot_dat %>% 
+contour_plot <- contour_plot_dat |> 
   ggplot() + 
   geom_contour(
     aes(x = a1, y = a2, z = d), 
@@ -211,7 +211,11 @@ metropolis <- function(num_proposals = 50,
     candidate_y_history[i] <- candidate_point[2]
     
     # evaluate the density of our posterior at the proposal point
-    candidate_prob <- mvtnorm::dmvnorm(candidate_point, mean = mu, sigma = Sigma)
+    candidate_prob <- mvtnorm::dmvnorm(
+      candidate_point, 
+      mean = mu, 
+      sigma = Sigma
+    )
     
     # evaluate the density of our posterior at the current point
     current_prob <- mvtnorm::dmvnorm(current_point, mean = mu, sigma = Sigma)
@@ -239,7 +243,9 @@ metropolis <- function(num_proposals = 50,
   # compute the "acceptance rate" by dividing the total number of "moves"
   # by the total number of proposals
   
-  number_of_moves <- results %>% dplyr::pull(accept) %>% sum(.)
+  number_of_moves <- results |> 
+    dplyr::pull(accept) |> 
+    sum()
   acceptance_rate <- number_of_moves / num_proposals
   
   list(results = results, accept_rate = acceptance_rate)
@@ -288,21 +294,22 @@ And finally, the plots!
 ```
 
 The problems are fairly easy to see: with the small step size only half of the proposals are accepted and the chain gets stuck in one part of the posterior. In the second get get better exploration but even fewer proposals accepted. 
+
 We can repeat this many times to see how much it's affected by simulation variance. 
 
 ```{r}
-expand_grid(seed = seq_len(200), step_size = c(0.1, 0.25)) %>% 
+expand_grid(seed = seq_len(200), step_size = c(0.1, 0.25)) |> 
   mutate(
     accept_rate = map2_dbl(
       seed, 
       step_size,
       function(seed, step_size) {
         set.seed(seed)
-        metropolis(step_size = step_size) %>% 
+        metropolis(step_size = step_size) |> 
           pluck("accept_rate")
       }
     )
-  ) %>% 
+  ) |> 
   ggplot(aes(accept_rate)) + 
   geom_histogram(binwidth = 0.025) + 
   facet_wrap(~ step_size)
@@ -312,19 +319,19 @@ RM then talks about **concentration of measure**: in short, as we move into high
 
 ```{r}
 set.seed(1415)
-tibble(dim = 10^(seq(0, 3))) %>%
+tibble(dim = 10^(seq(0, 3))) |> 
   mutate(
     Y = map(
       dim, 
       ~ tibble(
         i = seq_len(1e3), 
-        Y = rmvnorm(1e3, rep(0, .x), sigma = diag(.x)) %>% 
+        Y = rmvnorm(1e3, rep(0, .x), sigma = diag(.x))|> 
           apply(MARGIN = 1, FUN = function(y) sqrt(sum(y^2)))
       )
     )
-  ) %>% 
-  unnest(Y) %>% 
-  mutate(dim = factor(dim)) %>% 
+  )|> 
+  unnest(Y) |> 
+  mutate(dim = factor(dim)) |> 
   ggplot(aes(Y, fill = dim)) + 
   geom_density(size = 0, alpha = 0.7) + 
   scale_x_continuous(
@@ -421,10 +428,10 @@ At last, we build a model with HMC! I'm going to try building the models with di
 
 ```{r}
 data(rugged)
-drugged <- rugged %>% 
-  as_tibble() %>% 
-  mutate(log_gdp = log(rgdppc_2000)) %>% 
-  drop_na(log_gdp) %>% 
+drugged <- rugged |> 
+  as_tibble() |> 
+  mutate(log_gdp = log(rgdppc_2000)) |> 
+  drop_na(log_gdp) |> 
   mutate(
     log_gdp_std = log_gdp / mean(log_gdp), 
     rugged_std = rugged / max(rugged), 
@@ -458,8 +465,8 @@ Two steps:
 2. Create a new list/data frame with only the variables in which we are interested. 
 
 ```{r}
-drugged_slim <- drugged %>% 
-  select(log_gdp_std, rugged_std, region) %>% 
+drugged_slim <- drugged |> 
+  select(log_gdp_std, rugged_std, region) |> 
   compose_data()
 str(drugged_slim)
 ```
@@ -475,7 +482,7 @@ Now we fit the model. We can skip straight to the step of running things in para
 I will try writing the Stan code separately in scripts to keep things tidier, and to get the benefit of the syntax highlighting in RStudio. 
 
 ```{r}
-m9_1 <- stan_model(file = here::here("inst/Stan/m9_1.stan")) %>% 
+m9_1 <- stan_model(file = here::here("inst/Stan/m9_1.stan"))|> 
   sampling(data = drugged_slim, seed = 949)
 ```
 
@@ -561,9 +568,9 @@ However to check convergence you need multiple chains, so you will need to chang
 RM mentions that wide, flat areas of the posterior can cause problems. 
 
 ```{r}
-m9_2 <- stan_model(file = here::here("inst/Stan/m9_2.stan")) %>% 
+m9_2 <- stan_model(file = here::here("inst/Stan/m9_2.stan"))|> 
   sampling(
-    data = tibble(y = c(-1, 1)) %>% 
+    data = tibble(y = c(-1, 1)) |> 
       compose_data(), 
     seed = 1157, 
     chains = 3
@@ -591,7 +598,7 @@ mcmc_trace(m9_2, np = nuts_params(m9_2))
 The problem with `m9_2` was the priors, which were far too flat. We can see this in the Stan code: 
 
 ```{r}
-readLines(here::here("inst/Stan/m9_2.stan")) %>% 
+readLines(here::here("inst/Stan/m9_2.stan")) |> 
   cat(sep = "\n")
 ```
 
@@ -609,9 +616,9 @@ $$
 Note that the prior for $\alpha$ isn't even centred at the right value. Now we refit. 
 
 ```{r}
-m9_3 <- stan_model(file = here::here("inst/Stan/m9_3.stan")) %>% 
+m9_3 <- stan_model(file = here::here("inst/Stan/m9_3.stan")) |> 
   sampling(
-    data = tibble(y = c(-1, 1)) %>% 
+    data = tibble(y = c(-1, 1)) |> 
       compose_data(), 
     seed = 1529, 
     chains = 3
@@ -633,8 +640,8 @@ map(
     mcmc_rank_overlay(.x, pars = c("alpha", "sigma")) + 
       theme(legend.position = "none")
   )
-) %>% 
-  reduce(c) %>% 
+)|> 
+  reduce(c) |> 
   wrap_plots(ncol = 1)
 ```
 
@@ -667,7 +674,7 @@ $$
 As RM puts it the linear model now contains two parameters that cannot be identified individually, only the sum can be. That sum should be about zero, which is what we simulated. 
 
 ```{r}
-m9_4 <- stan_model(file = here::here("inst/Stan/m9_4.stan")) %>% 
+m9_4 <- stan_model(file = here::here("inst/Stan/m9_4.stan")) |> 
   sampling(data = compose_data(y), seed = 1554, chains = 3)
 ```
 
@@ -700,9 +707,9 @@ The model still isn't good, exactly, but if we consider the sum of the two $\alp
 
 ```{r}
 set.seed(1619)
-rstan::extract(m9_5, pars = c("a1", "a2")) %>% 
-  as_tibble() %>% 
-  mutate(mu = a1 + a2) %>% 
+rstan::extract(m9_5, pars = c("a1", "a2")) |> 
+  as_tibble() |> 
+  mutate(mu = a1 + a2) |> 
   ggplot(aes(mu)) + 
   geom_density()
 ```
@@ -748,7 +755,7 @@ map(
   list(m9_2, m9_3), 
   ~ mcmc_trace(.x, n_warmup = 500, pars = c("alpha")) + 
       theme(legend.position = "none")
-) %>% 
+) |> 
   wrap_plots(ncol = 1)
 ```
 
@@ -760,7 +767,7 @@ In the top plot we see an unhealthy trace plot: no stationarity (local averages 
 map(
   list(m9_2, m9_3), 
   ~ mcmc_rank_overlay(.x, pars = c("alpha", "sigma"))
-) %>% 
+) |> 
   wrap_plots(ncol = 1, guides = "collect")
 ```
 
