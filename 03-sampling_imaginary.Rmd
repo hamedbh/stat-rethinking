@@ -58,8 +58,8 @@ First set up the probability grid (using the globe-tossing example).
 d01 <- tibble(
     p = seq(0, 1, length.out = 1000), 
     prior = 1
-) %>% 
-    mutate(likelihood = dbinom(6, 9, prob = p)) %>% 
+) |> 
+    mutate(likelihood = dbinom(6, 9, prob = p)) |> 
     mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
 d01
 ```
@@ -86,7 +86,7 @@ Can plot this in a couple of ways.
 ```{r}
 # Plot by index, RM describes this as looking down on the posterior 
 # from above
-samples01 %>% 
+samples01 |> 
     ggplot(aes(index, p_sample)) + 
     geom_point(alpha = 0.3, colour = "steelblue") + 
     coord_cartesian(ylim = c(0, 1)) + 
@@ -99,7 +99,7 @@ samples01 %>%
 
 ```{r}
 # and then a density plot
-samples01 %>% 
+samples01 |> 
     ggplot(aes(p_sample)) + 
     geom_density(bw = 0.008, 
                  colour = "steelblue", 
@@ -120,22 +120,22 @@ How probable is it that $p < 0.5$?
 We have the answer available from the probability grid: 
 
 ```{r}
-d01 %>% 
-    filter(p < 0.5) %>% 
+d01 |> 
+    filter(p < 0.5) |> 
     summarise(prob = sum(posterior))
 ```
 
 But we can also get this from the samples (and in other cases this may be the only way to do it). 
 
 ```{r}
-samples01 %>% 
+samples01 |> 
     summarise(prob = mean(p_sample < 0.5))
 ```
 
 Now ask how probable is it that $0.5 < p < 0.75$?
 
 ```{r}
-samples01 %>% 
+samples01 |> 
     summarise(prob = mean(0.5 < p_sample & p_sample < 0.75))
 ```
 
@@ -147,12 +147,12 @@ This is straightforward if we want the interval to start/finish at specific poin
 
 ```{r}
 # find the lower 80% posterior probability
-samples01 %>% 
+samples01 |> 
     summarise(q_0 = 0, 
               q_80 = quantile(p_sample, 0.8))
 
 # find the middle 80% posterior probability
-samples01 %>% 
+samples01 |> 
     summarise(q_10 = quantile(p_sample, 0.1), 
               q_90 = quantile(p_sample, 0.9))
 ```
@@ -199,9 +199,9 @@ dummy_w
 
 
 ```{r}
-dummy_w %>%
-    count(draws) %>% 
-    mutate(draws = factor(draws)) %>% 
+dummy_w |>
+    count(draws) |> 
+    mutate(draws = factor(draws)) |> 
     ggplot(aes(draws, n)) + 
     geom_col(width = 0.08) + 
     scale_y_continuous(labels = scales::label_comma()) + 
@@ -221,22 +221,22 @@ RM discusses _retrodiction_: how well do the model outputs correspond to the dat
 For this we need the _Posterior Predictive Distribution_. RM describes "propagating the uncertainty" through the model. Example shows the difference between generating samples based on a single value of $p$ (e.g. the MAP estimate of 0.6 or 0.7) or sampling from all the possible values of $p$ proportionately according to their posterior probability. 
 
 ```{r}
-ppd <- samples01 %>% 
+ppd <- samples01 |> 
   mutate(
-    w_PPD = rbinom(n = nrow(.), size = 9, prob = p_sample), 
-    w_MAP = rbinom(n = nrow(.), size = 9, prob = 0.67)  
+    w_PPD = rbinom(n = nrow(samples01), size = 9, prob = p_sample), 
+    w_MAP = rbinom(n = nrow(samples01), size = 9, prob = 0.67)  
   )
 ppd
 ```
 
 ```{r}
-ppd %>% 
-  select(starts_with("w_")) %>% 
-  pivot_longer(cols = everything()) %>% 
-  mutate(name = str_sub(name, 3L)) %>% 
-  mutate(across(.fns = factor)) %>% 
-  group_by(name) %>% 
-  count(value) %>% 
+ppd |> 
+  select(starts_with("w_")) |> 
+  pivot_longer(cols = everything()) |> 
+  mutate(name = str_sub(name, 3L)) |> 
+  mutate(across(.fns = factor)) |> 
+  group_by(name) |> 
+  count(value) |> 
   ggplot(aes(value, n, fill = name)) + 
   geom_col(width = 0.12, position = position_dodge()) + 
   scale_y_continuous(labels = scales::label_comma()) + 
@@ -294,16 +294,16 @@ PI(hw_samples, prob = 0.66)
 3M1. 
 
 ```{r}
-hw_m_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) %>%
-  mutate(likelihood = dbinom(8, 15, prob = p)) %>% 
+hw_m_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) |>
+  mutate(likelihood = dbinom(8, 15, prob = p)) |> 
   mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
 ```
 
 3M2. 
 
 ```{r}
-hw_m_samples <- hw_m_post %>% 
-    sample_n(size = 1e4, replace = TRUE, weight = posterior) %>% 
+hw_m_samples <- hw_m_post |> 
+    sample_n(size = 1e4, replace = TRUE, weight = posterior) |> 
     select(p)
 
 HPDI(hw_m_samples$p, 0.9)
@@ -312,17 +312,17 @@ HPDI(hw_m_samples$p, 0.9)
 3M3. 
 
 ```{r}
-hw_m_ppd <- hw_m_samples %>% 
-  mutate(w_PPD = rbinom(n = nrow(.), size = 15, prob = p))
+hw_m_ppd <- hw_m_samples |> 
+  mutate(w_PPD = rbinom(n = nrow(hw_m_samples), size = 15, prob = p))
 
-hw_m_ppd_summary <- hw_m_ppd %>% 
-  count(w_PPD) %>% 
+hw_m_ppd_summary <- hw_m_ppd |> 
+  count(w_PPD) |> 
   mutate(prob = n / sum(n))
 
 sprintf(
   "Probability of seeing exactly 8 water in 15 tosses is %.2f", 
-  hw_m_ppd_summary %>% 
-    filter(w_PPD == 8L) %>% 
+  hw_m_ppd_summary |> 
+    filter(w_PPD == 8L) |> 
     pull(prob)
   )
 ```
@@ -330,8 +330,8 @@ sprintf(
 Useful to plot it also. 
 
 ```{r}
-hw_m_ppd_summary %>% 
-  mutate(w_PPD = factor(w_PPD)) %>% 
+hw_m_ppd_summary |> 
+  mutate(w_PPD = factor(w_PPD)) |> 
   ggplot(aes(w_PPD, n)) + 
   geom_col(width = 0.08) + 
   scale_y_continuous(labels = scales::label_comma()) + 
@@ -341,8 +341,8 @@ hw_m_ppd_summary %>%
 3M4. 
 
 ```{r}
-hw_m_samples %>% 
-  mutate(draws = rbinom(nrow(.), size = 9, prob = p)) %>% 
+hw_m_samples |> 
+  mutate(draws = rbinom(nrow(hw_m_samples), size = 9, prob = p)) |> 
   summarise(answer = mean(draws == 6L))
 ```
 
@@ -350,43 +350,43 @@ hw_m_samples %>%
 
 ```{r}
 # Start again with the better prior
-hw_m_post_step <- tibble(p = seq(0, 1, length.out = 1000)) %>% 
-  mutate(prior = as.integer(p >= 0.5)) %>%
-  mutate(likelihood = dbinom(8, 15, prob = p)) %>% 
+hw_m_post_step <- tibble(p = seq(0, 1, length.out = 1000)) |> 
+  mutate(prior = as.integer(p >= 0.5)) |>
+  mutate(likelihood = dbinom(8, 15, prob = p)) |> 
   mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
 
 # Now draw samples and calculate the HPDI
-hw_m_samples_step <- hw_m_post_step %>% 
-    sample_n(size = 1e4, replace = TRUE, weight = posterior) %>% 
+hw_m_samples_step <- hw_m_post_step |> 
+    sample_n(size = 1e4, replace = TRUE, weight = posterior) |> 
     select(p)
 
 HPDI(hw_m_samples_step$p, 0.9)
 
 # Do the PPD check, including the plot
-hw_m_ppd_step <- hw_m_samples_step %>% 
-  mutate(w_PPD = rbinom(n = nrow(.), size = 15, prob = p))
+hw_m_ppd_step <- hw_m_samples_step |> 
+  mutate(w_PPD = rbinom(n = nrow(hw_m_samples_step), size = 15, prob = p))
 
-hw_m_ppd_summary_step <- hw_m_ppd_step %>% 
-  count(w_PPD) %>% 
+hw_m_ppd_summary_step <- hw_m_ppd_step |> 
+  count(w_PPD) |> 
   mutate(prob = n / sum(n))
 
 sprintf(
   "Probability of seeing exactly 8 water in 15 tosses is %.2f", 
-  hw_m_ppd_summary_step %>% 
-    filter(w_PPD == 8L) %>% 
+  hw_m_ppd_summary_step |> 
+    filter(w_PPD == 8L) |> 
     pull(prob)
   )
 
-hw_m_ppd_summary_step %>% 
-  mutate(w_PPD = factor(w_PPD)) %>% 
+hw_m_ppd_summary_step |> 
+  mutate(w_PPD = factor(w_PPD)) |> 
   ggplot(aes(w_PPD, n)) + 
   geom_col(width = 0.08) + 
   scale_y_continuous(labels = scales::label_comma()) + 
   labs(x = "Water count", y = "Frequency")
 
 # Use these data to check probability of 6 water in 9 tosses
-hw_m_samples_step %>% 
-  mutate(draws = rbinom(nrow(.), size = 9, prob = p)) %>% 
+hw_m_samples_step |> 
+  mutate(draws = rbinom(nrow(hw_m_samples_step), size = 9, prob = p)) |> 
   summarise(answer = mean(draws == 6L))
 ```
 
@@ -405,20 +405,20 @@ Now we verify with simulation.
 ```{r}
 estimate_post_width <- function(n) {
   W <- round(2 * n / 3)
-  hw_m_post_acc <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) %>%
-    mutate(likelihood = dbinom(W, n, prob = p)) %>% 
+  hw_m_post_acc <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) |>
+    mutate(likelihood = dbinom(W, n, prob = p)) |> 
     mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
   
   # Now draw samples, calculate the PI, and get its width
-  hw_m_samples_acc <- hw_m_post_acc %>% 
-    sample_n(size = 1e4, replace = TRUE, weight = posterior) %>% 
+  hw_m_samples_acc <- hw_m_post_acc |> 
+    sample_n(size = 1e4, replace = TRUE, weight = posterior) |> 
     select(p)
   
-  PI(hw_m_samples_acc$p, 0.99) %>% 
+  PI(hw_m_samples_acc$p, 0.99) |> 
     reduce(~ .y - .x)
 }
 
-tibble(n = seq(2000, 4000, by = 100)) %>% 
+tibble(n = seq(2000, 4000, by = 100)) |> 
   mutate(width = map_dbl(n, estimate_post_width))
 ```
 
@@ -439,25 +439,25 @@ head(birth2)
 ```{r}
 boys <- sum(birth1 + birth2)
 births <- length(birth1) + length(birth2)
-hw_h_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) %>%
-  mutate(likelihood = dbinom(boys, births, prob = p)) %>% 
+hw_h_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) |>
+  mutate(likelihood = dbinom(boys, births, prob = p)) |> 
   mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
-hw_h_post %>% 
-  slice_max(posterior) %>% 
+hw_h_post |> 
+  slice_max(posterior) |> 
   select(answer = p)
 ```
 
 Compare to the frequentist MLE:
 
 ```{r}
-(hw_h_post %>% slice_max(posterior) %>% pull(p)) - (boys / births)
+(hw_h_post |> slice_max(posterior) |> pull(p)) - (boys / births)
 ```
 
 3H2. 
 
 ```{r}
-hw_h_samples <- hw_h_post %>% 
-  sample_n(size = 1e4, weight = posterior, replace = TRUE) %>% 
+hw_h_samples <- hw_h_post |> 
+  sample_n(size = 1e4, weight = posterior, replace = TRUE) |> 
   select(p)
 map(c(0.5, 0.89, 0.97), ~ HPDI(hw_h_samples$p, .x))
 ```
@@ -465,7 +465,7 @@ map(c(0.5, 0.89, 0.97), ~ HPDI(hw_h_samples$p, .x))
 3H3. 
 
 ```{r}
-tibble(draws = rbinom(1e4, 200, prob = hw_h_samples$p)) %>% 
+tibble(draws = rbinom(1e4, 200, prob = hw_h_samples$p)) |> 
   ggplot(aes(draws)) + 
   geom_density() + 
   geom_vline(xintercept = boys, colour = "red")
@@ -476,7 +476,7 @@ It seems an OK match for the data: its peak is at/near 111, most of the mass is 
 3H4. 
 
 ```{r}
-tibble(draws = rbinom(1e4, 100, prob = hw_h_samples$p)) %>% 
+tibble(draws = rbinom(1e4, 100, prob = hw_h_samples$p)) |> 
   ggplot(aes(draws)) + 
   geom_density() + 
   geom_vline(xintercept = sum(birth1), colour = "red")
@@ -488,7 +488,7 @@ This is no longer performing that well, putting most of the density well above t
 
 ```{r}
 boy_after_girl <- birth2[birth1 == 0L]
-tibble(draws = rbinom(1e4, length(boy_after_girl), prob = hw_h_samples$p)) %>% 
+tibble(draws = rbinom(1e4, length(boy_after_girl), prob = hw_h_samples$p)) |> 
   ggplot(aes(draws)) + 
   geom_density() + 
   geom_vline(xintercept = sum(boy_after_girl), colour = "red")
@@ -502,9 +502,9 @@ Q1.
 
 ```{r}
 plot_hw_globe <- function(w, l, prior = rep(1, length(p_grid))) {
-  tibble(p = p_grid) %>% 
-    mutate(likelihood = dbinom(w, w + l, prob = p_grid)) %>% 
-    mutate(posterior = (prior * likelihood) / sum((prior * likelihood))) %>% 
+  tibble(p = p_grid) |> 
+    mutate(likelihood = dbinom(w, w + l, prob = p_grid)) |> 
+    mutate(posterior = (prior * likelihood) / sum((prior * likelihood))) |> 
     ggplot(aes(p, posterior)) + 
     geom_line() + 
     labs(y = NULL) + 
@@ -523,18 +523,18 @@ Q3.
 
 ```{r}
 set.seed(830)
-tibble(p = p_grid) %>% 
-  mutate(prior = if_else(p_grid < 0.5, 0, 1)) %>% 
-  mutate(likelihood = dbinom(4, 6, prob = p_grid)) %>% 
-  mutate(posterior = (prior * likelihood) / sum((prior * likelihood))) %>% 
-  sample_n(size = 1e4, replace = TRUE, weight = posterior) %>% 
+tibble(p = p_grid) |> 
+  mutate(prior = if_else(p_grid < 0.5, 0, 1)) |> 
+  mutate(likelihood = dbinom(4, 6, prob = p_grid)) |> 
+  mutate(posterior = (prior * likelihood) / sum((prior * likelihood))) |> 
+  sample_n(size = 1e4, replace = TRUE, weight = posterior) |> 
   summarise(
     tibble(
       name = c("PI_low", "PI_upp", "HPDI_low", "HPDI_upp"), 
       value = c(PI(p), HPDI(p))
     )
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   mutate(PI_width = PI_upp - PI_low, HPDI_width = HPDI_upp - HPDI_low)
 ```
 
@@ -552,7 +552,7 @@ sample_with_bias <- function(N, true_p = 0.7, err_pct = 0.2) {
     water = rbinom(N, 1, prob = true_p * (1 - err_pct))
   )
 }
-sample_with_bias(1e5) %>% 
+sample_with_bias(1e5) |> 
   summarise(across(water, mean))
 ```
 
@@ -563,27 +563,27 @@ Now our job is to recover the true proportion of water from the biased sample.
 ```{r}
 set.seed(851)
 hw_biased_sample <- sample_with_bias(20)
-hw_biased_sample %>% 
+hw_biased_sample |> 
   summarise(across(water, sum))
 ```
 
 ```{r}
 hw_biased_w <- sum(hw_biased_sample$water)
-tibble(p = p_grid) %>% 
-  mutate(prior = dbeta(p_grid, 1, 1)) %>% 
+tibble(p = p_grid) |> 
+  mutate(prior = dbeta(p_grid, 1, 1)) |> 
   mutate(
     biased_prob = dbinom(hw_biased_w, 20, prob = p_grid), 
     # The next line removes the bias from the sample by adjusting the
     # probability: essentially it accounts for the fact that we were less likely
     # to see water, which lowers the density at that point.
     unbiased_prob = dbinom(hw_biased_w, 20, prob = p_grid * 0.8)
-  ) %>% 
+  ) |> 
   mutate(
     biased_post = (prior * biased_prob) / sum((prior * biased_prob)), 
     unbiased_post = (prior * unbiased_prob) / sum((prior * unbiased_prob))
-  ) %>% 
-  pivot_longer(ends_with("post")) %>% 
-  mutate(name = str_extract(name, "[a-z]+")) %>% 
+  ) |> 
+  pivot_longer(ends_with("post")) |> 
+  mutate(name = str_extract(name, "[a-z]+")) |> 
   ggplot(aes(p, value, colour = name)) + 
   geom_line(size = 1.5) + 
   scale_colour_manual(values = c("grey20", "steelblue")) + 
