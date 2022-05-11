@@ -20,19 +20,24 @@ Revealing the spurious association between the presence of Waffle Houses and div
 
 ```{r}
 data("WaffleDivorce")
-d <- WaffleDivorce %>% 
-  as_tibble() %>% 
+d <- WaffleDivorce |> 
+  as_tibble() |> 
   mutate(
     D = standardize(Divorce), 
     M = standardize(Marriage), 
     A = standardize(MedianAgeMarriage)
   )
-d %>% 
+d |> 
   ggplot(aes(WaffleHouses / Population, Divorce)) + 
-  stat_smooth(method = "lm", fullrange = TRUE, colour = "black") + 
+  stat_smooth(
+    formula = y ~ x, 
+    method = "lm", 
+    fullrange = TRUE, 
+    colour = "black"
+  ) + 
   geom_point(alpha = 0.4, colour = "steelblue") + 
   geom_text_repel(
-    data = d %>% filter(Loc %in% c("ME", "OK", "AR", "AL", "GA", "SC", "NJ")),  
+    data = d |> filter(Loc %in% c("ME", "OK", "AR", "AL", "GA", "SC", "NJ")),  
     aes(label = Loc), 
     size = 3, 
     seed = 1042
@@ -79,16 +84,16 @@ Now do some prior predictive simulation.
 ```{r}
 set.seed(10)
 prior_5_1 <- extract.prior(m5_1)
-prior_mu_5_1 <- link(m5_1, post = prior_5_1, data = list(A = c(-2, 2))) %>% 
-  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
-  rowid_to_column(".id") %>% 
+prior_mu_5_1 <- link(m5_1, post = prior_5_1, data = list(A = c(-2, 2))) |> 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) |> 
+  rowid_to_column(".id") |> 
   pivot_longer(
     -.id, 
     names_to = "x", 
     names_transform = list(x = parse_number)
   )
-prior_mu_5_1 %>% 
-  filter(.id <= 50) %>% 
+prior_mu_5_1 |> 
+  filter(.id <= 50) |> 
   ggplot(aes(x, value, group = .id)) + 
   geom_line(alpha = 0.3) + 
   labs(
@@ -113,19 +118,16 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d
-) %>% 
-  {
-    prior <- extract.prior(.)
-    link(., post = prior, data = list(A = c(-2, 2)))
-  } %>% 
-  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
-  rowid_to_column(".id") %>% 
+) |> 
+  {\(x) link(x, post = extract.prior(x), data = list(A = c(-2, 2)))}() |> 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) |> 
+  rowid_to_column(".id") |> 
   pivot_longer(
     -.id, 
     names_to = "x", 
     names_transform = list(x = parse_number)
-  ) %>% 
-  filter(.id <= 50) %>% 
+  ) |> 
+  filter(.id <= 50) |> 
   ggplot(aes(x, value, group = .id)) + 
   geom_line(alpha = 0.3) + 
   labs(y = "Divorce rate (std)", x = "Median age marriage (std)") + 
@@ -144,11 +146,11 @@ post_mu_mean_5_1 <- tibble(
   A = A_seq, 
   D = colMeans(post_mu_5_1)
 )
-post_mu_PI_5_1 <- apply(post_mu_5_1, 2, PI) %>%
-  t() %>% 
-  as_tibble(.name_repair = ~ c("lower", "upper")) %>% 
+post_mu_PI_5_1 <- apply(post_mu_5_1, 2, PI) |>
+  t() |> 
+  as_tibble(.name_repair = ~ c("lower", "upper")) |> 
   transmute(A = A_seq, lower, upper)
-fig_5_2_2 <- d %>% 
+fig_5_2_2 <- d |> 
   ggplot(aes(A, D)) + 
   geom_line(data = post_mu_mean_5_1) + 
   geom_ribbon(
@@ -182,16 +184,16 @@ m5_2 <- quap(
 
 set.seed(1714)
 prior_5_2 <- extract.prior(m5_2)
-prior_mu_5_2 <- link(m5_2, post = prior_5_2, data = list(M = c(-2, 2))) %>% 
-  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
-  rowid_to_column(".id") %>% 
+prior_mu_5_2 <- link(m5_2, post = prior_5_2, data = list(M = c(-2, 2))) |> 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) |> 
+  rowid_to_column(".id") |> 
   pivot_longer(
     -.id, 
     names_to = "x", 
     names_transform = list(x = parse_number)
   )
-prior_mu_5_2 %>% 
-  filter(.id <= 50) %>% 
+prior_mu_5_2 |> 
+  filter(.id <= 50) |> 
   ggplot(aes(x, value, group = .id)) + 
   geom_line(alpha = 0.3) + 
   labs(
@@ -211,11 +213,11 @@ post_mu_mean_5_2 <- tibble(
   M = M_seq, 
   D = colMeans(post_mu_5_2)
 )
-post_mu_PI_5_2 <- apply(post_mu_5_2, 2, PI) %>%
-  t() %>% 
-  as_tibble(.name_repair = ~ c("lower", "upper")) %>% 
+post_mu_PI_5_2 <- apply(post_mu_5_2, 2, PI) |>
+  t() |> 
+  as_tibble(.name_repair = ~ c("lower", "upper")) |> 
   transmute(M = M_seq, lower, upper)
-fig_5_2_1 <- d %>% 
+fig_5_2_1 <- d |> 
   ggplot(aes(M, D)) + 
   geom_line(data = post_mu_mean_5_2) + 
   geom_ribbon(
@@ -251,7 +253,7 @@ dagify(
     x = c(0, 1, 2), 
     y = c(0, -1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_void()
 ```
@@ -267,7 +269,7 @@ dagify(
     x = c(0, 1, 2), 
     y = c(0, -1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_void()
 ```
@@ -284,13 +286,13 @@ We can look for implied conditional independencies in the two DAGs above.
 dagify(
   M ~ A, 
   D ~ A + M
-) %>% 
+) |> 
   dagitty::impliedConditionalIndependencies()
 
 dagify(
   M ~ A, 
   D ~ A
-) %>% 
+) |> 
   dagitty::impliedConditionalIndependencies()
 ```
 
@@ -333,7 +335,7 @@ precis(m5_3)
 The mean estimate for `bM` is close to zero its interval includes negative and positive numbers. Easier to see in a plot. 
 
 ```{r}
-coeftab(m5_1, m5_2, m5_3) %>% 
+coeftab(m5_1, m5_2, m5_3) |> 
   plot(par = c("bA", "bM"))
 ```
 
@@ -381,12 +383,12 @@ quap(
     bM ~ dnorm(mean = 0, sd = 0.5), 
     sigma ~ dexp(1)
   ), 
-  data = tibble(A = rnorm(50)) %>% 
+  data = tibble(A = rnorm(50)) |> 
     mutate(
       M = rnorm(50, -A), 
       D = rnorm(50, -A) # in the book it's A rather than -A
     )
-) %>% 
+) |> 
   precis()
 ```
 
@@ -437,13 +439,13 @@ Now we compute the residuals for each model.
 
 ```{r}
 set.seed(854)
-mu_5_4 <- tibble(mu = link(m5_4) %>% colMeans()) %>% 
-  mutate(resid = d$M - mu) %>% 
+mu_5_4 <- tibble(mu = link(m5_4) |> colMeans()) |> 
+  mutate(resid = d$M - mu) |> 
   bind_cols(d)
 mu_5_4
 
-mu_5_4_b <- tibble(mu = link(m5_4_b) %>% colMeans()) %>% 
-  mutate(resid = d$A - mu) %>% 
+mu_5_4_b <- tibble(mu = link(m5_4_b) |> colMeans()) |> 
+  mutate(resid = d$A - mu) |> 
   bind_cols(d)
 mu_5_4_b
 ```
@@ -451,13 +453,13 @@ mu_5_4_b
 Here is the first of the plots. 
 
 ```{r}
-fig_5_4_1 <- mu_5_4 %>% 
+fig_5_4_1 <- mu_5_4 |> 
   ggplot(aes(A, M)) + 
   geom_point(alpha = 0.4, colour = "steelblue") + 
   geom_segment(aes(xend = A, yend = mu), size = 1/4) + 
   geom_line(aes(y = mu)) + 
   geom_text_repel(
-    data = d %>% filter(Loc %in% c("ME", "HI", "ND", "WY", "DC")),  
+    data = d |> filter(Loc %in% c("ME", "HI", "ND", "WY", "DC")),  
     aes(label = Loc), 
     size = 3, 
     seed = 1042
@@ -470,13 +472,13 @@ fig_5_4_1
 We generate the other plot but save it for later when we plot all four. 
 
 ```{r}
-fig_5_4_2 <- mu_5_4_b %>% 
+fig_5_4_2 <- mu_5_4_b |> 
     ggplot(aes(M, A)) + 
     geom_point(alpha = 0.4, colour = "steelblue") + 
     geom_segment(aes(xend = M, yend = mu), size = 1/4) + 
     geom_line(aes(y = mu)) + 
     geom_text_repel(
-        data = d %>% filter(Loc %in% c("ID", "HI", "DC")),  
+        data = d |> filter(Loc %in% c("ID", "HI", "DC")),  
         aes(label = Loc), 
         
         seed = 1042
@@ -488,24 +490,24 @@ fig_5_4_2 <- mu_5_4_b %>%
 Now we need to plot the divorce rate with the residuals for each, then show all four plots. 
 
 ```{r}
-fig_5_4_3 <- mu_5_4 %>% 
+fig_5_4_3 <- mu_5_4 |> 
   ggplot(aes(resid, D)) + 
   stat_smooth(formula = "y ~ x", method = "lm", colour = "black", alpha = 0.4) + 
   geom_point(alpha = 0.4, colour = "steelblue") + 
   geom_text_repel(
-    data = mu_5_4 %>% filter(Loc %in% c("ME", "HI", "DC", "WY", "ND")),  
+    data = mu_5_4 |> filter(Loc %in% c("ME", "HI", "DC", "WY", "ND")),  
     aes(label = Loc), 
     seed = 1042
   ) + 
   geom_vline(xintercept = 0, linetype = 2) + 
   labs(x = "Marriage rate residuals", y = "Divorce rate (std)") + 
   theme(panel.grid = element_blank())
-fig_5_4_4 <- mu_5_4_b %>%
+fig_5_4_4 <- mu_5_4_b |>
   ggplot(aes(resid, D)) + 
   stat_smooth(formula = "y ~ x", method = "lm", colour = "black", alpha = 0.4) + 
   geom_point(alpha = 0.4, colour = "steelblue") + 
   geom_text_repel(
-    data = mu_5_4_b %>% filter(Loc %in% c("ID", "HI", "DC")),  
+    data = mu_5_4_b |> filter(Loc %in% c("ID", "HI", "DC")),  
     aes(label = Loc), 
     seed = 1042
   ) + 
@@ -525,15 +527,23 @@ Now we "check the model's implied predictions against the observed data". Two re
 
 ```{r}
 set.seed(1034)
-link(m5_3) %>% 
+link(m5_3) |> 
   {
-    tibble(
-      mean = colMeans(.), 
-      lower = apply(., 2, PI)[1, ], 
-      upper = apply(., 2, PI)[2, ]
+    \(x) {
+      tibble(
+      mean = colMeans(x), 
+      lower = apply(x, 2, PI)[1, ], 
+      upper = apply(x, 2, PI)[2, ]
     )
-  } %>% 
-  bind_cols(d) %>% 
+    }
+  }() |> 
+  #   tibble(
+  #     mean = colMeans(.), 
+  #     lower = apply(., 2, PI)[1, ], 
+  #     upper = apply(., 2, PI)[2, ]
+  #   )
+  # } |> 
+  bind_cols(d) |> 
   ggplot(aes(D, mean)) + 
   geom_point(alpha = 0.4, colour = "steelblue") + 
   geom_abline(linetype = 2, colour = "grey50") + 
@@ -551,8 +561,8 @@ RM then illustrates spurious association through simulation, which we will repea
 
 ```{r}
 set.seed(1103)
-tibble(x_real = rnorm(100)) %>% 
-  mutate(x_spur = rnorm(100, x_real), y = rnorm(100, x_real)) %>% 
+tibble(x_real = rnorm(100)) |> 
+  mutate(x_spur = rnorm(100, x_real), y = rnorm(100, x_real)) |> 
   GGally::ggpairs()
 ```
 
@@ -589,39 +599,41 @@ Now generate some sequence of values for A, and generate predictions. I'll do th
 ```{r}
 set.seed(1125)
 # First simulate the posterior values from the model for all parameters
-post_5_3_A <- extract.samples(m5_3_A) %>% 
+post_5_3_A <- extract.samples(m5_3_A) |> 
   as_tibble()
 # Now for each of the 1,000 rows in that posterior we want to generate an M for
 # every value in A_seq. I'll use RM's new range for A but without creating a new
 # variable, to avoid having two variables with the same name.
-sim_5_3_A <- post_5_3_A %>% 
+sim_5_3_A <- post_5_3_A |> 
   expand(
     nesting(a, bA, bM, sigma, aM, bAM, sigma_M), 
     A = seq(-2, 2, length.out = 30)
-  ) %>% 
-  mutate(M = rnorm(nrow(.), mean = aM + (bAM * A), sd = sigma_M)) %>% 
+  ) |> 
+  {\(x) mutate(x, M = rnorm(nrow(x), mean = aM + (bAM * A), sd = sigma_M))}() |> 
   # Now that we have an M for each set of parameters we use that to generate
   # predictions for D
-  mutate(D = rnorm(nrow(.), mean = a + (bA * A) + (bM * M), sd = sigma))
+  {
+    \(x) mutate(x, D = rnorm(nrow(x), mean = a + (bA * A) + (bM * M), sd = sigma))
+  }()
 
 # We can now summarise the predictions, ready for plotting
-summary_5_3_A <- sim_5_3_A %>% 
-  pivot_longer(c(M, D), names_to = "var") %>% 
-  group_by(A, var) %>% 
+summary_5_3_A <- sim_5_3_A |> 
+  pivot_longer(c(M, D), names_to = "var") |> 
+  group_by(A, var) |> 
   summarise(
     tibble(
       stat = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider(
     names_from = c(var, stat)
   ) 
 
 # Now generate the plots
 (
-  summary_5_3_A %>% 
+  summary_5_3_A |> 
     ggplot(aes(A)) + 
     geom_line(aes(y = D_mean)) + 
     geom_ribbon(aes(ymin = D_lower, ymax = D_upper), alpha = 0.3) + 
@@ -633,7 +645,7 @@ summary_5_3_A <- sim_5_3_A %>%
     theme(panel.grid = element_blank())
 ) + 
   (
-    summary_5_3_A %>% 
+    summary_5_3_A |> 
       ggplot(aes(A)) + 
       geom_line(aes(y = M_mean)) + 
       geom_ribbon(aes(ymin = M_lower, ymax = M_upper), alpha = 0.3) + 
@@ -659,7 +671,7 @@ dagify(
     x = c(0, 1, 2), 
     y = c(0, -1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_void()
 ```
@@ -667,24 +679,24 @@ dagify(
 The association between M and A no longer exists because we will be controlling M completely. Run the simulation again: we already have the posterior samples in `post_5_3_A`. So we are varying M, then we hold A constant at 0. What happens to D? 
 
 ```{r}
-post_5_3_A %>% 
+post_5_3_A |> 
   expand(
     nesting(a, bM, sigma), 
     M = seq(-2, 2, length.out = 30)
-  ) %>% 
-  mutate(D = rnorm(nrow(.), mean = a + (bM * M), sd = sigma)) %>% 
-  pivot_longer(c(D), names_to = "var") %>% 
-  group_by(M, var) %>% 
+  ) |> 
+  {\(x) mutate(x, D = rnorm(nrow(x), mean = a + (bM * M), sd = sigma))}() |> 
+  pivot_longer(c(D), names_to = "var") |> 
+  group_by(M, var) |> 
   summarise(
     tibble(
       stat = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider(
     names_from = c(var, stat)
-  ) %>% 
+  ) |> 
   ggplot(aes(M)) + 
     geom_line(aes(y = D_mean)) + 
     geom_ribbon(aes(ymin = D_lower, ymax = D_upper), alpha = 0.3) + 
@@ -704,9 +716,9 @@ Masked relationships tend to occur when two predictor variables are correlated w
 
 ```{r}
 data("milk")
-dmilk <- milk %>% 
-  as_tibble() %>% 
-  janitor::clean_names() %>% 
+dmilk <- milk |> 
+  as_tibble() |> 
+  janitor::clean_names() |> 
   mutate(
     K = standardize(kcal_per_g), 
     N = standardize(neocortex_perc), 
@@ -718,7 +730,7 @@ dmilk
 Those `NA` values for `N` will cause problems, so we drop them before modelling. 
 
 ```{r}
-dmilk_cc <- dmilk %>% 
+dmilk_cc <- dmilk |> 
   drop_na(K, N, M)
 ```
 
@@ -752,15 +764,15 @@ fig_5_8_1 <- link(
   m5_5_draft, 
   post = extract.prior(m5_5_draft), 
   data = tibble(N = c(-2, 2))
-) %>% 
-  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
-  rowid_to_column(".id") %>% 
+) |> 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) |> 
+  rowid_to_column(".id") |> 
   pivot_longer(
     -.id, 
     names_to = "x", 
     names_transform = list(x = parse_number)
-  ) %>% 
-  filter(.id <= 50) %>% 
+  ) |> 
+  filter(.id <= 50) |> 
   ggplot(aes(x, value, group = .id)) + 
   geom_line(alpha = 0.3) + 
   coord_cartesian(xlim = c(-2, 2), ylim = c(-2, 2)) + 
@@ -788,15 +800,15 @@ fig_5_8_2 <- link(
   m5_5, 
   post = extract.prior(m5_5), 
   data = tibble(N = c(-2, 2))
-) %>% 
-  as_tibble(.name_repair = ~ str_c(c(-2, 2))) %>% 
-  rowid_to_column(".id") %>% 
+) |> 
+  as_tibble(.name_repair = ~ str_c(c(-2, 2))) |> 
+  rowid_to_column(".id") |> 
   pivot_longer(
     -.id, 
     names_to = "x", 
     names_transform = list(x = parse_number)
-  ) %>% 
-  filter(.id <= 50) %>% 
+  ) |> 
+  filter(.id <= 50) |> 
   ggplot(aes(x, value, group = .id)) + 
   geom_line(alpha = 0.3) + 
   coord_cartesian(xlim = c(-2, 2), ylim = c(-2, 2)) + 
@@ -816,25 +828,25 @@ Now we can generate predictions for the linear part of the model and plot them w
 ```{r}
 set.seed(1356)
 N_seq <- seq(min(dmilk_cc$N) - 0.15, max(dmilk_cc$N) + 0.15, length.out = 30)
-post_pred_5_5 <- link(m5_5, data = list(N = N_seq)) %>% 
+post_pred_5_5 <- link(m5_5, data = list(N = N_seq)) |> 
   as_tibble(.name_repair = ~ str_c(N_seq))
-post_summary_5_5 <- post_pred_5_5 %>% 
+post_summary_5_5 <- post_pred_5_5 |> 
   pivot_longer(
     everything(), 
     names_to = "N", 
     names_transform = list(N = parse_number)
-  ) %>% 
-  group_by(N) %>% 
+  ) |> 
+  group_by(N) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider()
 
-fig_5_9_1 <- dmilk_cc %>% 
+fig_5_9_1 <- dmilk_cc |> 
   ggplot(aes(x = N)) + 
   geom_point(aes(y = K), alpha = 0.4, colour = "steelblue") + 
   geom_line(aes(y = mean), data = post_summary_5_5) + 
@@ -864,25 +876,25 @@ m5_6 <- quap(
 )
 
 M_seq <- seq(min(dmilk_cc$M) - 0.15, max(dmilk_cc$M) + 0.15, length.out = 30)
-post_pred_5_6 <- link(m5_6, data = list(M = M_seq)) %>% 
+post_pred_5_6 <- link(m5_6, data = list(M = M_seq)) |> 
   as_tibble(.name_repair = ~ str_c(M_seq))
-post_summary_5_6 <- post_pred_5_6 %>% 
+post_summary_5_6 <- post_pred_5_6 |> 
   pivot_longer(
     everything(), 
     names_to = "M", 
     names_transform = list(M = parse_number)
-  ) %>% 
-  group_by(M) %>% 
+  ) |> 
+  group_by(M) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider()
 
-fig_5_9_2 <- dmilk_cc %>% 
+fig_5_9_2 <- dmilk_cc |> 
   ggplot(aes(x = M)) + 
   geom_point(aes(y = K), alpha = 0.4, colour = "steelblue") + 
   geom_line(aes(y = mean), data = post_summary_5_6) + 
@@ -924,7 +936,7 @@ For both predictors the interval in the multiple regression excludes 0. Why?
 We can look at a pairs plot quickly to get a clue. 
 
 ```{r}
-dmilk_cc %>% 
+dmilk_cc |> 
   GGally::ggpairs(columns = c("M", "N", "K"))
 ```
 
@@ -933,22 +945,22 @@ Now we get the counterfactual plots, and put everything together.
 ```{r}
 set.seed(1455)
 fig_5_9_1 + fig_5_9_2 + (
-  link(m5_7, data = tibble(N = N_seq, M = 0)) %>% 
-    as_tibble(.name_repair = ~ str_c(N_seq)) %>% 
+  link(m5_7, data = tibble(N = N_seq, M = 0)) |> 
+    as_tibble(.name_repair = ~ str_c(N_seq)) |> 
     pivot_longer(
       everything(), 
       names_to = "N", 
       names_transform = list(N = parse_number)
-    ) %>% 
-    group_by(N) %>% 
+    ) |> 
+    group_by(N) |> 
     summarise(
       tibble(
         stat = c("mean", "lower", "upper"), 
         value = c(mean(value), PI(value))
       ), 
       .groups = "drop"
-    ) %>% 
-    pivot_wider(names_from = stat) %>% 
+    ) |> 
+    pivot_wider(names_from = stat) |> 
     ggplot(aes(N)) + 
     geom_line(aes(y = mean)) + 
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
@@ -959,22 +971,22 @@ fig_5_9_1 + fig_5_9_2 + (
     ) + 
     theme(panel.grid = element_blank())
 ) + (
-  link(m5_7, data = tibble(M = M_seq, N = 0)) %>% 
-    as_tibble(.name_repair = ~ str_c(M_seq)) %>% 
+  link(m5_7, data = tibble(M = M_seq, N = 0)) |> 
+    as_tibble(.name_repair = ~ str_c(M_seq)) |> 
     pivot_longer(
       everything(), 
       names_to = "M", 
       names_transform = list(M = parse_number)
-    ) %>% 
-    group_by(M) %>% 
+    ) |> 
+    group_by(M) |> 
     summarise(
       tibble(
         stat = c("mean", "lower", "upper"), 
         value = c(mean(value), PI(value))
       ), 
       .groups = "drop"
-    ) %>% 
-    pivot_wider(names_from = stat) %>% 
+    ) |> 
+    pivot_wider(names_from = stat) |> 
     ggplot(aes(M)) + 
     geom_line(aes(y = mean)) + 
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
@@ -998,13 +1010,13 @@ dagify(
     x = c(1, 3, 2), 
     y = c(1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 set.seed(1519)
-tibble(M = rnorm(100)) %>% 
-  mutate(N = rnorm(100, M)) %>% 
-  mutate(K = rnorm(100, N - M)) %>% 
+tibble(M = rnorm(100)) |> 
+  mutate(N = rnorm(100, M)) |> 
+  mutate(K = rnorm(100, N - M)) |> 
   GGally::ggpairs()
 ```
 
@@ -1017,14 +1029,14 @@ dagify(
     x = c(1, 3, 2), 
     y = c(1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_void()
 set.seed(1530)
-tibble(N = rnorm(100)) %>% 
-  mutate(M = rnorm(100, N)) %>% 
-  mutate(K = rnorm(100, N - M)) %>% 
-  select(M, N, K) %>% 
+tibble(N = rnorm(100)) |> 
+  mutate(M = rnorm(100, N)) |> 
+  mutate(K = rnorm(100, N - M)) |> 
+  select(M, N, K) |> 
   GGally::ggpairs()
 ```
 
@@ -1039,14 +1051,14 @@ dagify(
     x = c(1, 3, 2, 2), 
     y = c(1, 1, 0, 1)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 set.seed(1544)
-tibble(U = rnorm(100)) %>% 
-  mutate(M = rnorm(100, U), N = rnorm(100, U)) %>% 
-  mutate(K = rnorm(100, N - M)) %>% 
-  select(M, N, K) %>% 
+tibble(U = rnorm(100)) |> 
+  mutate(M = rnorm(100, U), N = rnorm(100, U)) |> 
+  mutate(K = rnorm(100, N - M)) |> 
+  select(M, N, K) |> 
   GGally::ggpairs()
 ```
 
@@ -1061,7 +1073,7 @@ dagify(
     x = c(1, 3, 2), 
     y = c(1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag_equivalent_dags() + 
   theme_dag()
 ```
@@ -1078,8 +1090,8 @@ Returning to the !Kung data from earlier.
 
 ```{r}
 data("Howell1")
-dheight <- Howell1 %>% 
-  as_tibble() %>% 
+dheight <- Howell1 |> 
+  as_tibble() |> 
   mutate(sex = male + 1L)
 dheight
 ```
@@ -1105,7 +1117,7 @@ set.seed(1711)
 tibble(
   female = rnorm(1e4, 178, 20), 
   male = rnorm(1e4, 178, 20) + rnorm(1e4, 0, 10)
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1149,12 +1161,11 @@ If we want to understand the difference between the categories we can use simula
 
 ```{r}
 set.seed(1724)
-m_5_8 %>% 
-  extract.samples() %>%
+m_5_8 |> 
+  extract.samples() |>
   {
-    diff_fm <- .$a[, 1] - .$a[, 2]
-    list(sigma = .$sigma, a = .$a, diff_fm = diff_fm)
-  } %>% 
+    \(x) list(sigma = x$sigma, a = x$a, diff_fm = x$a[, 1] - x$a[, 2])
+  }() |> 
   precis(depth = 2)
 ```
 
@@ -1163,7 +1174,7 @@ m_5_8 %>%
 The index variable approach is flexible enough to use with variables that have many categories. 
 
 ```{r}
-dmilk_clade <- dmilk %>% 
+dmilk_clade <- dmilk |> 
   # Coercing the factor to integer just pulls out the underlying integer for
   # group id
   mutate(clade_id = as.integer(clade))
@@ -1190,7 +1201,7 @@ m5_9 <- quap(
   ), 
   data = dmilk_clade
 )
-precis(m5_9, depth = 2, pars = "a") %>% 
+precis(m5_9, depth = 2, pars = "a") |> 
   plot(
     labels = str_c("a[", 1:4, "]:", levels(dmilk$clade)), 
     xlab = "expected kcal (std)"
@@ -1201,7 +1212,7 @@ Now we can add some nonsense predictor and see how it works.
 
 ```{r}
 set.seed(63)
-dmilk_house <- dmilk_clade %>% 
+dmilk_house <- dmilk_clade |> 
   mutate(house = sample(rep(1:4, each = 8), size = nrow(dmilk_clade)))
 m5_10 <- quap(
   alist(
@@ -1213,7 +1224,7 @@ m5_10 <- quap(
   ), 
   data = dmilk_house
 )
-precis(m5_10, depth = 2, pars = "h") %>% 
+precis(m5_10, depth = 2, pars = "h") |> 
   plot(
     labels = str_c(
       "h[", 
@@ -1283,8 +1294,8 @@ Let $x$ be the number of hours per week a person spends in the gym, $s$ the amou
 
 ```{r}
 set.seed(1054)
-tibble(x = rnorm(1e3)) %>% 
-  mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x)) %>% 
+tibble(x = rnorm(1e3)) |> 
+  mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x)) |> 
   corrr::correlate()
 ```
 
@@ -1301,9 +1312,9 @@ quap(
     bX ~ dnorm(0, 1), 
     sigma ~ dexp(1)
   ), 
-  data = tibble(x = rnorm(1e3)) %>% 
+  data = tibble(x = rnorm(1e3)) |> 
     mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x))
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1319,9 +1330,9 @@ quap(
     bS ~ dnorm(0, 1), 
     sigma ~ dexp(1)
   ), 
-  data = tibble(x = rnorm(1e3)) %>% 
+  data = tibble(x = rnorm(1e3)) |> 
     mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x))
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1348,7 +1359,7 @@ read_rds(here::here("data/LDS.rds"))
 Now we can bind this to the rest of the data and use it as a predictor. RM has given a hint that we may want to transform the LDS membership. Let's plot it and see why. 
 
 ```{r}
-read_rds(here::here("data/LDS.rds")) %>% 
+read_rds(here::here("data/LDS.rds")) |> 
   ggplot(aes(LDS)) + 
   geom_histogram(binwidth = 0.05)
 ```
@@ -1356,12 +1367,12 @@ read_rds(here::here("data/LDS.rds")) %>%
 The data have a strong right skew. We can take its common log before using in our model, as well as standardising it as we did the other predictors above.  
 
 ```{r}
-hw_5m4_d <- d %>% 
-  inner_join(read_rds(here::here("data/LDS.rds")), by = "Loc") %>% 
+hw_5m4_d <- d |> 
+  inner_join(read_rds(here::here("data/LDS.rds")), by = "Loc") |> 
   mutate(L = standardize(log10(LDS)))
 hw_5m4_d
 
-hw_5m4_d %>% 
+hw_5m4_d |> 
   ggplot(aes(L)) + 
   geom_histogram()
 ```
@@ -1379,7 +1390,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = hw_5m4_d
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1395,7 +1406,7 @@ The coefficient on $L$ is reliably negative, confirming the intuition that it wi
 We can check the implied conditional independencies with {dagitty}. 
 
 ```{r}
-dag("M -> A -> D") %>% 
+dag("M -> A -> D") |> 
   dagitty::impliedConditionalIndependencies()
 ```
 
@@ -1420,7 +1431,7 @@ dagify(
     x = c(1, 3, 2), 
     y = c(1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1454,33 +1465,33 @@ Now we have our model we can use it to generate samples: first samples of $A$, t
 ```{r}
 set.seed(1508)
 M_seq <- seq(-2, 2, length.out = 51)
-sim_hw_5h2 <- sim(m_hw_5h2, data = tibble(M = M_seq), vars = c("A", "D")) %>% 
-  pluck("D") %>% 
-  as_tibble(.name_repair = ~ str_c(M_seq)) %>% 
+sim_hw_5h2 <- sim(m_hw_5h2, data = tibble(M = M_seq), vars = c("A", "D")) |> 
+  pluck("D") |> 
+  as_tibble(.name_repair = ~ str_c(M_seq)) |> 
   pivot_longer(
     everything(), 
     names_to = "M", 
     names_transform = list(M = parse_number)
   )
 
-summary_hw_5h2 <- sim_hw_5h2 %>% 
-  group_by(M) %>% 
+summary_hw_5h2 <- sim_hw_5h2 |> 
+  group_by(M) |> 
   summarise(
     tibble(
       stat = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider(names_from = stat)
 
-hw_5h2_halving_diff <- summary_hw_5h2 %>% 
-        filter(between(M, 0.45, 1.05)) %>% 
-        filter(M == first(M) | M == last(M)) %>% 
-        pull(mean) %>% 
+hw_5h2_halving_diff <- summary_hw_5h2 |> 
+        filter(between(M, 0.45, 1.05)) |> 
+        filter(M == first(M) | M == last(M)) |> 
+        pull(mean) |> 
         diff()
 
-summary_hw_5h2 %>% 
+summary_hw_5h2 |> 
   ggplot(aes(M, y = mean)) + 
   geom_line() + 
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
@@ -1510,7 +1521,7 @@ dagify(
     x = c(1, 3, 2), 
     y = c(1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1544,33 +1555,33 @@ Now we have our model we can use it to generate samples: first samples of $N$, t
 
 ```{r}
 set.seed(1144)
-sim_hw_5h3 <- sim(m_hw_5h3, data = tibble(M = M_seq), vars = c("N", "K")) %>% 
-  pluck("K") %>% 
-  as_tibble(.name_repair = ~ str_c(M_seq)) %>% 
+sim_hw_5h3 <- sim(m_hw_5h3, data = tibble(M = M_seq), vars = c("N", "K")) |> 
+  pluck("K") |> 
+  as_tibble(.name_repair = ~ str_c(M_seq)) |> 
   pivot_longer(
     everything(), 
     names_to = "M", 
     names_transform = list(M = parse_number)
   )
 
-summary_hw_5h3 <- sim_hw_5h3 %>% 
-  group_by(M) %>% 
+summary_hw_5h3 <- sim_hw_5h3 |> 
+  group_by(M) |> 
   summarise(
     tibble(
       stat = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider(names_from = stat)
 
-hw_5h3_doubling_diff <- summary_hw_5h3 %>% 
-        filter(between(M, 0.45, 1.05)) %>% 
-        filter(M == first(M) | M == last(M)) %>% 
-        pull(mean) %>% 
+hw_5h3_doubling_diff <- summary_hw_5h3 |> 
+        filter(between(M, 0.45, 1.05)) |> 
+        filter(M == first(M) | M == last(M)) |> 
+        pull(mean) |> 
         diff()
 
-summary_hw_5h3 %>% 
+summary_hw_5h3 |> 
   ggplot(aes(M, y = mean)) + 
   geom_line() + 
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
@@ -1592,14 +1603,14 @@ So doubling the log-mass from 0.5 to 1 will (according to this counterfactual) r
 First revisit the divorce data. 
 
 ```{r}
-d_hw_5h4 <- d %>% 
+d_hw_5h4 <- d |> 
   transmute(Loc, D, M, A, S = South + 1L)
 
 d_hw_5h4
 
 # Quick summary
-d_hw_5h4 %>% 
-  group_by(S) %>% 
+d_hw_5h4 |> 
+  group_by(S) |> 
   summarise(across(D, .fns = ~ round(mean(.x), 2)), .groups = "drop")
 ```
 
@@ -1622,7 +1633,7 @@ dagify(
     x = c(0, 2, 1), 
     y = c(1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1630,7 +1641,7 @@ dagify(
 What are the implied conditional independencies in this DAG?
 
 ```{r}
-dag("dag {S -> A; A -> D <- S}") %>% 
+dag("dag {S -> A; A -> D <- S}") |> 
   impliedConditionalIndependencies()
 ```
 
@@ -1648,7 +1659,7 @@ m_hw_5h4 <- quap(
   data = d_hw_5h4
 )
 
-m_hw_5h4 %>% 
+m_hw_5h4 |> 
   precis(depth = 2)
 ```
 
@@ -1656,29 +1667,30 @@ As expected the `a` parameter for the South group (i.e. `a[2]`) is higher than t
 
 ```{r}
 set.seed(1757)
-post_hw_5h4 <- extract.samples(m_hw_5h4) %>% 
-  with(tibble(bA, sigma, a1 = a[, 1], a2 = a[, 2])) %>% 
+post_hw_5h4 <- extract.samples(m_hw_5h4) |> 
+  reduce(cbind) |> 
+  as_tibble(.name_repair = ~ c("bA", "sigma", "a1", "a2")) |> 
   mutate(south_diff = a2 - a1)
 
-post_hw_5h4 %>% 
+post_hw_5h4 |> 
   precis()
 ```
 
 So the expected change in divorce rate based on being in the South is `r round(mean(post_hw_5h4[["south_diff"]]), digits = 2)`. We can also try plotting it. 
 
 ```{r}
-post_hw_5h4 %>% 
-  select(-sigma) %>% 
-  pivot_longer(everything()) %>% 
-  group_by(name) %>% 
+post_hw_5h4 |> 
+  select(-sigma) |> 
+  pivot_longer(everything()) |> 
+  group_by(name) |> 
   summarise(
     tibble(
       stat = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider(names_from = stat) %>% 
+  ) |> 
+  pivot_wider(names_from = stat) |> 
   ggplot(aes(y = fct_rev(name), colour = fct_rev(name))) + 
   geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
   geom_vline(xintercept = 0, linetype = 2, colour = "grey50") + 
@@ -1694,8 +1706,8 @@ Q1.
 
 ```{r}
 data("Howell1")
-adult_kung <- Howell1 %>% 
-  as_tibble() %>%  
+adult_kung <- Howell1 |> 
+  as_tibble() |>  
   filter(age >= 18)
 m_hw_height <- quap(
   alist(
@@ -1711,10 +1723,10 @@ hw_new_heights <- tibble(
   height = c(140, 160, 175)
 )
 set.seed(1112)
-sim(m_hw_height, data = hw_new_heights) %>% 
-  as_tibble(.name_repair = ~ str_c("ht_", seq_len(nrow(hw_new_heights)))) %>% 
-  pivot_longer(everything()) %>% 
-  group_by(name) %>% 
+sim(m_hw_height, data = hw_new_heights) |> 
+  as_tibble(.name_repair = ~ str_c("ht_", seq_len(nrow(hw_new_heights)))) |> 
+  pivot_longer(everything()) |> 
+  group_by(name) |> 
   summarise(
     across(
       value, 
@@ -1731,9 +1743,9 @@ sim(m_hw_height, data = hw_new_heights) %>%
 Q2. 
 
 ```{r}
-young_kung <- Howell1 %>% 
-  as_tibble() %>% 
-  filter(age < 13) %>% 
+young_kung <- Howell1 |> 
+  as_tibble() |> 
+  filter(age < 13) |> 
   mutate(sex = male + 1L)
 ```
 
@@ -1760,10 +1772,10 @@ tibble(
   a = rnorm(N, mean = 10, 1), 
   bA = rlnorm(N), 
   sigma = rexp(1)
-) %>% 
-  mutate(A = map(rowid, ~ seq(0, 12.5, by = 0.5))) %>% 
-  unnest(A) %>% 
-  mutate(W = rnorm(nrow(.), mean = a + (bA * A), sd = sigma)) %>% 
+) |> 
+  mutate(A = map(rowid, ~ seq(0, 12.5, by = 0.5))) |> 
+  unnest(A) |> 
+  {\(x) mutate(x, W = rnorm(nrow(x), mean = a + (bA * A), sd = sigma))}() |> 
   ggplot(aes(A, W)) + 
   geom_point(alpha = 0.4) + 
   geom_hline(yintercept = 0, linetype = 2)
@@ -1830,12 +1842,10 @@ set.seed(1103)
 post_weight_sex <- map(
   1:2, 
   ~ sim(m_hw_weight_sex, data = tibble(age = age_seq, sex = .x))
-) %>% 
-  {
-    .[[2]] - .[[1]]
-  } %>% 
-  as_tibble(.name_repair = ~ str_c(age_seq)) %>% 
-  rowid_to_column() %>% 
+) |> 
+  {\(x) x[[2]] - x[[1]]}() |> 
+  as_tibble(.name_repair = ~ str_c(age_seq)) |> 
+  rowid_to_column() |> 
   pivot_longer(
     -rowid, 
     names_to = "age", 
@@ -1843,16 +1853,16 @@ post_weight_sex <- map(
     values_to = "weight"
   )
 
-post_weight_sex %>% 
-  group_by(age) %>% 
+post_weight_sex |> 
+  group_by(age) |> 
   summarise(
     tibble(
       name = c("mean", "lower89", "upper89", "lower50", "upper50"), 
       value = c(mean(weight), PI(weight), PI(weight, 0.5))
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   ggplot(aes(x = age)) + 
   geom_line(aes(y = mean)) + 
   geom_ribbon(aes(ymin = lower89, ymax = upper89), alpha = 0.3) + 
@@ -1878,9 +1888,9 @@ post_weight_sex %>%
 Boys are, on average, heavier. This tallies with the parameter estimates from the model, where the intercept and slope were both higher for boys. However there is a lot of uncertainty: plenty of girls are heavier than boys at the same age. 
 
 ```{r}
-post_weight_sex %>% 
-  filter(age %in% c(3, 6, 9, 12)) %>% 
-  mutate(age = factor(age)) %>% 
+post_weight_sex |> 
+  filter(age %in% c(3, 6, 9, 12)) |> 
+  mutate(age = factor(age)) |> 
   ggplot(aes(weight, colour = age, fill = age)) + 
   geom_density(alpha = 0.2) + 
   labs(
@@ -1910,9 +1920,9 @@ post_weight_sex %>%
 There's not much difference we can discern in the distributions like this. We can also summarise how many girls are heavier at these ages.
 
 ```{r}
-post_weight_sex %>% 
-  filter(age %in% c(3, 6, 9, 12)) %>% 
-  group_by(age) %>% 
+post_weight_sex |> 
+  filter(age %in% c(3, 6, 9, 12)) |> 
+  group_by(age) |> 
   summarise(prop_heavier_girls = scales::percent_format()(mean(weight < 0)))
 ```
 
@@ -1922,12 +1932,12 @@ Q4.
 
 ```{r}
 data(Oxboys)
-oxboys <- Oxboys %>%
-  as_tibble() %>% 
-  janitor::clean_names() %>% 
-  arrange(subject, occasion) %>% 
-  group_by(subject) %>% 
-  mutate(increment = height - lag(height)) %>% 
+oxboys <- Oxboys |>
+  as_tibble() |> 
+  janitor::clean_names() |> 
+  arrange(subject, occasion) |> 
+  group_by(subject) |> 
+  mutate(increment = height - lag(height)) |> 
   ungroup()
 oxboys
 ```
@@ -1950,8 +1960,8 @@ set.seed(1307)
 tibble(
   mu = rnorm(N), 
   sigma = rexp(N)
-) %>% 
-  mutate(x = exp(rnorm(N, mu, sigma))) %>% 
+) |> 
+  mutate(x = exp(rnorm(N, mu, sigma))) |> 
   ggplot(aes(x)) +
   geom_density() +
   scale_x_log10(breaks = c(1, 100, 10000)) + 
@@ -1974,8 +1984,8 @@ set.seed(1307)
 tibble(
   mu = rnorm(N, sd = 0.4), 
   sigma = rexp(N, 4)
-) %>% 
-  mutate(x = exp(rnorm(N, mu, sigma))) %>% 
+) |> 
+  mutate(x = exp(rnorm(N, mu, sigma))) |> 
   ggplot(aes(x)) +
   geom_density() +
   labs(
@@ -2009,7 +2019,7 @@ m_oxboys <- quap(
     mu ~ dnorm(0, 0.4), 
     sigma ~ dexp(4)
   ), 
-  data = oxboys %>% 
+  data = oxboys |> 
     filter(occasion > 1)
 )
 precis(m_oxboys)
@@ -2019,9 +2029,9 @@ And we can plot the posterior distribution.
 
 ```{r}
 set.seed(1321)
-extract.samples(m_oxboys) %>% 
-  as_tibble() %>% 
-  mutate(x = exp(rnorm(nrow(.), mu, sigma))) %>% 
+extract.samples(m_oxboys) |> 
+  as_tibble() |> 
+  {\(x) mutate(x, x = exp(rnorm(nrow(x), mu, sigma)))}() |> 
   ggplot(aes(x)) +
   geom_density() +
   geom_vline(
@@ -2048,21 +2058,31 @@ The posterior for the total growth across the whole period will just be the sum 
 
 ```{r}
 set.seed(1325)
-extract.samples(m_oxboys, n = 80000) %>% 
-  as_tibble() %>% 
-  mutate(
-    x = exp(rnorm(nrow(.), mu, sigma)), 
-    id = rep(seq_len(1e4), each = 8), 
-    occasion = rep(2:9, 1e4)
-  ) %>% 
-  group_by(id) %>% 
-  summarise(total = sum(x), .groups = "drop") %>% 
+extract.samples(m_oxboys, n = 80000) |> 
+  as_tibble() |> 
+  {
+    \(.x) {
+      mutate(
+        .x, 
+        x = exp(rnorm(nrow(.x), mu, sigma)), 
+        id = rep(seq_len(1e4), each = 8), 
+        occasion = rep(2:9, 1e4)
+      )
+    }
+  }() |> 
+  # mutate(
+  #   x = exp(rnorm(nrow(.), mu, sigma)), 
+  #   id = rep(seq_len(1e4), each = 8), 
+  #   occasion = rep(2:9, 1e4)
+  # ) |> 
+  group_by(id) |> 
+  summarise(total = sum(x), .groups = "drop") |> 
   ggplot(aes(total)) +
   geom_density() +
   geom_vline(
     aes(xintercept = total), 
-    data = . %>% 
-      summarise(total = PI(total)), 
+    data = . %>%
+      summarise(total = PI(total)),
     linetype = 2, 
     colour = "grey30"
   ) + 
