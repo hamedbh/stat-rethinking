@@ -22,10 +22,10 @@ Let's first do the simulation of _Berkson's Paradox_ that RM shows.
 
 ```{r}
 set.seed(1941)
-berkson_ex <- tibble(nw = rnorm(200), tw = rnorm(200)) %>% 
+berkson_ex <- tibble(nw = rnorm(200), tw = rnorm(200)) |> 
   mutate(selected = ntile(nw + tw, 10) == 10)
 
-berkson_ex %>% 
+berkson_ex |> 
   ggplot(aes(nw, tw, colour = selected, fill = selected)) + 
   geom_point(alpha = 0.4) + 
   stat_smooth(
@@ -48,9 +48,9 @@ berkson_ex %>%
 We can compute the correlation as RM does also. 
 
 ```{r}
-berkson_ex %>% 
-  filter(selected) %>% 
-  select(-selected) %>% 
+berkson_ex |> 
+  filter(selected) |> 
+  select(-selected) |> 
   correlate()
 ```
 
@@ -60,6 +60,7 @@ $$
 X \perp\!\!\!\perp Y \\
 X \not\!\perp\!\!\!\perp Y | S
 $$
+
 Where $X$ is trustworthiness, $Y$ is newsworthiness, and $S$ is an indicator of whether the paper was selected. 
 
 ## Multicollinearity
@@ -76,7 +77,7 @@ dheight <- tibble(
   # heights are Gaussian around 10
   height = rnorm(100, 10, 2), 
   # What proportion of height is the leg?
-  prop = runif(100, 0.4, 0.5)) %>% 
+  prop = runif(100, 0.4, 0.5)) |> 
   mutate(
     # Each leg is prop * height plus some error
     left = prop * height + rnorm(100, 0, 0.02), 
@@ -113,15 +114,15 @@ These are the correct answers to the question our model poses: _what is the valu
 
 ```{r}
 set.seed(1220)
-post6_1 <- extract.samples(m6_1) %>% 
+post6_1 <- extract.samples(m6_1) |> 
   as_tibble()
 (
-  post6_1 %>% 
+  post6_1 |> 
   ggplot(aes(br, bl)) + 
   geom_point(alpha = 0.3, colour = "steelblue") + 
   theme(panel.grid = element_blank())
 ) + (
-  post6_1 %>% 
+  post6_1 |> 
   ggplot(aes(x = bl + br)) + 
   geom_density(colour = "steelblue", bw = 0.004) + 
   labs(x = "sum of bl and br", y = "Density") + 
@@ -179,8 +180,8 @@ Now a more challengaing problem with real data, the primate milk data.
 
 ```{r}
 data(milk)
-dmilk <- milk %>% 
-  as_tibble() %>% 
+dmilk <- milk |> 
+  as_tibble() |> 
   mutate(
     K = standardize(kcal.per.g), 
     F = standardize(perc.fat), 
@@ -237,8 +238,8 @@ precis(m6_5)
 The pairs plot is informative. 
 
 ```{r}
-dmilk %>% 
-  select(K, F, L) %>% 
+dmilk |> 
+  select(K, F, L) |> 
   GGally::ggpairs()
 ```
 
@@ -258,7 +259,7 @@ dagify(
     x = c(1, 2, 3, 2), 
     y = c(1, 1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -271,10 +272,10 @@ RM points out that bias from including variables is just as much a problem as fr
 
 ```{r}
 set.seed(71)
-dfungus <- tibble(h0 = rnorm(100, 10, 2), treatment = rep(0:1, each = 50)) %>% 
-  mutate(fungus = rbinom(100, size = 1, prob = 0.5 - (treatment * 0.4))) %>% 
+dfungus <- tibble(h0 = rnorm(100, 10, 2), treatment = rep(0:1, each = 50)) |> 
+  mutate(fungus = rbinom(100, size = 1, prob = 0.5 - (treatment * 0.4))) |> 
   mutate(h1 = h0 + rnorm(100, 5 - (3 * fungus)))
-dfungus %>% 
+dfungus |> 
   precis()
 ```
 
@@ -295,7 +296,7 @@ In other words: the height at time $t = 1$ is normally distributed with mean equ
 
 ```{r}
 set.seed(1419)
-tibble(sim_p = rlnorm(1e4, 0, 0.25)) %>% 
+tibble(sim_p = rlnorm(1e4, 0, 0.25)) |> 
   precis()
 ```
 
@@ -349,20 +350,20 @@ Before checking the model fit let's take a look at those priors and see if they 
 
 ```{r}
 set.seed(1504)
-prior_summary_6_7 <- extract.prior(m6_7) %>% 
-  enframe(name = "var") %>% 
-  unnest(value) %>% 
-  group_by(var) %>% 
+prior_summary_6_7 <- extract.prior(m6_7) |> 
+  enframe(name = "var") |> 
+  unnest(value) |> 
+  group_by(var) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider()
 
-prior_summary_6_7 %>% 
+prior_summary_6_7 |> 
   ggplot(aes(y = var, colour = var)) + 
   geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
   geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
@@ -416,9 +417,9 @@ dagify(
     x = c(0, 2, 3, 4), 
     y = rep(0, 4)
   )
-) %>% 
-  tidy_dagitty() %>%
-  arrange(name) %>% 
+) |> 
+  tidy_dagitty() |>
+  arrange(name) |> 
   ggplot(aes(x = x, y = y, xend = xend, yend = yend)) + 
   geom_dag_point() +
   geom_dag_edges() +
@@ -458,9 +459,9 @@ dagify(
     x = c(0, 1, 2, 3, 4), 
     y = c(1, 1, 0.8, 1, 1)
   )
-) %>% 
-  tidy_dagitty() %>%
-  arrange(name) %>% 
+) |> 
+  tidy_dagitty() |>
+  arrange(name) |> 
   ggplot(aes(x = x, y = y, xend = xend, yend = yend)) + 
   geom_dag_point() +
   geom_dag_edges() +
@@ -479,8 +480,8 @@ dmoisture <- tibble(
   h0 = rnorm(1000, 10, 2), 
   treatment = rep(0:1, each = 500), 
   M = rbern(1000)
-) %>% 
-  mutate(fungus = rbinom(1000, 1, 0.5 - (treatment * 0.4) + (M * 0.4))) %>% 
+) |> 
+  mutate(fungus = rbinom(1000, 1, 0.5 - (treatment * 0.4) + (M * 0.4))) |> 
   mutate(h1 = h0 + rnorm(1000, 5 + (3 * M)))
 
 quap(
@@ -494,7 +495,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = dmoisture
-) %>% 
+) |> 
   precis()
 ```
 
@@ -509,7 +510,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = dmoisture
-) %>% 
+) |> 
   precis()
 ```
 
@@ -530,7 +531,7 @@ dagify(
     x = c(0, 1, 2), 
     y = c(0, 0, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -552,7 +553,7 @@ dagify(
     x = c(0, 1, 2), 
     y = c(0, 0, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -563,17 +564,17 @@ Some simulation to illustrate the issue.
 
 ```{r}
 set.seed(11)
-dmarriage <- sim_happiness() %>% 
+dmarriage <- sim_happiness() |> 
   as_tibble()
 precis(dmarriage)
 ```
 
 ```{r}
-dmarriage %>% 
+dmarriage |> 
   mutate(
-    married = factor(married) %>% 
+    married = factor(married) |> 
       fct_relabel(~ c("unmarried", "married"))
-  ) %>% 
+  ) |> 
   ggplot(aes(age, happiness, fill = married)) + 
   geom_point(shape = 21) + 
   scale_fill_manual(values = c("white", "steelblue")) + 
@@ -599,9 +600,9 @@ Now we need to work on the priors. It helps to rescale age on $[0, 1]$, such tha
 We will also add a variable for the marriage index ($MID$ in the linear model). 
 
 ```{r}
-dmarriage_adults <- dmarriage %>% 
-  filter(age > 17L) %>% 
-  mutate(A = scales::rescale(age)) %>% 
+dmarriage_adults <- dmarriage |> 
+  filter(age > 17L) |> 
+  mutate(A = scales::rescale(age)) |> 
   mutate(mid = married + 1L)
 
 ```
@@ -653,7 +654,7 @@ dagify(
     x = c(1, 2, 2), 
     y = c(0, 0, -1)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -669,7 +670,7 @@ dagify(
     x = c(1, 2, 2, 3), 
     y = c(0, 0, -1, -0.5)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -691,8 +692,8 @@ set.seed(1)
 dhaunted <- tibble(
   U = (2 * rbern(200, 0.5)) - 1L, 
   G = rnorm(200)
-) %>% 
-  mutate(P = rnorm(200, (bGP * G) + (bU * U))) %>% 
+) |> 
+  mutate(P = rnorm(200, (bGP * G) + (bU * U))) |> 
   mutate(C = rnorm(200, (bPC * P) + (bGC * G) + (bU * U)))
 ```
 
@@ -717,13 +718,13 @@ We know from our setup that `bPC` should be about 1, but we get something much l
 We get a more surprising result also: apparently grandparents have a _negative_ effect on educational outcomes. But this arises because of the neighbourhood effects. We can recreate RM's plot to illustrate.
 
 ```{r}
-dhaunted %>% 
-  mutate(across(c(G, C), standardize)) %>% 
+dhaunted |> 
+  mutate(across(c(G, C), standardize)) |> 
   mutate(
     filled = between(ntile(P, 100), 45, 60), 
-    hood = if_else(U < 0, "bad", "good") %>% 
+    hood = if_else(U < 0, "bad", "good") |> 
       factor()
-  ) %>% 
+  ) |> 
   ggplot(aes(G, C)) + 
   geom_point(aes(colour = hood, shape = filled)) + 
   stat_smooth(
@@ -772,7 +773,7 @@ m6_11b <- quap(
   ), 
   data = dhaunted
 )
-m6_11b %>% 
+m6_11b |> 
   precis()
 ```
 
@@ -790,7 +791,7 @@ m6_11c <- quap(
   ), 
   data = dhaunted
 )
-m6_11c %>% 
+m6_11c |> 
   precis()
 ```
 
@@ -801,7 +802,7 @@ coeftab(
   m6_11, 
   m6_11b, 
   m6_11c
-) %>% 
+) |> 
   plot()
 ```
 
@@ -831,7 +832,7 @@ coeftab(
   m6_11b, 
   m6_11c, 
   m6_12
-) %>% 
+) |> 
   plot()
 ```
 
@@ -854,7 +855,7 @@ dagify(
     x = c(1, 2, 3), 
     y = c(1, 2, 1)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -877,7 +878,7 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2), 
       y = c(1, 1, 0)
     )
-  ) %>% 
+  ) |> 
     ggdag() + 
     theme_dag() + 
     labs(title = "The Fork") + 
@@ -891,7 +892,7 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2), 
       y = c(2, 0, 1)
     )
-  ) %>% 
+  ) |> 
     ggdag() + 
     theme_dag() + 
     labs(title = "The Pipe") + 
@@ -904,7 +905,7 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2), 
       y = c(1, 1, 2)
     )
-  ) %>% 
+  ) |> 
     ggdag() + 
     theme_dag() + 
     labs(title = "The Collider") + 
@@ -918,7 +919,7 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2, 2), 
       y = c(1, 1, 2, 1.2)
     )
-  ) %>% 
+  ) |> 
     ggdag() + 
     theme_dag() + 
     labs(title = "The Descendent") + 
@@ -955,7 +956,7 @@ dagify(
     x = c(1, 1, 2, 2, 3, 3), 
     y = c(0, 2, 1, 3, 0, 2)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1001,7 +1002,7 @@ dagify(
     x = c(1, 1, 2, 3, 3), 
     y = c(1, 3, 2, 1, 3)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1027,8 +1028,8 @@ Conditioning on $A$ and $M$ would do the same. We can test how well this agrees 
 
 ```{r}
 data("WaffleDivorce")
-ddivorce <- WaffleDivorce %>% 
-  as_tibble() %>% 
+ddivorce <- WaffleDivorce |> 
+  as_tibble() |> 
   transmute(
     W = standardize(WaffleHouses / Population), 
     sid = South + 1L, 
@@ -1046,7 +1047,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = ddivorce
-) %>% 
+) |> 
   precis(depth = 2)
 ```
 
@@ -1062,7 +1063,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = ddivorce
-) %>% 
+) |> 
   precis(depth = 2)
 ```
 
@@ -1087,35 +1088,35 @@ Suppose there was a population of taxpayers, and we want to predict risk of non-
 1. The fork: in this case $X \perp\!\!\!\perp Y | Z$. If we condition on $Z$ we block the path. 
 
 ```{r}
-dagitty("dag {X <- Z -> Y}") %>% 
+dagitty("dag {X <- Z -> Y}") |> 
   impliedConditionalIndependencies()
 ```
 
 2. The pipe: same as the fork, $X \perp\!\!\!\perp Y | Z$. Same as the fork, conditioning on $Z$ blocks the pipe. 
 
 ```{r}
-dagitty("dag {X -> Z -> Y}") %>% 
+dagitty("dag {X -> Z -> Y}") |> 
   impliedConditionalIndependencies()
 ```
 
 3. The collider: now $X \perp\!\!\!\perp Y$ without conditioning on $Z$. So we just model $X$ and $Y$ directly. 
 
 ```{r}
-dagitty("dag {X -> Z <- Y}") %>% 
+dagitty("dag {X -> Z <- Y}") |> 
   impliedConditionalIndependencies()
 ```
 
 4. The descendent: in this case the conditional dependencies will change based on the rest of the DAG. In RM's example he added a descendent to a collider. In that case we would have the same $X \perp\!\!\!\perp Y$ that we had with the collider, but would also have $D \perp\!\!\!\perp X | Z$ and $D \perp\!\!\!\perp Y | Z$. 
 
 ```{r}
-dagitty("dag {X -> Z <- Y; Z -> D}") %>% 
+dagitty("dag {X -> Z <- Y; Z -> D}") |> 
   dagitty::impliedConditionalIndependencies()
 ```
 
 What if we change $Z$ from a collider to a fork?
 
 ```{r}
-dagitty("dag {X <- Z -> Y; Z -> D}") %>% 
+dagitty("dag {X <- Z -> Y; Z -> D}") |> 
   dagitty::impliedConditionalIndependencies()
 ```
 
@@ -1129,9 +1130,9 @@ Using a sample that is biased by $B$ is the same as conditioning on it, which wi
 
 ```{r}
 set.seed(1855)
-tibble(X = rnorm(200), Y = rnorm(200)) %>% 
-  mutate(B = rnorm(200, (X + Y) / 2)) %>% 
-  mutate(sampled = ntile(B, 10) == 10) %>% 
+tibble(X = rnorm(200), Y = rnorm(200)) |> 
+  mutate(B = rnorm(200, (X + Y) / 2)) |> 
+  mutate(sampled = ntile(B, 10) == 10) |> 
   ggplot(aes(X, Y, colour = sampled, fill = sampled)) + 
   geom_point(alpha = 0.4) + 
   stat_smooth(
@@ -1170,7 +1171,7 @@ dagify(
     x = c(1, 1, 2, 2, 3, 3, 4), 
     y = c(0, 2, 1, 3, 0, 2, 1)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1180,7 +1181,7 @@ Earlier we found $XUACY$ and $XUBCY$ (excluding the direct path $XY$): of these 
 Check the answer with {dagitty}.
 
 ```{r}
-dagitty("dag {X <- U <- A -> C -> Y; U -> B <- C; X -> Y; C <- V -> Y}") %>% 
+dagitty("dag {X <- U <- A -> C -> Y; U -> B <- C; X -> Y; C <- V -> Y}") |> 
   adjustmentSets(exposure = "X", outcome = "Y")
 ```
 
@@ -1190,11 +1191,11 @@ Seems we could also condition on $C$ and $V$: this makes sense, as conditioning 
 
 ```{r}
 set.seed(1001)
-d_6m2 <- tibble(X = rnorm(200)) %>% 
-  mutate(Z = rnorm(200, mean = X, sd = 0.2)) %>% 
+d_6m2 <- tibble(X = rnorm(200)) |> 
+  mutate(Z = rnorm(200, mean = X, sd = 0.2)) |> 
   mutate(Y = rnorm(200, mean = Z + rnorm(200, sd = 0.2)))
 
-d_6m2 %>% 
+d_6m2 |> 
   corrr::correlate()
 ```
 
@@ -1210,7 +1211,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6m2
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1228,7 +1229,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6m2
-) %>% 
+) |> 
   precis()
 ```
 Unsurprisingly $X$ is predictive of $Y$. 
@@ -1243,7 +1244,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6m2
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1265,7 +1266,7 @@ dagify(
     x = c(1, 3, 2, 3), 
     y = c(1, 1, 2, 2)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1273,7 +1274,7 @@ dagify(
 $XZY$ is open as $Z$ is a fork. $XZAY$ is closed because $A$ is a collider. Both are backdoor paths because of the arrow $Z \to X$. So if we condition on $Z$ we close $XZY$. 
 
 ```{r}
-dagitty("dag {Z -> X -> Y <- A; A -> Z -> Y}") %>% 
+dagitty("dag {Z -> X -> Y <- A; A -> Z -> Y}") |> 
   adjustmentSets(exposure = "X", outcome = "Y")
 ```
 
@@ -1288,7 +1289,7 @@ dagify(
     x = c(1, 3, 2, 3), 
     y = c(1, 1, 2, 2)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1296,7 +1297,7 @@ dagify(
 There are no arrows into $X$, which means no backdoor paths to close. So we just model $X \to Y$ directly. 
 
 ```{r}
-dagitty("dag {X -> Z <- A -> Y; X -> Y <- Z}") %>% 
+dagitty("dag {X -> Z <- A -> Y; X -> Y <- Z}") |> 
   adjustmentSets(exposure = "X", outcome = "Y")
 ```
 
@@ -1312,7 +1313,7 @@ dagify(
     x = c(1, 3, 2, 1), 
     y = c(1, 1, 2, 2)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1324,7 +1325,7 @@ $XAZY$ is closed because $Z$ is a collider.
 No open backdoor paths to close, can model $X \to Y$ directly. 
 
 ```{r}
-dagitty("dag {A -> X -> Y -> Z; A -> Z <- X}") %>% 
+dagitty("dag {A -> X -> Y -> Z; A -> Z <- X}") |> 
   adjustmentSets(exposure = "X", outcome = "Y")
 ```
 Fourth DAG. 
@@ -1339,7 +1340,7 @@ dagify(
     x = c(1, 3, 2, 1), 
     y = c(1, 1, 2, 2)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1349,7 +1350,7 @@ $XZY$ is open but is not a backdoor path as the arrow is out of $X$.
 $XAZY$ is an open backdoor path because $A$ is a fork. So we condition on $A$ to model $X \to Y$. 
 
 ```{r}
-dagitty("dag {A -> X -> Y <- Z; A -> Z <- X}") %>% 
+dagitty("dag {A -> X -> Y <- Z; A -> Z <- X}") |> 
   adjustmentSets(exposure = "X", outcome = "Y")
 ```
 
@@ -1360,7 +1361,7 @@ dagitty("dag {A -> X -> Y <- Z; A -> Z <- X}") %>%
 We can have a reasonable prior that Waffle Houses will have no effect on divorce rate. So we want a DAG where $D \perp\!\!\!\perp W | \text{(some predictors)}$. Start by looking at the data. 
 
 ```{r}
-WaffleDivorce %>% 
+WaffleDivorce |> 
   as_tibble()
 ```
 
@@ -1383,21 +1384,21 @@ dag_6h1 <- dagify(
   )
 )
 
-dag_6h1 %>% 
+dag_6h1 |> 
   ggdag() + 
   theme_dag()
 ```
 
 ```{r}
-dag_6h1 %>% 
+dag_6h1 |> 
   adjustmentSets(exposure = "W", outcome = "D")
 ```
 
 The DAG suggests we can control either for $S$ or $A$. 
 
 ```{r}
-d_6h1 <- WaffleDivorce %>% 
-  as_tibble() %>% 
+d_6h1 <- WaffleDivorce |> 
+  as_tibble() |> 
   transmute(
     A = standardize(MedianAgeMarriage), 
     S = South, 
@@ -1420,7 +1421,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6h1
-) %>% 
+) |> 
   precis(depth = 2)
 ```
 
@@ -1438,7 +1439,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6h1
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1449,7 +1450,7 @@ The estimate for `bA` is reliably negative, which is consistent with our finding
 6H2. 
 
 ```{r}
-dag_6h1 %>% 
+dag_6h1 |> 
   impliedConditionalIndependencies()
 ```
 
@@ -1465,7 +1466,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6h1
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1483,7 +1484,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6h1
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1501,7 +1502,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6h1
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1519,7 +1520,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6h1
-) %>% 
+) |> 
   precis(depth = 2)
 ```
 
@@ -1537,7 +1538,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = d_6h1
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1549,8 +1550,8 @@ Set up the data and DAG for the fox questions.
 
 ```{r}
 data("foxes")
-dfox <- foxes %>% 
-  as_tibble() %>% 
+dfox <- foxes |> 
+  as_tibble() |> 
   mutate(across(c(avgfood, area, weight, groupsize), standardize))
 ```
 
@@ -1567,16 +1568,16 @@ dag_fox <- dagify(
   )
 )
 
-dag_plot_fox <- dag_fox %>% 
-  tidy_dagitty() %>%
-  as_tibble() %>% 
+dag_plot_fox <- dag_fox |> 
+  tidy_dagitty() |>
+  as_tibble() |> 
   inner_join(
     tibble(
       name = c("avgfood", "area", "weight", "groupsize"), 
       label = c("F", "A", "W", "S")
     ), 
     by = "name"
-  ) %>% 
+  ) |> 
   ggplot(aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_dag_node() +
   geom_dag_text(aes(label = label)) +
@@ -1589,7 +1590,7 @@ dag_plot_fox
 What are the implied conditional independencies of the DAG?
 
 ```{r}
-dag_fox %>% 
+dag_fox |> 
   impliedConditionalIndependencies()
 ```
 
@@ -1602,7 +1603,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   dfox
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1615,7 +1616,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   dfox
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1624,7 +1625,7 @@ The first of these implied conditional independencies looks a little suspect, bu
 We now want to infer the effect of area on weight. 
 
 ```{r}
-dag_fox %>% 
+dag_fox |> 
   adjustmentSets(exposure = "area", outcome = "weight")
 ```
 
@@ -1644,10 +1645,10 @@ So we will need priors on $\alpha$, $\beta_A$, and $\sigma$. Let's use the same 
 ```{r}
 set.seed(1830)
 N <- 1e3
-tibble(a = rnorm(N, sd = 0.2), bA = rnorm(N, sd = 0.5)) %>% 
-  rowid_to_column(".id") %>% 
-  expand(nesting(.id, a, bA), x = c(-2, 2)) %>% 
-  mutate(y = a + (bA * x)) %>% 
+tibble(a = rnorm(N, sd = 0.2), bA = rnorm(N, sd = 0.5)) |> 
+  rowid_to_column(".id") |> 
+  expand(nesting(.id, a, bA), x = c(-2, 2)) |> 
+  mutate(y = a + (bA * x)) |> 
   ggplot(aes(x, y, group = .id)) + 
   geom_line(colour = "steelblue", alpha = 0.4) + 
   geom_hline(yintercept = c(-2, 2), linetype = 2, colour = "grey20")
@@ -1678,7 +1679,7 @@ m6h3 <- quap(
   ), 
   data = dfox
 )
-m6h3 %>% 
+m6h3 |> 
   precis()
 ```
 
@@ -1689,7 +1690,7 @@ Very little association between them. Doesn't seem that changing `area` will aff
 We now want to infer the effect of avgfood on weight. 
 
 ```{r}
-dag_fox %>% 
+dag_fox |> 
   adjustmentSets(exposure = "avgfood", outcome = "weight")
 ```
 No conditioning required, can again model directly. 
@@ -1715,7 +1716,7 @@ m6h4 <- quap(
   ), 
   data = dfox
 )
-m6h4 %>% 
+m6h4 |> 
   precis()
 ```
 
@@ -1724,7 +1725,7 @@ Again the inference is that `avgfood` has little impact on its own with `weight`
 6H5. 
 
 ```{r}
-dag_fox %>% 
+dag_fox |> 
   adjustmentSets(exposure = "groupsize", outcome = "weight")
 ```
 
@@ -1752,7 +1753,7 @@ m6h5 <- quap(
   ), 
   data = dfox
 )
-m6h5 %>% 
+m6h5 |> 
   precis()
 ```
 
@@ -1765,8 +1766,8 @@ dag_plot_fox
 At least some of the effect of avgfood (`F` in the DAG) is mediated through groupsize (`S`). We can examine the correlations between those variables and weight (`W`). 
 
 ```{r}
-dfox %>% 
-  select(avgfood, groupsize, weight) %>% 
+dfox |> 
+  select(avgfood, groupsize, weight) |> 
   correlate()
 ```
 The correlation between avgfood and groupsize is very high, but because the arrow goes $F \to S$ then the path $FSW$ isn't a backdoor. So when we model $F \to W$ directly we get the correct answer to our question, which is that _on its own_ $F$ is a poor predictor of $W$. 
@@ -1783,7 +1784,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = dfox
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1796,7 +1797,7 @@ Q1.
 This question extends the exercises from the book. Now we need to find total causal effect of area on food. 
 
 ```{r}
-dag_fox %>% 
+dag_fox |> 
   adjustmentSets(exposure = "area", outcome = "avgfood")
 ```
 
@@ -1822,7 +1823,7 @@ quap(
     sigma ~ dexp(1)
   ), 
   data = dfox
-) %>% 
+) |> 
   precis()
 ```
 
@@ -1833,21 +1834,21 @@ Q2.
 This is a repeat of question 6H4 from the book. Just as a reminder we can check the adjustment sets again. 
 
 ```{r}
-dag_fox %>% 
+dag_fox |> 
   adjustmentSets("avgfood", "weight")
 ```
 
 No controls necessary, we just regress directly. This is model `m6h4`.
 
 ```{r}
-m6h4 %>% 
+m6h4 |> 
   precis()
 ```
 
 There is very little effect on weight of changing food. However the picture changes when we wish to isolate the direct causal effect. This was covered from a different angle in question 6H5 from the book: then we wanted the effect of groupsize on weight, for which we had to shut the backdoor path from avgfood (which was a fork). Now the focus is different but the approach is the same: regress weight jointly on groupsize (which is a pipe from avgfood to weight) and avgfood. This was model `m6h5`. 
 
 ```{r}
-m6h5 %>% 
+m6h5 |> 
   precis()
 ```
 
@@ -1866,7 +1867,7 @@ stroke_dag <- dagify(
     y = c(2, 0, 1, 2, 1)
   )
 )
-stroke_dag %>% 
+stroke_dag |> 
   ggdag() + 
   theme_dag()
 ```
@@ -1895,9 +1896,9 @@ sim_stroke_data <- function(N = 1000) {
   tibble(
   A = rnorm(N), 
   U = rnorm(N)
-) %>% 
-  mutate(S = rnorm(N, A + U)) %>% 
-  mutate(X = rnorm(N, A + S)) %>% 
+) |> 
+  mutate(S = rnorm(N, A + U)) |> 
+  mutate(X = rnorm(N, A + S)) |> 
   mutate(Y = rnorm(N, A + S + X + U))
 }
 sim_stroke_data()
@@ -1945,18 +1946,18 @@ stroke_repeats <- xfun::cache_rds({
 Now we can check how close our estimates were, and how narrow the PI for the estimate. 
 
 ```{r}
-stroke_repeats %>% 
-  mutate(err = abs(mean - 1), width = upper - lower) %>% 
-  pivot_longer(c(err, width), names_to = "measure") %>% 
-  group_by(N, measure) %>% 
+stroke_repeats |> 
+  mutate(err = abs(mean - 1), width = upper - lower) |> 
+  pivot_longer(c(err, width), names_to = "measure") |> 
+  group_by(N, measure) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   ggplot(aes(x = N)) + 
   geom_pointrange(aes(y = mean, ymin = lower, ymax = upper)) + 
   facet_wrap(~ measure)

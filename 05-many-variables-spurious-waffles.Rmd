@@ -440,12 +440,12 @@ Now we compute the residuals for each model.
 ```{r}
 set.seed(854)
 mu_5_4 <- tibble(mu = link(m5_4) |> colMeans()) |> 
-  mutate(resid = d$M - mu) |> 
+  mutate(resid = d[["M"]] - mu) |> 
   bind_cols(d)
 mu_5_4
 
 mu_5_4_b <- tibble(mu = link(m5_4_b) |> colMeans()) |> 
-  mutate(resid = d$A - mu) |> 
+  mutate(resid = d[["A"]] - mu) |> 
   bind_cols(d)
 mu_5_4_b
 ```
@@ -537,12 +537,6 @@ link(m5_3) |>
     )
     }
   }() |> 
-  #   tibble(
-  #     mean = colMeans(.), 
-  #     lower = apply(., 2, PI)[1, ], 
-  #     upper = apply(., 2, PI)[2, ]
-  #   )
-  # } |> 
   bind_cols(d) |> 
   ggplot(aes(D, mean)) + 
   geom_point(alpha = 0.4, colour = "steelblue") + 
