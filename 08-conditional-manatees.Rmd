@@ -31,16 +31,16 @@ RM introduces the dataset on terrain ruggedness and economic output.
 
 ```{r}
 data(rugged)
-drugged <- rugged %>% 
-  as_tibble() %>% 
-  drop_na(rgdppc_2000) %>% 
+drugged <- rugged |> 
+  as_tibble() |> 
+  drop_na(rgdppc_2000) |> 
   mutate(
     log_gdp_std = log(rgdppc_2000) / mean(log(rgdppc_2000)), 
     rugged_std = rugged / max(rugged), 
     cid = as.integer(cont_africa + 1L)
   )
 
-drugged %>% 
+drugged |> 
   transmute(
     country, 
     gdp = log_gdp_std, 
@@ -50,8 +50,8 @@ drugged %>%
       "African nations", 
       "Non-African nations"
     )
-  ) %>% 
-  mutate(gdp = gdp / mean(gdp)) %>% 
+  ) |> 
+  mutate(gdp = gdp / mean(gdp)) |> 
   ggplot(aes(rugged, gdp, colour = continent)) + 
   geom_point() + 
   stat_smooth(
@@ -93,7 +93,7 @@ dagify(
     x = c(1, 2, 3, 2), 
     y = c(1, 1, 1, 0)
   )
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -141,18 +141,18 @@ fig_8_3_1 <- link(
   m8_1_bad, 
   post = extract.prior(m8_1_bad), 
   data = tibble(rugged_std = rugged_seq)
-) %>% 
+) |> 
   as_tibble(
     .name_repair = ~ str_c(rugged_seq)
-  ) %>% 
-  rowid_to_column() %>% 
-  slice_sample(n = 50) %>% 
+  ) |> 
+  rowid_to_column() |> 
+  slice_sample(n = 50) |> 
   pivot_longer(
     cols = -rowid, 
     names_to = "rugged_std", 
     names_transform = list(rugged_std = parse_number), 
     values_to = "log_gdp_std"
-  ) %>% 
+  ) |> 
   ggplot(aes(rugged_std, log_gdp_std, group = rowid)) + 
   geom_line(alpha = 0.5, colour = "grey50") + 
   coord_cartesian(
@@ -204,18 +204,18 @@ fig_8_3_2 <- link(
   m8_1, 
   post = extract.prior(m8_1), 
   data = tibble(rugged_std = rugged_seq)
-) %>% 
+) |> 
   as_tibble(
     .name_repair = ~ str_c(rugged_seq)
-  ) %>% 
-  rowid_to_column() %>% 
-  slice_sample(n = 50) %>% 
+  ) |> 
+  rowid_to_column() |> 
+  slice_sample(n = 50) |> 
   pivot_longer(
     cols = -rowid, 
     names_to = "rugged_std", 
     names_transform = list(rugged_std = parse_number), 
     values_to = "log_gdp_std"
-  ) %>% 
+  ) |> 
   ggplot(aes(rugged_std, log_gdp_std, group = rowid)) + 
   geom_line(alpha = 0.5, colour = "grey50") + 
   coord_cartesian(
@@ -308,8 +308,8 @@ We get a warning about high values for $k$, which we can plot.
 
 ```{r}
 set.seed(1)
-PSIS(m8_3, pointwise = TRUE) %>% 
-  rowid_to_column() %>% 
+PSIS(m8_3, pointwise = TRUE) |> 
+  rowid_to_column() |> 
   ggplot(aes(rowid, k)) + 
   geom_point(colour = "steelblue", alpha = .6) + 
   geom_hline(yintercept = 0.5, linetype = 2, alpha = 0.6) + 
@@ -335,17 +335,17 @@ mu8_3 <- map_dfr(
       cid = .x, 
       rugged_std = rugged_seq
     )
-  ) %>% 
-    as_tibble(.name_repair = ~ str_c(rugged_seq)) %>% 
-    rowid_to_column("sample_id") %>% 
+  ) |> 
+    as_tibble(.name_repair = ~ str_c(rugged_seq)) |> 
+    rowid_to_column("sample_id") |> 
     pivot_longer(
       -sample_id, 
       names_to = "rugged_std", names_transform = list(rugged_std = parse_number)
-    ) %>% 
+    ) |> 
     mutate(cid = .x)
 )
-mu8_3_summary <- mu8_3 %>%
-  group_by(cid, rugged_std) %>% 
+mu8_3_summary <- mu8_3 |>
+  group_by(cid, rugged_std) |> 
   summarise(
     tibble(
       tibble(
@@ -354,8 +354,8 @@ mu8_3_summary <- mu8_3 %>%
       )
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   mutate(
     cid = if_else(
       cid == 1L, 
@@ -363,13 +363,13 @@ mu8_3_summary <- mu8_3 %>%
       "African nations"
     )
   )
-mu8_3_summary %>% 
+mu8_3_summary |> 
   ggplot(aes(x = rugged_std)) + 
   geom_line(aes(y = mean)) + 
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = cid), alpha = 0.4) + 
   geom_point(
     aes(y = log_gdp_std, colour = cid), 
-    data = drugged %>% 
+    data = drugged |> 
       mutate(
         cid = if_else(
           cid == 1L, 
@@ -380,14 +380,14 @@ mu8_3_summary %>%
   ) + 
   geom_text_repel(
     aes(y = log_gdp_std, label = country), 
-    data = drugged %>% 
+    data = drugged |> 
       mutate(
         cid = if_else(
           cid == 1L, 
           "Non-African nations", 
           "African nations"
         )
-      ) %>% 
+      ) |> 
       filter(
         country %in% c(
           "Equatorial Guinea", 
@@ -455,17 +455,17 @@ mu8_3_delta <- map(
       rugged_std = rugged_seq
     )
   )
-) %>% 
-  reduce(~ .y - .x) %>% 
-  as_tibble(.name_repair = ~ str_c(rugged_seq)) %>% 
-  rowid_to_column("sample_id") %>% 
+) |> 
+  reduce(~ .y - .x) |> 
+  as_tibble(.name_repair = ~ str_c(rugged_seq)) |> 
+  rowid_to_column("sample_id") |> 
   pivot_longer(
     -sample_id, 
     names_to = "rugged_std", names_transform = list(rugged_std = parse_number)
   )
 
-mu8_3_delta_summary <- mu8_3_delta %>%
-  group_by(rugged_std) %>% 
+mu8_3_delta_summary <- mu8_3_delta |>
+  group_by(rugged_std) |> 
   summarise(
     tibble(
       tibble(
@@ -474,10 +474,10 @@ mu8_3_delta_summary <- mu8_3_delta %>%
       )
     ), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   pivot_wider()
 
-mu8_3_delta_summary %>% 
+mu8_3_delta_summary |> 
   ggplot(aes(x = rugged_std)) + 
   geom_line(aes(y = mean)) + 
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.4) + 
@@ -505,8 +505,8 @@ The previous example was relatively easy to visualise, but this becomes much har
 
 ```{r}
 data(tulips)
-dtulips <- tulips %>% 
-  as_tibble() %>% 
+dtulips <- tulips |> 
+  as_tibble() |> 
   mutate(
     W = water - mean(water),
     S = shade - mean(shade), 
@@ -550,29 +550,29 @@ RM suggests simulating from the prior, so we can do that.
 
 ```{r}
 set.seed(930)
-prior8_4 <- extract.prior(m8_4) %>% 
-  as_tibble() %>% 
+prior8_4 <- extract.prior(m8_4) |> 
+  as_tibble() |> 
   rowid_to_column()
 
 (
-  prior8_4 %>% 
-  slice_sample(n = 100) %>% 
+  prior8_4 |> 
+  slice_sample(n = 100) |> 
   expand(
     nesting(rowid, a, bW), 
     W = seq(-1.5, 1.5, length.out = 50)
-  ) %>% 
-  mutate(B = a + (bW * W)) %>% 
+  ) |> 
+  mutate(B = a + (bW * W)) |> 
   ggplot(aes(W, B, group = rowid)) + 
   geom_line(alpha = 0.3) + 
   geom_hline(yintercept = c(0, 1), linetype = 2, alpha = 0.8)
 ) + (
-  prior8_4 %>% 
-  slice_sample(n = 100) %>% 
+  prior8_4 |> 
+  slice_sample(n = 100) |> 
   expand(
     nesting(rowid, a, bS), 
     S = seq(-1.5, 1.5, length.out = 50)
-  ) %>% 
-  mutate(B = a + (bS * S)) %>% 
+  ) |> 
+  mutate(B = a + (bS * S)) |> 
   ggplot(aes(S, B, group = rowid)) + 
   geom_line(alpha = 0.3) + 
   geom_hline(yintercept = c(0, 1), linetype = 2, alpha = 0.8)
@@ -627,22 +627,22 @@ plot_tulips <- function(quap_fit) {
   mod_name <- deparse(match.call()[[2]])
   map_dfr(
     c(-1, 0, 1), 
-    ~ link(quap_fit, data = tibble(S = .x, W = c(-1, 0, 1))) %>% 
-      as_tibble(.name_repair = ~ str_c(c(-1, 0, 1))) %>% 
-      slice_sample(n = 20) %>% 
-      rowid_to_column("sample_id") %>% 
+    ~ link(quap_fit, data = tibble(S = .x, W = c(-1, 0, 1))) |> 
+      as_tibble(.name_repair = ~ str_c(c(-1, 0, 1))) |> 
+      slice_sample(n = 20) |> 
+      rowid_to_column("sample_id") |> 
       pivot_longer(
         -sample_id, 
         names_to = "W", 
         names_transform = list(W = parse_number), 
         values_to = "B"
-      ) %>% 
+      ) |> 
       mutate(S = .x)
-  ) %>% 
-    mutate(S = sprintf("%s post: shade = %s", mod_name, S)) %>% 
+  ) |> 
+    mutate(S = sprintf("%s post: shade = %s", mod_name, S)) |> 
     ggplot(aes(W, B)) + 
     geom_point(
-      data = dtulips %>% 
+      data = dtulips |> 
         mutate(S = sprintf("%s post: shade = %s", mod_name, S)), 
       colour = "steelblue"
     ) + 
@@ -667,19 +667,19 @@ plot_prior_tulips <- function(quap_fit) {
       quap_fit, 
       data = tibble(S = .x, W = c(-1, 0, 1)), 
       post = extract.prior(quap_fit)
-    ) %>% 
-      as_tibble(.name_repair = ~ str_c(c(-1, 0, 1))) %>% 
-      slice_sample(n = 20) %>% 
-      rowid_to_column("sample_id") %>% 
+    ) |> 
+      as_tibble(.name_repair = ~ str_c(c(-1, 0, 1))) |> 
+      slice_sample(n = 20) |> 
+      rowid_to_column("sample_id") |> 
       pivot_longer(
         -sample_id, 
         names_to = "W", 
         names_transform = list(W = parse_number), 
         values_to = "B"
-      ) %>% 
+      ) |> 
       mutate(S = .x)
-  ) %>% 
-    mutate(S = sprintf("%s prior: shade = %s", mod_name, S)) %>% 
+  ) |> 
+    mutate(S = sprintf("%s prior: shade = %s", mod_name, S)) |> 
     ggplot(aes(W, B)) + 
     geom_line(aes(group = sample_id), alpha = 0.4) + 
     geom_hline(yintercept = c(0, 1), linetype = 2, alpha = 0.8) + 
@@ -764,7 +764,7 @@ The question says that ravens depend on wolves, but not the reverse. So the DAG 
 ```{r}
 dagify(
   R ~ W
-) %>% 
+) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -772,7 +772,7 @@ dagify(
 There's no real interaction here though: when wolves go up so will ravens, but that association isn't conditional on anything else (at least not according to the question). Some example data might be: 
 
 ```{r}
-tibble(wolves = rpois(10, 20)) %>% 
+tibble(wolves = rpois(10, 20)) |> 
   mutate(ravens = rpois(10, 3 * (wolves + rnorm(10, sd = 4))))
 ```
 
@@ -781,17 +781,17 @@ tibble(wolves = rpois(10, 20)) %>%
 ```{r}
 set.seed(1126)
 quap(
-  flist = alist(
-    B ~ dnorm(mu, sigma), 
-    mu <- a + (bW * W) - (bS * S) + (bWS * W * S), 
-    a ~ dnorm(0.5, 0.25),
-    c(bW, bS) ~ dlnorm(0, 0.25), 
-    bWS ~ dnorm(0, 0.25), 
-    sigma ~ dexp(1)
-  ), 
-  data = dtulips
-) %>% 
-  plot_prior_tulips()
+    flist = alist(
+      B ~ dnorm(mu, sigma), 
+      mu <- a + (bW * W) - (bS * S) + (bWS * W * S), 
+      a ~ dnorm(0.5, 0.25),
+      c(bW, bS) ~ dlnorm(0, 0.25), 
+      bWS ~ dnorm(0, 0.25), 
+      sigma ~ dexp(1)
+    ), 
+    data = dtulips
+  ) |> 
+  {\(x) plot_prior_tulips(x)}()
 ```
 
 The priors need to be a bit tighter, these lines are too steep and the differences across the three panels seem a bit too stark. 
@@ -810,7 +810,7 @@ m8m4 <- quap(
   data = dtulips
 ) 
 
-m8m4 %>% 
+m8m4 |> 
   plot_prior_tulips()
 ```
 
@@ -857,7 +857,7 @@ tibble(
   country = drugged[["country"]], 
   k = PSIS(m8_3, pointwise = TRUE)[["k"]], 
   penalty = WAIC(m8_3, pointwise = TRUE)[["penalty"]]
-) %>% 
+) |> 
   ggplot(aes(k, penalty)) + 
   geom_point(colour = "steelblue") + 
   geom_vline(xintercept = 0.5, linetype = 2, alpha = 0.2) + 
@@ -889,7 +889,7 @@ tibble(
   country = drugged[["country"]], 
   k = PSIS(m8h3b, pointwise = TRUE)[["k"]], 
   penalty = WAIC(m8h3b, pointwise = TRUE)[["penalty"]]
-) %>% 
+) |> 
   ggplot(aes(k, penalty)) + 
   geom_point(colour = "steelblue") + 
   geom_vline(xintercept = 0.5, linetype = 2, alpha = 0.2) + 
@@ -911,12 +911,12 @@ set.seed(1310)
 map2_dfr(
   list(m8_3, m8h3b), 
   c("Normal", "Student-t"), 
-  ~ extract.samples(.x) %>% 
-    pluck("b") %>% 
-    as_tibble(.name_repair = ~ c("one", "two")) %>% 
-    transmute(contrast = two - one) %>% 
+  ~ extract.samples(.x) |> 
+    pluck("b") |> 
+    as_tibble(.name_repair = ~ c("one", "two")) |> 
+    transmute(contrast = two - one) |> 
     mutate(model = .y)
-) %>% 
+) |> 
   ggplot(aes(contrast, colour = model, fill = model)) + 
   geom_density(alpha = 0.4) + 
   scale_fill_viridis_d(
@@ -938,15 +938,15 @@ map2_dfr(
 
 ```{r}
 data(nettle)
-dnettle <- nettle %>% 
-  as_tibble() %>% 
+dnettle <- nettle |> 
+  as_tibble() |> 
   transmute(
     country, 
     A = log(area), 
     M = mean.growing.season, 
     S = sd.growing.season, 
     L = log(num.lang / k.pop)
-  ) %>% 
+  ) |> 
   mutate(across(where(is.double), standardize))
 dnettle
 ```
@@ -986,7 +986,7 @@ precis(m8h4b)
 Let's pause and plot the parameters. 
 
 ```{r}
-coeftab(m8h4a, m8h4b) %>% 
+coeftab(m8h4a, m8h4b) |> 
   coeftab_plot()
 ```
 
@@ -1009,7 +1009,7 @@ precis(m8h4c)
 Now we can compare the parameter estimates and PSIS scores for the models. 
 
 ```{r}
-coeftab(m8h4a, m8h4b, m8h4c) %>% 
+coeftab(m8h4a, m8h4b, m8h4c) |> 
   coeftab_plot()
 ```
 
@@ -1025,8 +1025,8 @@ tibble(
   country = dnettle[["country"]], 
   k = PSIS(m8h4c, pointwise = TRUE)[["k"]], 
   penalty = WAIC(m8h4c, pointwise = TRUE)[["penalty"]]
-) %>% 
-  mutate(penalty_prop = penalty / sum(penalty)) %>% 
+) |> 
+  mutate(penalty_prop = penalty / sum(penalty)) |> 
   ggplot(aes(k, penalty)) + 
   geom_point(colour = "steelblue") + 
   geom_vline(xintercept = c(0.5, 0.7), linetype = 2, alpha = 0.2) + 
@@ -1041,13 +1041,13 @@ tibble(
 There are some countries with very high values for $k$, in particular Vanuatu. Do the data tell us anything when considered alongside the parameter estimates from this model?
 
 ```{r}
-dnettle %>% 
+dnettle |> 
   filter(country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil"))
 ```
 
 
 ```{r}
-coeftab(m8h4c) %>% 
+coeftab(m8h4c) |> 
   coeftab_plot()
 ```
 
@@ -1055,32 +1055,32 @@ It might be easier to simulate: generate parameter samples from the posterior, t
 
 ```{r}
 set.seed(1649)
-sim(m8h4c) %>% 
-  as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) %>% 
-  rowid_to_column("sample_id") %>% 
-  select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") %>% 
+sim(m8h4c) |> 
+  as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) |> 
+  rowid_to_column("sample_id") |> 
+  select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") |> 
   pivot_longer(
     -sample_id, 
     names_to = "country", 
     values_to = "L"
-  ) %>% 
-  group_by(country) %>% 
+  ) |> 
+  group_by(country) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(L), PI(L))
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   inner_join(
-    dnettle %>% 
+    dnettle |> 
       filter(
         country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil")
-      ) %>% 
+      ) |> 
       select(country, L), 
     by = "country"
-  ) %>% 
+  ) |> 
   ggplot(aes(y = fct_rev(country), colour = country)) + 
   geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
   geom_point(aes(x = L), colour = "black") + 
@@ -1117,32 +1117,32 @@ We can repeat the plot of the posterior predictive simulation.
 
 ```{r}
 set.seed(1712)
-sim(m8h4d) %>% 
-  as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) %>% 
-  rowid_to_column("sample_id") %>% 
-  select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") %>% 
+sim(m8h4d) |> 
+  as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) |> 
+  rowid_to_column("sample_id") |> 
+  select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") |> 
   pivot_longer(
     -sample_id, 
     names_to = "country", 
     values_to = "L"
-  ) %>% 
-  group_by(country) %>% 
+  ) |> 
+  group_by(country) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(L), PI(L))
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   inner_join(
-    dnettle %>% 
+    dnettle |> 
       filter(
         country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil")
-      ) %>% 
+      ) |> 
       select(country, L), 
     by = "country"
-  ) %>% 
+  ) |> 
   ggplot(aes(y = fct_rev(country), colour = country)) + 
   geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
   geom_point(aes(x = L), colour = "black") + 
@@ -1165,7 +1165,7 @@ compare(m8h4c, m8h4d, func = PSIS)
 The two models are nearly identical, although the robust regression does not throw up the warning about $k$. We can check whether the parameter estimates are similar also. 
 
 ```{r}
-coeftab(m8h4c, m8h4d) %>% 
+coeftab(m8h4c, m8h4d) |> 
   coeftab_plot()
 ```
 
@@ -1175,8 +1175,8 @@ The most noticeable change is that $\sigma$ is much smaller in the robust regres
 
 ```{r}
 data(Wines2012)
-dwines <- Wines2012 %>% 
-  as_tibble() %>% 
+dwines <- Wines2012 |> 
+  as_tibble() |> 
   transmute(
     judge = as.integer(judge), 
     flight = as.integer(flight), 
@@ -1216,12 +1216,12 @@ m8h5 <- quap(
 
 
 ```{r}
-m8h5 %>% 
-  precis(depth = 2) %>% 
-  as_tibble(rownames = "name") %>% 
-  filter(str_detect(name, "^a")) %>% 
-  set_names(c("name", "mean", "sd", "lower", "upper")) %>% 
-  mutate(param = if_else(str_detect(name, "^aJ"), "judge", "wine")) %>% 
+m8h5 |> 
+  precis(depth = 2) |> 
+  as_tibble(rownames = "name") |> 
+  filter(str_detect(name, "^a")) |> 
+  set_names(c("name", "mean", "sd", "lower", "upper")) |> 
+  mutate(param = if_else(str_detect(name, "^aJ"), "judge", "wine")) |> 
   ggplot(aes(y = reorder(name, mean), colour = param)) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
   scale_colour_manual(values = c("steelblue", "firebrick")) + 
@@ -1252,11 +1252,11 @@ m8h6 <- quap(
 
 
 ```{r}
-m8h6 %>% 
-  precis(depth = 2) %>% 
-  as_tibble(rownames = "name") %>% 
-  filter(str_detect(name, "^a")) %>% 
-  set_names(c("name", "mean", "sd", "lower", "upper")) %>% 
+m8h6 |> 
+  precis(depth = 2) |> 
+  as_tibble(rownames = "name") |> 
+  filter(str_detect(name, "^a")) |> 
+  set_names(c("name", "mean", "sd", "lower", "upper")) |> 
   mutate(
     param = case_when(
       str_detect(name, "^aF") ~ "flight", 
@@ -1273,7 +1273,7 @@ m8h6 %>%
       judge_US = "aJUS[2]", 
       judge_non_US = "aJUS[1]"
     )
-  ) %>% 
+  ) |> 
   ggplot(aes(y = name, colour = param)) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
   geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
@@ -1294,22 +1294,21 @@ However to do this properly we need to calculate the contrasts and consider thos
 
 ```{r}
 set.seed(1135)
-contrasts_8h6 <- extract.samples(m8h6) %>% 
-  `[`(c("aF", "aWUS", "aJUS")) %>% 
-  reduce(cbind) %>% 
-  as_tibble() %>% 
+contrasts_8h6 <- extract.samples(m8h6)[(c("aF", "aWUS", "aJUS"))] |> 
+  reduce(cbind) |> 
+  as_tibble(.name_repair = ~ str_c("V", 1:6)) |> 
   transmute(
     contrast_red_white = V1 - V2, 
     contrast_wine_US = V4 - V3,
     contrast_judge_US = V6 - V5
-  ) %>% 
+  ) |> 
   pivot_longer(
     everything(), 
     names_to = "contrast", 
     names_pattern = "contrast_(.+)"
   )
 
-contrasts_8h6 %>% 
+contrasts_8h6 |> 
   ggplot(aes(value, colour = contrast, fill = contrast)) + 
   geom_density(alpha = 0.3) + 
   geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
@@ -1323,11 +1322,11 @@ contrasts_8h6 %>%
 The flight contrast is squarely around zero, so we can set that aside. How likely is it that the US judges are giving higher scores, or that the US wines get lower scores?
 
 ```{r}
-contrasts_8h6 %>% 
-  filter(contrast != "red_white") %>% 
-  mutate(split_loc = str_locate(.[["contrast"]], "_")[, 1]) %>% 
-  mutate(contrast = str_sub(contrast, end = split_loc - 1L)) %>% 
-  group_by(contrast) %>% 
+contrasts_8h6 |> 
+  filter(contrast != "red_white") |> 
+  mutate(split_loc = map_int(contrast, ~ str_locate(.x, "_")[, 1])) |> 
+  mutate(contrast = str_sub(contrast, end = split_loc - 1L)) |> 
+  group_by(contrast) |> 
   summarise(p_gt_0 = round(mean(value > 0), digits = 2))
 ```
 
@@ -1368,7 +1367,7 @@ m8h7 <- quap(
 ```
 
 ```{r}
-coeftab(m8h7) %>% 
+coeftab(m8h7) |> 
   coeftab_plot()
 ```
 
@@ -1378,14 +1377,14 @@ coeftab(m8h7) %>%
 - `bFW` (the interaction of wine being white and from the US) is centred well above zero. This is new, not something we could have seen from the earlier models. 
 - `bFJ` and `bWJ` are both centred near zero. 
 
-We can then use `link()` as RM suggests to get draws from the linear model. The plot is inspired by [Gregor Mathes'](https://gregor-mathes.netlify.app/2021/03/22/rethinking-chapter-8/#hard-practices) effort. 
+We can then use `link()` as RM suggests to get draws from the linear model. The plot is inspired by [Gregor Mathes' effort](https://gregor-mathes.netlify.app/2021/03/22/rethinking-chapter-8/#hard-practices). 
 
 ```{r}
 sim_grid_8h7 <- expand_grid(
   flight_ind = 0:1, 
   wine_US_ind = 0:1, 
   judge_US_ind = 0:1
-) %>% 
+) |> 
   mutate(
     label = str_c(
       if_else(judge_US_ind == 1L, "A", "F"), 
@@ -1397,19 +1396,19 @@ set.seed(1649)
 link(
   m8h7, 
   data = sim_grid_8h7
-) %>% 
-  as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) %>% 
-  rowid_to_column("sample_id") %>% 
-  pivot_longer(-sample_id, names_to = "grp") %>% 
-  group_by(grp) %>% 
+) |> 
+  as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) |> 
+  rowid_to_column("sample_id") |> 
+  pivot_longer(-sample_id, names_to = "grp") |> 
+  group_by(grp) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   ggplot(aes(y = reorder(grp, mean))) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
   geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
@@ -1429,19 +1428,19 @@ set.seed(1703)
 sim(
   m8h7, 
   data = sim_grid_8h7
-) %>% 
-  as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) %>% 
-  rowid_to_column("sample_id") %>% 
-  pivot_longer(-sample_id, names_to = "grp") %>% 
-  group_by(grp) %>% 
+) |> 
+  as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) |> 
+  rowid_to_column("sample_id") |> 
+  pivot_longer(-sample_id, names_to = "grp") |> 
+  group_by(grp) |> 
   summarise(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(value), PI(value))
     ), 
     .groups = "drop"
-  ) %>% 
-  pivot_wider() %>% 
+  ) |> 
+  pivot_wider() |> 
   ggplot(aes(y = reorder(grp, mean))) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
   geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
