@@ -35,7 +35,7 @@ buckets <- tibble(
   C = c(0, 2, 6, 2, 0), 
   D = c(1, 2, 4, 2, 1), 
   E = c(2, 2, 2, 2, 2)
-) %>% 
+) |> 
   rowid_to_column("bucket")
 buckets
 ```
@@ -43,11 +43,11 @@ buckets
 Then we calculate the entropy for each of the distributions A to E. 
 
 ```{r}
-H <- buckets %>% 
-  mutate(across(-bucket, ~ .x / sum(.x))) %>% 
-  pivot_longer(-bucket) %>% 
-  group_by(name) %>% 
-  mutate(H = -1 * coalesce(value * log(value), 0)) %>% 
+H <- buckets |> 
+  mutate(across(-bucket, ~ .x / sum(.x))) |> 
+  pivot_longer(-bucket) |> 
+  group_by(name) |> 
+  mutate(H = -1 * coalesce(value * log(value), 0)) |> 
   summarise(across(H, sum))
 H
 ```
@@ -55,9 +55,9 @@ H
 We can also recreate RM's plots. 
 
 ```{r}
-buckets %>% 
-  pivot_longer(-bucket) %>% 
-  mutate(bucket = factor(bucket)) %>% 
+buckets |> 
+  pivot_longer(-bucket) |> 
+  mutate(bucket = factor(bucket)) |> 
   ggplot(aes(bucket, value)) + 
   geom_col(width = 0.15) + 
   scale_y_continuous("pebbles", breaks = c(0, 5, 10)) + 
@@ -67,13 +67,13 @@ buckets %>%
 ```{r}
 inner_join(
   H, 
-  buckets %>%
-    pivot_longer(-bucket) %>%
-    group_by(name) %>%
-    summarise(ways = factorial(10) / prod(map_dbl(value, factorial))) %>% 
+  buckets |>
+    pivot_longer(-bucket) |>
+    group_by(name) |>
+    summarise(ways = factorial(10) / prod(map_dbl(value, factorial))) |> 
     mutate(logwayspp = log(ways) / 10), 
   by = "name"
-) %>% 
+) |> 
   ggplot(aes(logwayspp, H, label = name)) +
   geom_smooth(
     formula = y ~ x, 
@@ -124,11 +124,11 @@ solve_for_alpha <- function(beta, variance = 1) {
 }
 
 (
-  tibble(beta = c(1, 1.5, 2, 4)) %>% 
-    mutate(alpha = solve_for_alpha(beta)) %>% 
-    mutate(Gaussian = beta == 2) %>% 
-    expand(nesting(beta, alpha, Gaussian), x = seq(-4, 4, length.out = 101)) %>% 
-    mutate(y = dgnorm(x, 0, alpha, beta)) %>% 
+  tibble(beta = c(1, 1.5, 2, 4)) |> 
+    mutate(alpha = solve_for_alpha(beta)) |> 
+    mutate(Gaussian = beta == 2) |> 
+    expand(nesting(beta, alpha, Gaussian), x = seq(-4, 4, length.out = 101)) |> 
+    mutate(y = dgnorm(x, 0, alpha, beta)) |> 
     ggplot(aes(x, y, group = beta, colour = Gaussian, size = Gaussian)) + 
     geom_line() + 
     scale_colour_manual(values = c("grey70", "steelblue")) + 
@@ -137,11 +137,11 @@ solve_for_alpha <- function(beta, variance = 1) {
     theme(legend.position = "none")
 ) + (
   
-  tibble(beta = seq(1, 4, length.out = 100)) %>% 
-    mutate(alpha = solve_for_alpha(beta)) %>% 
+  tibble(beta = seq(1, 4, length.out = 100)) |> 
+    mutate(alpha = solve_for_alpha(beta)) |> 
     mutate(
       entropy = (1 / beta) - log((beta) / (2 * alpha * gamma(1 / beta)))
-    ) %>% 
+    ) |> 
     ggplot(aes(beta, entropy)) + 
     geom_line(colour = "steelblue") + 
     geom_vline(xintercept = 2, linetype = 2, colour = "grey50") + 
@@ -161,9 +161,9 @@ marble_dist <- tribble(
   "C",           1/6, 2/6, 2/6, 1/6, 
   "D",           1/8, 4/8, 2/8, 1/8
 )
-marble_dist %>% 
-  pivot_longer(-Distribution) %>% 
-  mutate(name = fct_inorder(name)) %>% 
+marble_dist |> 
+  pivot_longer(-Distribution) |> 
+  mutate(name = fct_inorder(name)) |> 
   ggplot(aes(name, value, group = 1)) + 
   geom_point(colour = "steelblue") + 
   geom_path(colour = "steelblue") + 
@@ -179,15 +179,15 @@ marble_dist %>%
 We can verify that they all have the right expected value, and compute the entropy for each. 
 
 ```{r}
-marble_dist %>% 
+marble_dist |> 
   transmute(
     Distribution, 
     Expectation = bw + wb + (2 * bb)
   )
 
-marble_dist %>% 
-  pivot_longer(-Distribution) %>% 
-  group_by(Distribution) %>% 
+marble_dist |> 
+  pivot_longer(-Distribution) |> 
+  group_by(Distribution) |> 
   summarise(Entropy = -sum(value * (log(value))))
 ```
 
@@ -207,9 +207,9 @@ marble_dist_2
 It isn't flat, but it is the flattest distribution under the constraint that the expected number of blue marbles is 1.4. We can also compute the entropy. 
 
 ```{r}
-marble_dist_2 %>% 
-  pivot_longer(-Distribution) %>% 
-  group_by(Distribution) %>% 
+marble_dist_2 |> 
+  pivot_longer(-Distribution) |> 
+  group_by(Distribution) |> 
   summarise(Entropy = -sum(value * (log(value))))
 ```
 
@@ -218,64 +218,63 @@ We can use simulation to show that this is the maximum entropy for that expectat
 ```{r}
 sim_p <- function(id, N) {
   set.seed(id)
-  matrix(
-  runif(3 * N), 
-  nrow = N
-) %>% 
-  {
-    cbind(
-      ., 
-      apply(., 1, function(x) ((1.4 * sum(x)) - x[2] - x[3]) / (2 - 1.4))
-    )
-  } %>% 
-  {
-    . / rowSums(.)
-  } %>% 
-  {
-    cbind(
-      ., 
-      apply(., 1, function(p) -sum(p * log(p)))
-    )
-  } %>% 
-  as_tibble(.name_repair = ~ c("ww", "bw", "wb", "bb", "H")) %>% 
-  rowid_to_column("id") %>% 
-  pivot_longer(-c(id, H)) %>% 
-  transmute(id, H, p = value, key = fct_inorder(name))
+  matrix(runif(3 * N), nrow = N) |> 
+    {
+      \(x) {
+        cbind(
+          x, 
+          apply(x, 1, function(x) ((1.4 * sum(x)) - x[2] - x[3]) / (2 - 1.4))
+        )
+      }
+    }() |> 
+    {\(x) x / rowSums(x)}() |> 
+    {
+      \(x) {
+        cbind(
+          x, 
+          apply(x, 1, function(p) -sum(p * log(p)))
+        )
+      }
+    }() |> 
+    as_tibble(.name_repair = ~ c("ww", "bw", "wb", "bb", "H")) |> 
+    rowid_to_column("id") |> 
+    pivot_longer(-c(id, H)) |> 
+    transmute(id, H, p = value, key = fct_inorder(name))
 }
 d <- sim_p(1135, 1e5)
 d
 ```
 
 ```{r}
-ranked_d <- d %>% 
-  group_by(id) %>% 
-  arrange(desc(H)) %>% 
-  ungroup() %>%
+ranked_d <- d |> 
+  group_by(id) |> 
+  arrange(desc(H)) |> 
+  ungroup() |>
   # here's the rank order step
   mutate(rank = rep(seq_len(1e5), each = 4))
 ranked_d
 ```
 
 ```{r}
-subset_d <- ranked_d %>% 
-  filter(rank %in% c(99991L, 98539L, 87516L, 1L)) %>% 
+subset_d <- ranked_d |> 
+  filter(rank %in% c(99991L, 98539L, 87516L, 1L)) |> 
   mutate(
     height = rep(c(8, 2.25, .55, .5), each = 4), 
     distribution = rep(LETTERS[1:4], each = 4)
   )
 
-d %>% 
-  distinct(id, H) %>% 
+d |> 
+  distinct(id, H) |> 
   ggplot(aes(H)) + 
   geom_density(colour = "steelblue", adjust = 1/4) + 
   geom_linerange(
     aes(ymin = 0, ymax = height), 
-    data = subset_d %>% group_by(id) %>% slice(1), 
+    data = subset_d |> group_by(id) |> slice(1), 
     colour = "grey30"
   ) + 
   geom_text(
     aes(y = height + 0.3, label = distribution), 
-    data = subset_d %>% group_by(id) %>% slice(1)
+    data = subset_d |> group_by(id) |> slice(1)
   ) + 
   scale_x_continuous("Entropy", breaks = seq(0.7, 1.2, by = 0.1)) + 
   coord_cartesian(
@@ -289,7 +288,7 @@ d %>%
 ```
 
 ```{r}
-subset_d %>% 
+subset_d |> 
   ggplot(aes(key, p, group = 1)) + 
   geom_point(colour = "steelblue") + 
   geom_path(colour = "steelblue") + 
@@ -327,8 +326,8 @@ The choice of the binomial here is just a placeholder: it could be any other max
 In this particular case the link function keeps the estimate for $p$ within bounds, i.e. $p_i \in [0, 1]$. We aren't modelling the mean directly: instead we are modelling a probability. And this is why we need a link function:
 
 ```{r}
-tibble(x = seq(-1, 3, by = 0.01)) %>% 
-  mutate(natural = 0.35 + (0.5 * x)) %>% 
+tibble(x = seq(-1, 3, by = 0.01)) |> 
+  mutate(probability = 0.35 + (0.5 * x)) |> 
   ggplot(aes(x, probability)) + 
   geom_hline(yintercept = c(0, 1), linetype = 2, size = 0.3, colour = "grey50") + 
   geom_line(
@@ -371,12 +370,12 @@ The second equation is the logistic function applied to $\alpha + \beta x_i$.
 We can see the logistic function in action. 
 
 ```{r}
-logistic_lines <- tibble(x = seq(from = -1, to = 1, by = .25)) %>% 
-  mutate(log_measurement  = 4 * x) %>% 
-  mutate(natural = inv_logit(log_odds))
-logistic_example <- tibble(x = seq(-1, 1, length.out = 101)) %>% 
-  mutate(log_measurement = 2.1 * x) %>% 
-  mutate(natural = inv_logit(log_odds))
+logistic_lines <- tibble(x = seq(from = -1, to = 1, by = .25)) |> 
+  mutate(log_odds  = 4 * x) |> 
+  mutate(probability = inv_logit(log_odds))
+logistic_example <- tibble(x = seq(-1, 1, length.out = 101)) |> 
+  mutate(log_odds = 2.1 * x) |> 
+  mutate(probability = inv_logit(log_odds))
 
 (
   ggplot(logistic_example, aes(x, log_odds)) + 
@@ -406,11 +405,11 @@ $$
 The effects can be plotted, just as for the logit link. 
 
 ```{r}
-loglink_lines <- tibble(log_measurement = seq(from = -3, to = 3)) %>% 
-  mutate(natural = exp(log_measurement))
-loglink_example <- tibble(x = seq(-1, 1, length.out = 101)) %>% 
-  mutate(log_measurement = 2.25 * x) %>% 
-  mutate(natural = exp(log_measurement))
+loglink_lines <- tibble(log_measurement = seq(from = -3, to = 3)) |> 
+  mutate(probability = exp(log_measurement))
+loglink_example <- tibble(x = seq(-1, 1, length.out = 101)) |> 
+  mutate(log_measurement = 2.25 * x) |> 
+  mutate(probability = exp(log_measurement))
 
 (
   ggplot(loglink_example, aes(x, log_measurement)) + 
@@ -420,12 +419,12 @@ loglink_example <- tibble(x = seq(-1, 1, length.out = 101)) %>%
     ) + 
     labs(y = "log measurement")
 ) + (
-  ggplot(loglink_example, aes(x, natural)) + 
+  ggplot(loglink_example, aes(x, probability)) + 
     geom_line(colour = "steelblue", size = 1) + 
     geom_hline(
-      aes(yintercept = natural), 
-      data = loglink_lines %>% 
-        filter(natural <= 10), 
+      aes(yintercept = probability), 
+      data = loglink_lines |> 
+        filter(probability <= 10), 
       alpha = 0.2
     ) + 
     scale_y_continuous(
@@ -467,7 +466,7 @@ RM explains a situation where our inferences may be wrong: $X$ and $Z$Z both pre
 
 ```{r}
 set.seed(840)
-domitted <- tibble(x = rnorm(1000), z = rnorm(1000)) %>% 
+domitted <- tibble(x = rnorm(1000), z = rnorm(1000)) |> 
   mutate(y = as.integer(x > 0.5 | z > 0.5))
 
 m_omitted_full <- xfun::cache_rds({
