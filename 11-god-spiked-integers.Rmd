@@ -45,8 +45,8 @@ RM outlines the experiment: in short, we want to see if the presence of another 
 
 ```{r}
 data(chimpanzees)
-dchimp <- chimpanzees %>% 
-  as_tibble() %>% 
+dchimp <- chimpanzees |> 
+  as_tibble() |> 
   # Create the treatment variable that RM shows a bit later
   mutate(treatment = 1L + prosoc_left + (2L * condition))
 dchimp
@@ -99,13 +99,13 @@ fig11_3_1 <- list(
     ), 
     data = dchimp
   )
-) %>% 
+) |> 
   imap_dfr(
-    ~ extract.prior(.x, n = 1e4) %>% 
-      as_tibble() %>% 
+    ~ extract.prior(.x, n = 1e4) |> 
+      as_tibble() |> 
       mutate(across(a, inv_logit)), 
     .id = "prior"
-  ) %>% 
+  ) |> 
   ggplot(aes(a, colour = prior)) + 
   geom_density(adjust = 0.2, size = 1.1) + 
   geom_label_repel(
@@ -153,17 +153,17 @@ fig11_3_1 + (
       ), 
       data = dchimp
     )
-  ) %>% 
+  ) |> 
     imap_dfr(
-      ~ .x %>% 
-        extract.prior(n = 1e4) %>% 
-        map(as_tibble, .name_repair = "universal") %>% 
-        reduce(bind_cols) %>% 
-        set_names(c("a", str_c("b", 1:4))) %>% 
-        mutate(across(starts_with("b"), ~ inv_logit(a + .x))) %>% 
+      ~ .x |> 
+        extract.prior(n = 1e4) |> 
+        map(as_tibble, .name_repair = "universal") |> 
+        reduce(bind_cols) |> 
+        set_names(c("a", str_c("b", 1:4))) |> 
+        mutate(across(starts_with("b"), ~ inv_logit(a + .x))) |> 
         transmute(contrast = abs(b1 - b2)), 
       .id = "prior"
-    ) %>% 
+    ) |> 
     ggplot(aes(contrast, colour = prior)) + 
     geom_density(adjust = 0.2, size = 1.1) + 
     geom_label_repel(
@@ -195,44 +195,227 @@ In both plots we can see the effect of the wide prior: the prior gives too much 
 Now that we have the priors we can start fitting models. 
 
 ```{r}
-chimp_list <- dchimp %>% 
-  select(pulled_left, actor, treatment) %>% 
+chimp_list <- dchimp |> 
+  select(pulled_left, actor, treatment) |> 
   compose_data()
 ```
 
 ```{r}
-m11_4 <- stan_model(file = here::here("inst/Stan/m11_4.stan")) %>% 
+m11_4 <- stan_model(file = here::here("inst/Stan/m11_4.stan")) |> 
   sampling(data = chimp_list, seed = 1144)
 ```
 
 ```{r}
-ulam(
-  alist(
-    pulled_left ~ dbinom(1, p), 
-    logit(p) <- a[actor] + b[treatment], 
-    a[actor] ~ dnorm(0, 1.5), 
-    b[treatment] ~ dnorm(0, 0.5)
-  ), 
-  data = chimp_list, 
-  log_lik = TRUE
-) %>% 
-  stancode()
+precis(m11_4, depth = 2)
 ```
 
 ```{r}
-brms::make_stancode(
-  formula = brms::bf(
-    pulled_left | trials(1) ~ a + b,
-    a ~ 0 + actor, 
-    b ~ 0 + treatment,
-    nl = TRUE
-  ), 
-  data = chimp_list, 
-  family = binomial, 
-  prior = c(
-    brms::prior(normal(0, 1.5), nlpar = a), 
-    brms::prior(normal(0, 0.5), nlpar = b)
-  )
-)
+spread_draws(m11_4, a[i]) |> 
+  mutate(a = inv_logit(a)) |> 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(a), HPDI(a))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  mutate(i = str_c("V", i)) |> 
+  ggplot(aes(x = mean, y = fct_rev(i), xmin = lower, xmax = upper)) + 
+  geom_pointrange() +
+  geom_vline(xintercept = 0.5, linetype = 2, colour = "grey50") + 
+  coord_cartesian(xlim = c(0, 1)) + 
+  labs(x = "Value", y = NULL)
 ```
+
+Now we can summarise the treatment effects. 
+
+```{r}
+spread_draws(m11_4, b[i]) |> 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(b), HPDI(b))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  arrange(i) |> 
+  mutate(i = c("R/N", "L/N", "R/P", "L/P")) |> 
+  mutate(i = fct_rev(fct_inorder(i))) |> 
+  ggplot(aes(x = mean, y = i, xmin = lower, xmax = upper)) + 
+  geom_pointrange() +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  labs(x = "Value", y = NULL)
+```
+
+The way RM has structured the treatment variable means we need to compare 1 with 3 and 2 with 4. Better to compute the contrasts explicitly. 
+
+```{r}
+spread_draws(m11_4, b[i]) |> 
+  ungroup() |> 
+  pivot_wider(names_from = "i", names_prefix = "b", values_from = "b") |> 
+  transmute(db13 = b1 - b3, db24 = b2 - b4) |> 
+  pivot_longer(everything(), names_to = "contrast") |> 
+  group_by(contrast) |> 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), HPDI(value))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  mutate(contrast = factor(contrast)) |> 
+  ggplot(aes(x = mean, y = fct_rev(contrast), xmin = lower, xmax = upper)) + 
+  geom_pointrange() +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  labs(x = "Value", y = NULL)
+```
+
+RM decodes this in the book: the contrasts are between no-partner and partner treatments. For `db13` this is where the prosocial option is on the right, so a positive value (i.e. a bigger difference) is evidence of prosocial behaviour: we want to see the chimps pulling the right lever more often with a partner present. For `db24` a negative value would be evidence of prosocial behaviour. We see the first but not the second, so there's nothing conclusive here at all. 
+
+Now we can do some posterior predictive checks. 
+
+```{r}
+list(
+  first = dchimp |> 
+    group_by(actor, treatment) |> 
+    summarise(across(pulled_left, mean), .groups = "drop") |> 
+    mutate(
+      grp = as.integer(treatment %% 2 == 0) + 1L, 
+      treatment_chr = case_when(
+        treatment == 1L ~ "R/N", 
+        treatment == 2L ~ "L/N", 
+        treatment == 3L ~ "R/P", 
+        treatment == 4L ~ "L/P", 
+        TRUE ~ "error"
+      )
+    ) |> 
+    {
+      \(x) {
+        assertthat::assert_that(!any(x[["treatment_chr"]] == "error"))
+        x
+      }
+    }() |> 
+    separate(
+      treatment_chr, 
+      into = c("side", "partner"), 
+      sep = "/", 
+      remove = FALSE
+    ) |> 
+    ggplot(aes(x = treatment, y = pulled_left, shape = partner)) + 
+    geom_point(colour = "steelblue") + 
+    geom_line(aes(group = grp), colour = "steelblue", alpha = 0.4) + 
+    geom_text_repel(
+      aes(label = treatment_chr), 
+      data = . %>% 
+        filter(actor == 1L)
+    ) + 
+    geom_hline(yintercept = 0.5, linetype = 2, alpha = 0.5) + 
+    facet_wrap(~ actor, nrow = 1) + 
+    scale_shape_manual(values = c(21, 19)) + 
+    scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1)) + 
+    labs(
+      subtitle = "observed proportions by actor", 
+      x = NULL, 
+      y = "proportion left lever"
+    ) + 
+    theme(
+      plot.subtitle = element_text(hjust = 0.5), 
+      axis.ticks.x = element_blank(), 
+      axis.text.x = element_blank(), 
+      legend.position = "none"
+    ), 
+  second = spread_draws(m11_4, a[i]) |> 
+    ungroup() |> 
+    inner_join(
+      spread_draws(m11_4, b[v]) |> 
+        ungroup()
+    ) |> 
+    mutate(p = inv_logit(a + b)) |> 
+    group_by(actor = i, treatment = v) |> 
+    summarise(
+      tibble(
+        name = c("pulled_left", "lower", "upper"), 
+        value = c(mean(p), HPDI(p))
+      )
+    ) |> 
+    pivot_wider() |> 
+    mutate(
+      grp = as.integer(treatment %% 2 == 0) + 1L, 
+      treatment_chr = case_when(
+        treatment == 1L ~ "R/N", 
+        treatment == 2L ~ "L/N", 
+        treatment == 3L ~ "R/P", 
+        treatment == 4L ~ "L/P", 
+        TRUE ~ "error"
+      )
+    ) |> 
+    {
+      \(x) {
+        assertthat::assert_that(!any(x[["treatment_chr"]] == "error"))
+        x
+      }
+    }() |> 
+    separate(
+      treatment_chr, 
+      into = c("side", "partner"), 
+      sep = "/", 
+      remove = FALSE
+    ) |> 
+    ggplot(aes(x = treatment, y = pulled_left, shape = partner)) + 
+    geom_linerange(aes(ymin = lower, ymax = upper)) + 
+    geom_point(colour = "black") + 
+    geom_line(aes(group = grp), colour = "grey30", alpha = 0.4) + 
+    geom_text_repel(
+      aes(label = treatment_chr), 
+      data = . %>% 
+        filter(actor == 1L)
+    ) + 
+    geom_hline(yintercept = 0.5, linetype = 2, alpha = 0.5) + 
+    facet_wrap(~ actor, nrow = 1) + 
+    scale_shape_manual(values = c(21, 19)) + 
+    scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1)) + 
+    labs(
+      subtitle = "posterior predictions by actor", 
+      x = NULL, 
+      y = "proportion left lever"
+    ) + 
+    theme(
+      plot.subtitle = element_text(hjust = 0.5), 
+      axis.ticks.x = element_blank(), 
+      axis.text.x = element_blank(), 
+      legend.position = "none"
+    )
+) |> 
+  wrap_plots(nrow = 2)
+```
+
+Our current model has varying intercepts by actor and then varying coefficients for the `treatment`, and this latter part is essentially an interaction between the `prosoc_left` (i.e. where is the prosocial option) and `condition` (i.e. whether or not a partner is present). So instead RM suggests another model: where we allow for each of those variables to act independently with no interaction. 
+
+```{r}
+m11_5 <- stan_model(file = here::here("inst/Stan/m11_5.stan")) |> 
+  sampling(
+    data = dchimp |> 
+      mutate(side = prosoc_left + 1L, cond = condition + 1L) |> 
+      select(pulled_left, side, cond, actor) |> 
+      compose_data(), 
+    seed = 1805
+  )
+```
+
+We can compare these models with PSIS: 
+
+```{r}
+compare(m11_4, m11_5, func = PSIS)
+```
+
+They have almost identical predictive accuracy. RM notes that this model comparison is not for use in selecting a model: that choice (`m11_4`) flows from the experiment and hypothesis. 
+
+### Relative shark and absolute deer
+
+The chimp problem focussed on **absolute effects**: how much different does the treatment make in the outcome (i.e. probability of pulling a lever)? Instead we can consider **relative effects**, or proportional changes in the odds of an outcome. 
+
+### Aggregated binomial: Chimpanzees again, condensed.
 
