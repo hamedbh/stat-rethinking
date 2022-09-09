@@ -1176,3 +1176,138 @@ d_fig_11_10 |>
   theme(legend.position = "none")
 ```
 
+### Negative binomial (gamma-Poisson) models
+
+The Poisson model assumes a constant $\lambda$, but this can underestimate the variation. So instead we can account for _rate heterogeneity_ with a negative binomial or gamma-Poisson model. 
+
+### Example: Exposure and the offset
+
+RM extends the monastery and manuscripts example: now we have one monastery that counts the manuscripts each day and another per week. By thinking of $\lambda$ as the rate per unit time, i.e. the expected number of events $\mu$ per unit time $\tau$, so that $\lambda = \mu/\tau$, we get: 
+
+$$
+\begin{align*}
+   y_i &\sim \operatorname{Poisson}(\lambda_i) \\
+   \log \lambda_i &= \log \frac{\mu_i}{\tau_i} \\
+                  &= \log \mu_i - \log \tau_i \\
+                  &= \alpha + \beta x_i \\
+  \log \mu_i &= \log \tau_i + \alpha + \beta x_i
+\end{align*}
+$$
+
+If $\tau_i = 1$ then $\log \tau_i = 0$ and we get back to the Poisson model. This $\tau_i$ is fixed for each observation, and is referred to as the offset.
+
+So let's simulate data for our current monastery, for which we have daily data and the true $\lambda = 1.5$; and the new monastery, for which we have weekly data and the true $\lambda = 0.5$. 
+
+```{r}
+set.seed(926)
+dmonk <- bind_rows(
+  tibble(
+    y = rpois(30, 1.5), 
+    offset = log(1L), 
+    monastery = 0L
+  ), 
+  tibble(
+    y = rpois(4, 0.5 * 7), 
+    offset = log(7L), 
+    monastery = 1L
+  )
+)
+```
+
+```{r}
+m11_12 <- stan_model(file = here::here("inst/Stan/m11_12.stan")) |> 
+  sampling(data = compose_data(dmonk), seed = 909)
+```
+
+```{r}
+m11_12 |> 
+  spread_draws(a, b) |> 
+  transmute(
+    old = exp(a), 
+    new = exp(a + b)
+  ) |> 
+  precis()
+```
+
+I tried this originally with data created from random seed 900 and got very different results, posterior means for old and new were about 0.85 and 0.45 respectively. So given the sample sizes here the posterior mean estimates aren't telling the whole story. So instead of doing what RM does in the text, let's actually compute the contrast and plot that. 
+
+```{r}
+contrast_11_12 <- m11_12 |> 
+  spread_draws(a, b) |> 
+  transmute(contrast = exp(a) - exp(a + b))
+
+summ_11_12 <- contrast_11_12 |>
+  summarise(x = c(mean(contrast), HPDI(contrast)))
+
+contrast_11_12 |> 
+  ggplot(aes(contrast)) + 
+  geom_density(fill = "steelblue", alpha = 0.5) + 
+  geom_vline(
+    aes(xintercept = x), 
+    data = summ_11_12, 
+    linetype = 2, 
+    colour = "grey50"
+  ) + 
+  labs(
+    title = "Contrast: old monstery minus new", 
+    x = NULL, 
+    y = NULL
+  ) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.text.y = element_blank()
+  )
+```
+
+The contrast is reliably positive, but with a fair bit of variation. 
+
+## Multinomial and categorical models
+
+Generalise from the binomial to multiple possible outcomes. RM mentions that there are numerous approaches. 
+
+The conventional choice for the link function is the **multinomial logit**, or **softmax**. 
+
+$$
+\operatorname{P}(k | s_1, s_2, \dots, s_K) = 
+  \frac{e^{s_k}}{\sum_{i = 1}^K e^{s_i}}
+$$
+
+RM says we need $K - 1$ models for $K$ event types, with one of the types acting as a 'pivot'. Importantly the predictors and parameters don't have to be the same in each one. 
+
+There are two basic cases then: 
+
+1. predictors have different values for different values of the outcome; and 
+2. parameters are distinct for each value of the outcome. 
+
+### Predictors matched to outcomes
+
+We are modelling choice of career for young people, for which one predictor is the expected income. So we expect the same parameter $\beta_\text{INCOME}$ to appear in each model, multiplying the different values of expected income. 
+
+Start by simulating some data, then building the model. 
+
+```{r}
+set.seed(34302)
+career <- sample(
+  3, 
+  size = 500, 
+  replace = TRUE, 
+  prob = softmax(c(1, 2, 5) * 0.5)
+)
+career
+```
+
+```{r}
+dcareer <- list(
+  N = 500, 
+  K = 3, 
+  career = career, 
+  income = c(1, 2, 5)
+)
+```
+
+```{r}
+m11_13 <- stan_model(file = here::here("inst/Stan/m11_13.stan")) |> 
+  sampling(data = dcareer, seed = 1121)
+stancode(m11_13)
+```
+
