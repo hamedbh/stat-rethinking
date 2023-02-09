@@ -1,0 +1,536 @@
+---
+title: "Big Entropy and the Generalised Linear Model"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+set_ulam_cmdstan(TRUE)
+library(patchwork)
+library(ggrepel)
+library(magrittr)
+library(corrr)
+library(furrr)
+library(tidyverse)
+library(tidybayes)
+library(bayesplot)
+library(shape)
+# set up the theme
+theme_set(
+  theme_light() + 
+    theme(panel.grid = element_blank())
+)
+```
+
+## Maximum entropy
+
+RM revisits entropy with an example where 10 pebbles are distributed across five buckets in five different ways. 
+
+```{r}
+buckets <- tibble(
+  A = c(0, 0, 10, 0, 0), 
+  B = c(0, 1, 8, 1, 0), 
+  C = c(0, 2, 6, 2, 0), 
+  D = c(1, 2, 4, 2, 1), 
+  E = c(2, 2, 2, 2, 2)
+) |> 
+  rowid_to_column("bucket")
+buckets
+```
+
+Then we calculate the entropy for each of the distributions A to E. 
+
+```{r}
+H <- buckets |> 
+  mutate(across(-bucket, ~ .x / sum(.x))) |> 
+  pivot_longer(-bucket) |> 
+  group_by(name) |> 
+  mutate(H = -1 * coalesce(value * log(value), 0)) |> 
+  summarise(across(H, sum))
+H
+```
+
+We can also recreate RM's plots. 
+
+```{r}
+buckets |> 
+  pivot_longer(-bucket) |> 
+  mutate(bucket = factor(bucket)) |> 
+  ggplot(aes(bucket, value)) + 
+  geom_col(width = 0.15) + 
+  scale_y_continuous("pebbles", breaks = c(0, 5, 10)) + 
+  facet_wrap(~ name)
+```
+
+```{r}
+inner_join(
+  H, 
+  buckets |>
+    pivot_longer(-bucket) |>
+    group_by(name) |>
+    summarise(ways = factorial(10) / prod(map_dbl(value, factorial))) |> 
+    mutate(logwayspp = log(ways) / 10), 
+  by = "name"
+) |> 
+  ggplot(aes(logwayspp, H, label = name)) +
+  geom_smooth(
+    formula = y ~ x, 
+    method = "lm", 
+    linetype = 2, 
+    size = 0.5, 
+    colour = "grey10", 
+    se = FALSE
+  ) + 
+  geom_point() + 
+  geom_text_repel(nudge_y = -0.011, seed = 1805) + 
+  labs(
+    x = "log(ways) per pebble", 
+    y = "entropy"
+  )
+```
+
+We will then spend a couple of sections deriving the Gaussian and binomial distributions as maximum entropy distributions under particular constraints. 
+
+### Gaussian
+
+RM uses the [generalised normal distribution](https://en.wikipedia.org/wiki/Generalized_normal_distribution) to illustrate the fact that the Gaussian is the maximum entropy distribution for a given variance. 
+
+The PDF of the generalised normal distribution is:
+
+$$
+\begin{align*}
+\operatorname{P}(y | \mu, \alpha, \beta) = 
+  \frac{\beta}{2 \alpha \Gamma(1 / \beta)} e^{-(\frac{| y - \mu |}{\alpha})^{\beta}}
+\end{align*}
+$$
+
+When $\beta = 2$ this is just the Gaussian. We can fix the variance at 1, vary the $\alpha$ and $\beta$ parameters, and see how the entropy varies. RM doesn't show the working for how $\alpha$ and $\beta$ relate to the variance, but from the Wiki link above we get the formula for the variance, from which we can derive: 
+
+$$
+\begin{alignat*}{2}
+  &&&\sigma^2 &&= \frac{\alpha^2 \Gamma(3/\beta)}{\Gamma(1 / \beta)}\\
+  &\implies\quad
+  &&\alpha &&= \sqrt{\frac{\sigma^2 \Gamma(1 / \beta)}{\Gamma(3 / \beta)}}
+\end{alignat*}
+$$
+
+So for any value of $\beta$ we can solve for $\alpha$ and compute the PDF. Then we use a grid to generate the plots and compute the entropy. (RM helpfully provides a `dgnorm()` function for computing the density of the generalised normal.)
+
+```{r}
+solve_for_alpha <- function(beta, variance = 1) {
+  sqrt((variance * gamma(1 / beta)) / (gamma(3 / beta)))
+}
+
+(
+  tibble(beta = c(1, 1.5, 2, 4)) |> 
+    mutate(alpha = solve_for_alpha(beta)) |> 
+    mutate(Gaussian = beta == 2) |> 
+    expand(nesting(beta, alpha, Gaussian), x = seq(-4, 4, length.out = 101)) |> 
+    mutate(y = dgnorm(x, 0, alpha, beta)) |> 
+    ggplot(aes(x, y, group = beta, colour = Gaussian, size = Gaussian)) + 
+    geom_line() + 
+    scale_colour_manual(values = c("grey70", "steelblue")) + 
+    scale_size_manual(values = c(0.75, 1.25)) + 
+    labs(x = "value", y = "Density") + 
+    theme(legend.position = "none")
+) + (
+  
+  tibble(beta = seq(1, 4, length.out = 100)) |> 
+    mutate(alpha = solve_for_alpha(beta)) |> 
+    mutate(
+      entropy = (1 / beta) - log((beta) / (2 * alpha * gamma(1 / beta)))
+    ) |> 
+    ggplot(aes(beta, entropy)) + 
+    geom_line(colour = "steelblue") + 
+    geom_vline(xintercept = 2, linetype = 2, colour = "grey50") + 
+    scale_x_continuous("shape", breaks = seq(1, 5, by = 0.5))
+)
+```
+
+### Binomial
+
+We return to marbles. RM sets up four probability distributions for drawing two marbles from a bag with an unknown number of blue and white marbles. The constraint is that our expected number of blue marbles must be 1 for all of them. 
+
+```{r}
+marble_dist <- tribble(
+  ~Distribution, ~ww, ~bw, ~wb, ~bb, 
+  "A",           1/4, 1/4, 1/4, 1/4, 
+  "B",           2/6, 1/6, 1/6, 2/6, 
+  "C",           1/6, 2/6, 2/6, 1/6, 
+  "D",           1/8, 4/8, 2/8, 1/8
+)
+marble_dist |> 
+  pivot_longer(-Distribution) |> 
+  mutate(name = fct_inorder(name)) |> 
+  ggplot(aes(name, value, group = 1)) + 
+  geom_point(colour = "steelblue") + 
+  geom_path(colour = "steelblue") + 
+  facet_wrap(~ Distribution) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.title.y = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.line.y = element_blank()
+  )
+```
+
+We can verify that they all have the right expected value, and compute the entropy for each. 
+
+```{r}
+marble_dist |> 
+  transmute(
+    Distribution, 
+    Expectation = bw + wb + (2 * bb)
+  )
+
+marble_dist |> 
+  pivot_longer(-Distribution) |> 
+  group_by(Distribution) |> 
+  summarise(Entropy = -sum(value * (log(value))))
+```
+
+A is a $\operatorname{Binomial}(2, 0.5)$ distribution and has the highest entropy. 
+
+We can generalise this to any expected value: RM gives an example of the binomial with expected value 1.4. Since it has mean $np$ then $p = 0.7$. 
+
+```{r}
+p <- 0.7
+marble_dist_2 <- tribble(
+  ~Distribution, ~ww,       ~bw,         ~wb,         ~bb, 
+  "A",           (1 - p)^2, p * (1 - p), (1 - p) * p, p^2
+)
+marble_dist_2
+```
+
+It isn't flat, but it is the flattest distribution under the constraint that the expected number of blue marbles is 1.4. We can also compute the entropy. 
+
+```{r}
+marble_dist_2 |> 
+  pivot_longer(-Distribution) |> 
+  group_by(Distribution) |> 
+  summarise(Entropy = -sum(value * (log(value))))
+```
+
+We can use simulation to show that this is the maximum entropy for that expectation. We simulate arbitrary PMFs with the same expected value and compute their entropies: we should find that none of them is higher than the one above. 
+
+```{r}
+sim_p <- function(id, N) {
+  set.seed(id)
+  matrix(runif(3 * N), nrow = N) |> 
+    {
+      \(x) {
+        cbind(
+          x, 
+          apply(x, 1, function(x) ((1.4 * sum(x)) - x[2] - x[3]) / (2 - 1.4))
+        )
+      }
+    }() |> 
+    {\(x) x / rowSums(x)}() |> 
+    {
+      \(x) {
+        cbind(
+          x, 
+          apply(x, 1, function(p) -sum(p * log(p)))
+        )
+      }
+    }() |> 
+    as_tibble(.name_repair = ~ c("ww", "bw", "wb", "bb", "H")) |> 
+    rowid_to_column("id") |> 
+    pivot_longer(-c(id, H)) |> 
+    transmute(id, H, p = value, key = fct_inorder(name))
+}
+d <- sim_p(1135, 1e5)
+d
+```
+
+```{r}
+ranked_d <- d |> 
+  group_by(id) |> 
+  arrange(desc(H)) |> 
+  ungroup() |>
+  # here's the rank order step
+  mutate(rank = rep(seq_len(1e5), each = 4))
+ranked_d
+```
+
+```{r}
+subset_d <- ranked_d |> 
+  filter(rank %in% c(99991L, 98539L, 87516L, 1L)) |> 
+  mutate(
+    height = rep(c(8, 2.25, .55, .5), each = 4), 
+    distribution = rep(LETTERS[1:4], each = 4)
+  )
+
+d |> 
+  distinct(id, H) |> 
+  ggplot(aes(H)) + 
+  geom_density(colour = "steelblue", adjust = 1/4) + 
+  geom_linerange(
+    aes(ymin = 0, ymax = height), 
+    data = subset_d |> group_by(id) |> slice(1), 
+    colour = "grey30"
+  ) + 
+  geom_text(
+    aes(y = height + 0.3, label = distribution), 
+    data = subset_d |> group_by(id) |> slice(1)
+  ) + 
+  scale_x_continuous("Entropy", breaks = seq(0.7, 1.2, by = 0.1)) + 
+  coord_cartesian(
+    xlim = c(0.62, 1.24), 
+    ylim = c(0, 8.6), 
+    expand = FALSE
+  ) + 
+  labs(
+    y = "Density"
+  )
+```
+
+```{r}
+subset_d |> 
+  ggplot(aes(key, p, group = 1)) + 
+  geom_point(colour = "steelblue") + 
+  geom_path(colour = "steelblue") + 
+  facet_wrap(~ distribution) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.title.y = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.line.y = element_blank()
+  )
+```
+
+## Generalised linear models
+
+We go from models like: 
+
+$$
+\begin{align*}
+y_i   &\sim \mathcal{N}(\mu_i, \sigma) \\
+\mu_i &= \alpha + \beta x_i .
+\end{align*}
+$$
+
+To models like: 
+
+$$
+\begin{align*}
+y_i   &\sim \operatorname{Binomial}(n, p_i) \\
+f(p_i) &= \alpha + \beta (x_i - \bar{x})
+\end{align*}
+$$
+
+The choice of the binomial here is just a placeholder: it could be any other maximum entropy distribution appropriate for the problem. The more important change is on the second line, where instead of the linear terms being equal to the parameter we care about, they are equal to some function of that parameter. The function $f$ here is the **link function**. 
+
+In this particular case the link function keeps the estimate for $p$ within bounds, i.e. $p_i \in [0, 1]$. We aren't modelling the mean directly: instead we are modelling a probability. And this is why we need a link function:
+
+```{r}
+tibble(x = seq(-1, 3, by = 0.01)) |> 
+  mutate(probability = 0.35 + (0.5 * x)) |> 
+  ggplot(aes(x, probability)) + 
+  geom_hline(yintercept = c(0, 1), linetype = 2, size = 0.3, colour = "grey50") + 
+  geom_line(
+    aes(linetype = probability > 1), 
+    colour = "steelblue"
+  ) + 
+  scale_linetype_manual(values = c(1, 2)) + 
+  geom_segment(
+    aes(x = 1.3, y = 1, xend = 3, yend = 1), 
+    colour = "steelblue", 
+    size = 0.38
+  ) + 
+  scale_y_continuous(breaks = c(0, .5, 1)) +
+  coord_cartesian(xlim = c(0, 2), ylim = c(0, 1.2)) +
+  theme(legend.position = "none")
+```
+
+Without something to constrain it the linear part will be unbounded. 
+
+### Meet the family
+
+RM plots the most commonly-used members of the exponential family. It would take too much work to rebuild his plots, so just refer back to page 315 of the book for them. 
+
+### Linking linear models to distributions
+
+We now get introduced to the logit link function, and its inverse (the logistic function). 
+
+$$
+\begin{align*}
+  &&\operatorname{logit}(p_i) &= \log \frac{p_i}{1 - p_i} \\
+  \implies 
+  && p_i &= \frac
+    {\operatorname{exp}{(\alpha + \beta x_i)}}
+    {1 + \operatorname{exp}{(\alpha + \beta x_i)}}
+\end{align*}
+$$
+
+The second equation is the logistic function applied to $\alpha + \beta x_i$. 
+
+We can see the logistic function in action. 
+
+```{r}
+logistic_lines <- tibble(x = seq(from = -1, to = 1, by = .25)) |> 
+  mutate(log_odds  = 4 * x) |> 
+  mutate(probability = inv_logit(log_odds))
+logistic_example <- tibble(x = seq(-1, 1, length.out = 101)) |> 
+  mutate(log_odds = 2.1 * x) |> 
+  mutate(probability = inv_logit(log_odds))
+
+(
+  ggplot(logistic_example, aes(x, log_odds)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(aes(yintercept = log_odds), data = logistic_lines, alpha = 0.2) + 
+    labs(y = "log-odds")
+) + (
+  ggplot(logistic_example, aes(x, probability)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(
+      aes(yintercept = probability), data = logistic_lines, alpha = 0.2
+    ) + 
+    scale_y_continuous(position = "right", breaks = c(0, 0.5, 1))
+)
+```
+
+RM discusses situations where we might use a log link instead, for example to constrain a value to be positive. He uses the example of modelling the standard deviation $\sigma$ in a linear model to itself be some function of a predictor, $x$. Then we have: 
+
+$$
+\begin{align*}
+&&y_i &\sim \mathcal{N}(\mu, \sigma_i) \\
+&&\log(\sigma_i) &= \alpha + \beta x_i \\
+\implies && \sigma_i &= e^{\alpha + \beta x_i}
+\end{align*}
+$$
+
+The effects can be plotted, just as for the logit link. 
+
+```{r}
+loglink_lines <- tibble(log_measurement = seq(from = -3, to = 3)) |> 
+  mutate(probability = exp(log_measurement))
+loglink_example <- tibble(x = seq(-1, 1, length.out = 101)) |> 
+  mutate(log_measurement = 2.25 * x) |> 
+  mutate(probability = exp(log_measurement))
+
+(
+  ggplot(loglink_example, aes(x, log_measurement)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(
+      aes(yintercept = log_measurement), data = loglink_lines, alpha = 0.2
+    ) + 
+    labs(y = "log measurement")
+) + (
+  ggplot(loglink_example, aes(x, probability)) + 
+    geom_line(colour = "steelblue", size = 1) + 
+    geom_hline(
+      aes(yintercept = probability), 
+      data = loglink_lines |> 
+        filter(probability <= 10), 
+      alpha = 0.2
+    ) + 
+    scale_y_continuous(
+      position = "right", breaks = seq(0, 10, by = 2), limits = c(0, 10)
+    )
+)
+```
+
+RM points out that the job is done of keeping $\sigma$ positive, but at a cost: we now have exponential growth in the parameter. This means that unexpectedly large values for $x$ will cause $\sigma$ to blow up. 
+
+RM then delves deeper in the Overthinking box, taking derivatives to calculate the rate of change for the output of a GLM as the predictors change. 
+
+Start by reverting to the linear model, where we model $\mu = \alpha + \beta x$. Then $\partial \mu / \partial x = \beta$, which is just a constant. The rate of change is the same for all values of $x$. 
+
+Now for the GLM, let's consider a binary outcome with probability $p$. Then: 
+
+$$
+\begin{align*}
+  &&p &= \frac{e^{\alpha + \beta x}}{1 + e^{\alpha + \beta x}} \\
+  \implies &&\frac{\partial p}{\partial x} &= 
+    \frac{\beta}{2(1 + \cosh(\alpha + \beta x))}.
+\end{align*}
+$$
+
+So the impact of a change in $x$ depends on $x$: it interacts with itself. We can also compute the rate of change for the log-odds. 
+
+$$
+\begin{align*}
+\frac{\partial \operatorname{log-odds}(p)}{\partial x} &= 
+    \beta e^{\alpha + \beta x}
+\end{align*}
+$$
+
+This is a little simpler as we avoid $\cosh$, but we still have the same interaction between $x$ and itself. 
+
+### Omitted variable bias again
+
+RM explains a situation where our inferences may be wrong: $X$ and $Z$Z both predict $Y$ independently, and if either is large enough then $Y = 1$. In this case we might decide to measure just $X$, maybe to save money or something. But this might lead us to underestimate the effects of $X$. 
+
+```{r}
+set.seed(840)
+domitted <- tibble(x = rnorm(1000), z = rnorm(1000)) |> 
+  mutate(y = as.integer(x > 0.5 | z > 0.5))
+
+m_omitted_full <- xfun::cache_rds({
+  ulam(
+    alist(
+      y ~ dbinom(1, p), 
+      logit(p) <- a + (bX * x) + (bZ * z), 
+      a ~ dnorm(0, 0.5), 
+      c(bX, bZ) ~ dnorm(0, 0.5)
+    ), 
+    data = domitted, 
+    chains = 4, 
+    cores = 4, 
+    log_lik = TRUE
+  )}, 
+  file = "m_omitted_full.rds"
+)
+precis(m_omitted_full)
+```
+
+Now we build a model with just $X$. 
+
+```{r}
+m_omitted_partial <- xfun::cache_rds({
+  ulam(
+    alist(
+      y ~ dbinom(1, p), 
+      logit(p) <- a + (bX * x), 
+      a ~ dnorm(0, 0.5), 
+      bX ~ dnorm(0, 0.5)
+    ), 
+    data = domitted, 
+    chains = 4, 
+    cores = 4, 
+    log_lik = TRUE
+  )}, 
+  file = "m_omitted_partial.rds"
+)
+precis(m_omitted_partial)
+```
+
+Why do we get a much lower estimate for the effect of $X$? It's because there are instances when $X$ is low but $Y = 1$ because $Z$ was sufficiently large, so the model assumes that $X$ must have less of an effect.
+
+### Absolute and relative differences
+
+RM points out that we can no longer interpret coefficients directly because we are interested in the absolute difference in a change from the predictor, whereas the coefficients tell us about the relative differences when holding everything else constant. 
+
+### GLMs and information criteria
+
+Now that we are using different likelihoods we must only use something like WAIC to compare two models with the same likelihood. This is because of the normalising constant in Bayes theorem: when the likelihoods are the same this just subtracts out, but this won't work when the likelihoods are different. 
+
+
+Since we used the binomial likelihood for both models in the omitted variable example we can compare them with WAIC. 
+
+```{r}
+compare(m_omitted_full, m_omitted_partial)
+```
+
+The difference is very large. 
+
+## Maximum entropy priors
+
+RM reiterates the value of maximum entropy distributions in the choice of likelihood and priors. 
+
+## Summary
+
+This chapter was quite theoretical, but had some good examples to rebuild with code. 

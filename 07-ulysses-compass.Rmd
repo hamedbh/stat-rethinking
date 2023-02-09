@@ -53,7 +53,7 @@ dbrain
 ```
 
 ```{r}
-dbrain %>% 
+dbrain |> 
   ggplot(aes(mass, brain)) + 
   geom_point(alpha = 0.6, colour = "steelblue") + 
   geom_text_repel(aes(label = species)) + 
@@ -64,7 +64,7 @@ dbrain %>%
 Now we fit a bunch of models, becoming increasingly complex and useless. Need to rescale the data: `brain` is handled differently than `mass` because we need to preserve 0 as a reference point (i.e. no such thing as negative brain). 
 
 ```{r}
-dbrain_std <- dbrain %>% 
+dbrain_std <- dbrain |> 
   mutate(mass_std = standardize(mass), brain_std = brain / max(brain))
 ```
 
@@ -113,12 +113,10 @@ set.seed(12)
 # Create the helper function straight away
 R2_is_bad <- function(quap_fit) {
   v <- var2(dbrain_std[["brain_std"]])
-  r <- quap_fit %>% 
-    sim(refresh = 0) %>% 
-    colMeans() %>% 
-    {
-      . - dbrain_std[["brain_std"]]
-    } %>% 
+  r <- quap_fit |> 
+    sim(refresh = 0) |> 
+    colMeans() |> 
+    {\(x) x - dbrain_std[["brain_std"]]}() |> 
     var2()
   
   1 - (r / v)
@@ -217,28 +215,28 @@ plot_R2_is_bad <- function(quap_fit_chr, poly_order) {
     max(dbrain_std[["mass_std"]]), 
     length.out = 100
   )
-  quap_fit <- quap_fit_chr %>% 
+  quap_fit <- quap_fit_chr |> 
     get()
-  R2 <- R2_is_bad(quap_fit) %>% 
+  R2 <- R2_is_bad(quap_fit) |> 
     round(digits = 2)
-  quap_fit %>% 
-    link(data = list(mass_std = mass_seq)) %>% 
-    as_tibble(.name_repair = ~ str_c(mass_seq)) %>% 
-    rowid_to_column(".id") %>% 
+  quap_fit |> 
+    link(data = list(mass_std = mass_seq)) |> 
+    as_tibble(.name_repair = ~ str_c(mass_seq)) |> 
+    rowid_to_column(".id") |> 
     pivot_longer(
       -.id, 
       names_to = "mass_std", 
       names_transform = list(mass_std = parse_number)
-    ) %>% 
-    group_by(mass_std) %>% 
+    ) |> 
+    group_by(mass_std) |> 
     summarise(
       tibble(
         name = c("mean", "lower", "upper"), 
         value = c(mean(value), PI(value))
       ), 
       .groups = "drop"
-    ) %>% 
-    pivot_wider() %>% 
+    ) |> 
+    pivot_wider() |> 
     ggplot(aes(x = mass_std)) + 
     geom_line(aes(y = mean)) + 
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
@@ -277,8 +275,8 @@ plot_brain_loo <- function(quap_fit) {
     max(dbrain_std[["mass_std"]]), 
     length.out = 100
   )
-  tibble(i = seq_len(nrow(dbrain_std))) %>% 
-    mutate(d = map(i, ~ dbrain_std[-.x, ])) %>% 
+  tibble(i = seq_len(nrow(dbrain_std))) |> 
+    mutate(d = map(i, ~ dbrain_std[-.x, ])) |> 
     mutate(
       m_tmp = map(
         d, 
@@ -288,23 +286,23 @@ plot_brain_loo <- function(quap_fit) {
           start = list(b = rep(0, as.integer(str_sub(model_name, 4L, 4L))))
         )
       )
-    ) %>% 
+    ) |> 
     mutate(
       l = map(
         m_tmp, 
-        ~ link(.x, data = list(mass_std = mass_seq), refresh = 0) %>% 
-          as_tibble(.name_repair = ~ str_c(mass_seq)) %>% 
+        ~ link(.x, data = list(mass_std = mass_seq), refresh = 0) |> 
+          as_tibble(.name_repair = ~ str_c(mass_seq)) |> 
           pivot_longer(
             everything(), 
             names_to = "mass_std", 
             names_transform = list(mass_std = parse_number)
-          ) %>% 
-          group_by(mass_std) %>% 
+          ) |> 
+          group_by(mass_std) |> 
           summarise(mu = mean(value), .groups = "drop")
       )
-    ) %>% 
-    select(i, l) %>% 
-    unnest(l) %>% 
+    ) |> 
+    select(i, l) |> 
+    unnest(l) |> 
     ggplot(aes(x = mass_std)) + 
     geom_line(aes(y = mu, group = i), colour = "grey30", alpha = 0.4) + 
     geom_point(
@@ -314,7 +312,7 @@ plot_brain_loo <- function(quap_fit) {
     ) + 
     geom_text_repel(
       aes(y = brain_std, label = species), 
-      data = dbrain_std %>% 
+      data = dbrain_std |> 
         filter(species == "sapiens")
     ) + 
     labs(
@@ -368,16 +366,16 @@ map_chr(
   ~ sprintf(
     "Weatherperson %s hit rate: %s", 
     .x, 
-    sprintf("wperson%s_preds", .x) %>% 
-      get() %>% 
-      bind_cols(observed) %>% 
+    sprintf("wperson%s_preds", .x) |> 
+      get() |> 
+      bind_cols(observed) |> 
       summarise(
         hit_rate = sum(((rain == 1L) * pred) + ((rain == 0L) * (1 - pred)))
-      ) %>% 
+      ) |> 
       pull(hit_rate)
   )
-) %>% 
-  reduce(~ str_c(.x, .y, sep = "\n")) %>% 
+) |> 
+  reduce(~ str_c(.x, .y, sep = "\n")) |> 
   cat()
 ```
 
@@ -391,14 +389,14 @@ map_chr(
   ~ sprintf(
     "Weatherperson %s total cost: %s", 
     .x, 
-    sprintf("wperson%s_preds", .x) %>% 
-      get() %>% 
-      bind_cols(observed) %>% 
-      summarise(cost = sum((5 * (1 - pred) * (rain == 1L)) + (1 * pred))) %>% 
+    sprintf("wperson%s_preds", .x) |> 
+      get() |> 
+      bind_cols(observed) |> 
+      summarise(cost = sum((5 * (1 - pred) * (rain == 1L)) + (1 * pred))) |> 
       pull(cost)
   )
-) %>% 
-  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+) |> 
+  reduce(~ str_c(.x, .y, sep = "\n")) |>
   cat()
 ```
 
@@ -412,14 +410,14 @@ map_chr(
   ~ sprintf(
     "Weatherperson %s total cost: %s", 
     .x, 
-    sprintf("wperson%s_preds", .x) %>% 
-      get() %>% 
-      bind_cols(observed) %>% 
-      summarise(cost = sum((3 * (1 - pred) * (rain == 1L)) + (2 * pred))) %>% 
+    sprintf("wperson%s_preds", .x) |> 
+      get() |> 
+      bind_cols(observed) |> 
+      summarise(cost = sum((3 * (1 - pred) * (rain == 1L)) + (2 * pred))) |> 
       pull(cost)
   )
-) %>% 
-  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+) |> 
+  reduce(~ str_c(.x, .y, sep = "\n")) |>
   cat()
 ```
 
@@ -429,7 +427,7 @@ We can try iterating over a number of values to see how it varies.
 expand_grid(
   wet_cost = seq(0, 6, by = 0.2), 
   brolly_cost = seq(0, 6, by = 0.2)
-) %>% 
+) |> 
   mutate(
     cost_diff = map2_dbl(
       wet_cost, 
@@ -437,22 +435,22 @@ expand_grid(
       function(W, U) {
         map_dbl(
           1:2, 
-          ~ sprintf("wperson%s_preds", .x) %>% 
-            get() %>% 
-            bind_cols(observed) %>% 
+          ~ sprintf("wperson%s_preds", .x) |> 
+            get() |> 
+            bind_cols(observed) |> 
             summarise(
               cost = sum((W * (1 - pred) * (rain == 1L)) + (U * pred))
-            ) %>% 
+            ) |> 
             pull(cost)
-        ) %>% 
+        ) |> 
           reduce(~ .x - .y)
       }
     )
-  ) %>% 
+  ) |> 
   mutate(
-    which_better = if_else(cost_diff < 0, "one", "two") %>% 
+    which_better = if_else(cost_diff < 0, "one", "two") |> 
       factor()
-  ) %>% 
+  ) |> 
   ggplot(aes(wet_cost, brolly_cost, fill = which_better)) + 
   geom_raster() + 
   scale_fill_manual(values = c("steelblue", "firebrick")) + 
@@ -467,9 +465,9 @@ expand_grid(
 We can try something like log loss to see how each fares. 
 
 ```{r}
-obs_fctr <- observed %>% 
+obs_fctr <- observed |> 
   mutate(
-    rain = if_else(rain == 1L, "rain", "dry") %>% 
+    rain = if_else(rain == 1L, "rain", "dry") |> 
       factor(levels = c("rain", "dry"))
   )
 
@@ -478,15 +476,15 @@ map_chr(
   ~ sprintf(
     "Weatherperson %s log loss: %s", 
     .x, 
-    sprintf("wperson%s_preds", .x) %>% 
-      get() %>% 
-      bind_cols(obs_fctr) %>% 
-      yardstick::mn_log_loss(truth = rain, pred) %>% 
-      pull(.estimate) %>% 
+    sprintf("wperson%s_preds", .x) |> 
+      get() |> 
+      bind_cols(obs_fctr) |> 
+      yardstick::mn_log_loss(truth = rain, pred) |> 
+      pull(.estimate) |> 
       round(digits = 3)
   )
-) %>% 
-  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+) |> 
+  reduce(~ str_c(.x, .y, sep = "\n")) |>
   cat()
 ```
 
@@ -500,17 +498,17 @@ map_chr(
   ~ sprintf(
     "Weatherperson %s joint probability: %s", 
     .x, 
-    sprintf("wperson%s_preds", .x) %>% 
-      get() %>% 
-      bind_cols(observed) %>% 
+    sprintf("wperson%s_preds", .x) |> 
+      get() |> 
+      bind_cols(observed) |> 
       summarise(
         joint_prob = prod(((rain == 1L) * pred) + ((rain == 0L) * (1 - pred)))
-      ) %>% 
-      pull(joint_prob) %>% 
+      ) |> 
+      pull(joint_prob) |> 
       round(digits = 3)
   )
-) %>% 
-  reduce(~ str_c(.x, .y, sep = "\n")) %>%
+) |> 
+  reduce(~ str_c(.x, .y, sep = "\n")) |>
   cat()
 ```
 
@@ -588,11 +586,11 @@ If the two distributions are the same then the log term is zero and all summands
 We can show how the divergence changes in a plot: our true target distribution $p = \{0.3, 0.7\}$. Now we can use different $q$ to approximate it, ranging from $q = \{0.01, 0.99\}$ to $q = \{0.99, 0.01\}$. 
 
 ```{r}
-tibble(q1 = seq(0.01, 0.99, by = 0.01)) %>% 
-  mutate(q2 = 1 - q1) %>% 
+tibble(q1 = seq(0.01, 0.99, by = 0.01)) |> 
+  mutate(q2 = 1 - q1) |> 
   mutate(
     kld = map2_dbl(q1, q2, ~ sum(c(0.3, 0.7) * log(c(0.3, 0.7) / c(.x, .y))))
-  ) %>% 
+  ) |> 
   ggplot(aes(q1, kld)) + 
   geom_line(colour = "steelblue") + 
   geom_vline(xintercept = 0.3, linetype = 2) + 
@@ -657,7 +655,7 @@ In practice we need to be careful when working with small values, as they may no
 
 ```{r}
 set.seed(1)
-sim(m7_1, ll = TRUE, n = 1e4) %>% 
+sim(m7_1, ll = TRUE, n = 1e4) |> 
   apply(
     2, 
     function(x) 
@@ -671,9 +669,9 @@ This gives the right ingredients, but pointing `lppd()` at the same data used fo
 
 ```{r}
 set.seed(1)
-str_c("m7_", 1:6) %>% 
-  map(get) %>% 
-  map(lppd) %>% 
+str_c("m7_", 1:6) |> 
+  map(get) |> 
+  map(lppd) |> 
   map_dbl(sum)
 ```
 
@@ -793,31 +791,31 @@ waic_m <- quap(
 )
 set.seed(94)
 
-logprob <- extract.samples(waic_m, n = 1000) %>%
-  as_tibble() %>%
-  rowid_to_column("sample_id") %>%
+logprob <- extract.samples(waic_m, n = 1000) |>
+  as_tibble() |>
+  rowid_to_column("sample_id") |>
   full_join(
-    cars %>%
-      as_tibble() %>%
+    cars |>
+      as_tibble() |>
       rowid_to_column("obs_id"),
     by = character()
-  ) %>%
+  ) |>
   mutate(logprob = dnorm(dist, a + (b * speed), sigma, log = TRUE))
 
 # Now to get the lppd we average the logprob for each observation. Do this with
 # the log sum exp trick, as RM showed earlier. 
-example_lppd <- logprob %>%
-  group_by(obs_id) %>% 
+example_lppd <- logprob |>
+  group_by(obs_id) |> 
   summarise(
     lppd = log_sum_exp(logprob) - log(1000), 
     # Summing the lppd column gives the first term in WAIC, now need to compute
     # the penalty.
     pWAIC = var(logprob), 
     .groups = "drop"
-  ) %>% 
+  ) |> 
   mutate(WAIC = -2 * (lppd - pWAIC))
 
-example_lppd %>% 
+example_lppd |> 
   summarise(across(WAIC, sum))
 
 # Compare that with the result of the WAIC() function. 
@@ -846,8 +844,8 @@ To show this we return to the models of plant growth and fungus from the last ch
 
 ```{r include=FALSE}
 set.seed(71)
-dfungus <- tibble(h0 = rnorm(100, 10, 2), treatment = rep(0:1, each = 50)) %>% 
-  mutate(fungus = rbinom(100, size = 1, prob = 0.5 - (treatment * 0.4))) %>% 
+dfungus <- tibble(h0 = rnorm(100, 10, 2), treatment = rep(0:1, each = 50)) |> 
+  mutate(fungus = rbinom(100, size = 1, prob = 0.5 - (treatment * 0.4))) |> 
   mutate(h1 = h0 + rnorm(100, 5 - (3 * fungus)))
 
 m6_6 <- quap(
@@ -904,11 +902,13 @@ The values are near-identical. Model `m6_7` gives the best predictions and score
 ```{r}
 set.seed(91)
 tibble(
-  waic_m6_7 = WAIC(m6_7, pointwise = TRUE) %>% pluck("WAIC"), 
-  waic_m6_8 = WAIC(m6_8, pointwise = TRUE) %>% pluck("WAIC")
-) %>% 
-  mutate(diff_waic = waic_m6_7 - waic_m6_8) %>% 
-  summarise(dSE = sqrt(nrow(.) * var(diff_waic)))
+  waic_m6_7 = WAIC(m6_7, pointwise = TRUE) |> pluck("WAIC"), 
+  waic_m6_8 = WAIC(m6_8, pointwise = TRUE) |> pluck("WAIC")
+) |> 
+  mutate(diff_waic = waic_m6_7 - waic_m6_8) |> 
+  {
+    \(x) summarise(x, dSE = sqrt(nrow(x) * var(diff_waic)))
+  }()
 ```
 
 This is roughly what we see in the second row of the WAIC table under `dSE`, to within simulation variance. Since the actual difference (`dWAIC`) is 41, the 99% interval for the difference between the two models is: 
@@ -935,8 +935,8 @@ We return to the divorce data from chapter 5: Idaho was an outlier, and PSIS/WAI
 
 ```{r}
 data(WaffleDivorce, package = "rethinking")
-ddivorce <- WaffleDivorce %>% 
-  as_tibble() %>% 
+ddivorce <- WaffleDivorce |> 
+  as_tibble() |> 
   mutate(
     D = standardize(Divorce), 
     M = standardize(Marriage), 
@@ -990,15 +990,15 @@ We get the same warning about high values of $k$, which is happening because of 
 ```{r}
 set.seed(4)
 bind_cols(
-  ddivorce %>% 
+  ddivorce |> 
     select(Loc), 
-  PSIS(m5_3, pointwise = TRUE) %>% 
-    as_tibble() %>% 
+  PSIS(m5_3, pointwise = TRUE) |> 
+    as_tibble() |> 
     select(k), 
-  WAIC(m5_3, pointwise = TRUE) %>% 
-    as_tibble() %>% 
+  WAIC(m5_3, pointwise = TRUE) |> 
+    as_tibble() |> 
     select(penalty)
-) %>% 
+) |> 
   ggplot(aes(k, penalty)) + 
   geom_point(colour = "steelblue") + 
   geom_text_repel(
@@ -1177,12 +1177,12 @@ This will make it incredibly hard for any amount of evidence in the data to shif
 
 ```{r}
 data("Laffer")
-dlaffer <- Laffer %>% 
-  as_tibble() %>% 
+dlaffer <- Laffer |> 
+  as_tibble() |> 
   mutate(
     tax_rate_2 = tax_rate^2, 
     tax_rate_3 = tax_rate^3
-  ) %>% 
+  ) |> 
   mutate(across(.fns = standardize))
 ```
 
@@ -1242,16 +1242,16 @@ total_penalty_7h1 <- map_dbl(model_list_7h1, ~ PSIS(.x)[["penalty"]])
 set.seed(629)
 max_penalty_7h1 <- map_dbl(
   model_list_7h1, 
-  ~ PSIS(.x, pointwise = TRUE) %>% 
-    as_tibble() %>% 
-    slice_max(k) %>% 
+  ~ PSIS(.x, pointwise = TRUE) |> 
+    as_tibble() |> 
+    slice_max(k) |> 
     pull(penalty)
 )
 tibble(
   name = c("linear", "quadratic", "cubic"), 
   total_penalty = total_penalty_7h1, 
   max_penalty = max_penalty_7h1
-) %>% 
+) |> 
   mutate(
     penalty_prop = round(max_penalty / total_penalty, digits = 2)
   )
@@ -1311,7 +1311,7 @@ coeftab(
   m_7h2_linear, 
   m_7h2_quad, 
   m_7h2_cubic
-) %>% 
+) |> 
   plot(pars = c("a", "b1", "b2", "b3"))
 ```
 
@@ -1332,16 +1332,16 @@ total_penalty_7h2 <- map_dbl(model_list_7h2, ~ PSIS(.x)[["penalty"]])
 set.seed(629)
 max_penalty_7h2 <- map_dbl(
   model_list_7h2, 
-  ~ PSIS(.x, pointwise = TRUE) %>% 
-    as_tibble() %>% 
-    slice_max(k) %>% 
+  ~ PSIS(.x, pointwise = TRUE) |> 
+    as_tibble() |> 
+    slice_max(k) |> 
     pull(penalty)
 )
 tibble(
   name = c("linear", "quadratic", "cubic"), 
   total_penalty = total_penalty_7h2, 
   max_penalty = max_penalty_7h2
-) %>% 
+) |> 
   mutate(
     penalty_prop = round(max_penalty / total_penalty, digits = 2)
   )
@@ -1366,14 +1366,11 @@ d_7h3
 First we calculate the entropy for each of the islands. 
 
 ```{r}
-entropy_7h3 <- d_7h3 %>% 
-  transmute(
-    island, 
-    entropy = pmap_dbl(
-      ., 
-      ~ - sum(c(..2, ..3, ..4, ..5, ..6) * log2(c(..2, ..3, ..4, ..5, ..6)))
-    )
-  )
+entropy_7h3 <- d_7h3 |> 
+  pivot_longer(-island) |> 
+  group_by(island) |> 
+  summarise(entropy = -sum(value * log2(value)), .groups = "drop")
+
 entropy_7h3
 ```
 
@@ -1382,7 +1379,7 @@ Island 2, which has 80% of its population as just one bird has the lowest entrop
 Because I've calculated the entropy in bits (i.e. $\log_2$ rather than $\ln$), the entropy score for island 1 has a clear interpretation: it is simply $\log_2 5$, because that is how many bits it takes to encode five equally possible outcomes. We can exponentiate each of the entropy scores to get this figure for all three islands. 
 
 ```{r}
-entropy_7h3 %>% 
+entropy_7h3 |> 
   mutate(exp_2 = round(2^entropy, digits = 2))
 ```
 
@@ -1391,22 +1388,22 @@ Island 2 has entropy equivalent to encoding just over two equally likely outcome
 Now we compute the KL divergence of each island from the others. 
 
 ```{r}
-island1_7h3 <- d_7h3 %>% 
-  group_by(island) %>% 
-  nest() %>% 
-  ungroup() %>% 
+island1_7h3 <- d_7h3 |> 
+  group_by(island) |> 
+  nest() |> 
+  ungroup() |> 
   transmute(
     island1 = island, 
-    bird_vec1 = map(data, ~ .x %>% t() %>% as.double())
+    bird_vec1 = map(data, ~ .x |> t() |> as.double())
   )
-island2_7h3 <- island1_7h3 %>% 
+island2_7h3 <- island1_7h3 |> 
   rename_with(~ str_replace(.x, "1", "2"))
 D_KL_7h3 <- full_join(
   island1_7h3, 
   island2_7h3, 
   by = character()
-) %>% 
-  filter(island1 != island2) %>% 
+) |> 
+  filter(island1 != island2) |> 
   mutate(
     D_KL = map2_dbl(
       bird_vec1, 
@@ -1415,16 +1412,16 @@ D_KL_7h3 <- full_join(
     )
   )
 
-D_KL_7h3 %>% 
+D_KL_7h3 |> 
   arrange(D_KL)
 ```
 
 The lowest pairwise scores are between islands 1 and 3. Which island predicts the others best?
 
 ```{r}
-D_KL_7h3 %>% 
-  group_by(island2) %>% 
-  summarise(total_D_KL = sum(D_KL)) %>% 
+D_KL_7h3 |> 
+  group_by(island2) |> 
+  summarise(total_D_KL = sum(D_KL)) |> 
   arrange(total_D_KL)
 ```
 
@@ -1434,11 +1431,11 @@ Island 1 has a much lower overall KL divergence than the others. Why? Because it
 
 ```{r}
 set.seed(11)
-dmarriage <- sim_happiness() %>% 
+dmarriage <- sim_happiness() |> 
   as_tibble()
-dmarriage_adults <- dmarriage %>% 
-  filter(age > 17L) %>% 
-  mutate(A = scales::rescale(age)) %>% 
+dmarriage_adults <- dmarriage |> 
+  filter(age > 17L) |> 
+  mutate(A = scales::rescale(age)) |> 
   mutate(mid = married + 1L)
 
 
@@ -1477,8 +1474,8 @@ This highlights the difference between causal inference and prediction. When we 
 
 ```{r}
 data("foxes")
-dfox <- foxes %>% 
-  as_tibble() %>% 
+dfox <- foxes |> 
+  as_tibble() |> 
   mutate(across(c(avgfood, area, weight, groupsize), standardize))
 ```
 
@@ -1557,16 +1554,16 @@ dag_fox <- dagify(
   )
 )
 
-dag_plot_fox <- dag_fox %>% 
-  tidy_dagitty() %>%
-  as_tibble() %>% 
+dag_plot_fox <- dag_fox |> 
+  tidy_dagitty() |>
+  as_tibble() |> 
   inner_join(
     tibble(
       name = c("avgfood", "area", "weight", "groupsize"), 
       label = c("F", "A", "W", "S")
     ), 
     by = "name"
-  ) %>% 
+  ) |> 
   ggplot(aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_dag_node() +
   geom_dag_text(aes(label = label)) +

@@ -52,21 +52,21 @@ We can plot these to see how it works.
 island_positions <- tibble(week = seq_len(1e5), positions) 
 
 (
-  island_positions %>% 
-  filter(week <= 100L) %>% 
+  island_positions |> 
+  filter(week <= 100L) |>  
   ggplot(aes(week, positions)) + 
   geom_point(colour = "steelblue", alpha = 0.4) + 
   scale_x_continuous("week", breaks = seq(0, 100, by = 20)) + 
   scale_y_continuous("island", breaks = seq(2, 10, by = 2))
 ) + (
-  island_positions %>% 
-    count(positions) %>% 
+  island_positions|> 
+    count(positions)|> 
     transmute(
       positions, 
       observed = n / sum(n),
       ideal = positions / sum(positions)
-    ) %>% 
-    pivot_longer(-positions) %>% 
+    )|> 
+    pivot_longer(-positions)|> 
     ggplot(aes(positions, value, fill = name)) + 
     geom_col(position = position_dodge(), width = 0.5) + 
     scale_x_continuous("island", breaks = seq(2, 10, by = 2)) + 
@@ -82,16 +82,16 @@ island_positions <- tibble(week = seq_len(1e5), positions)
 We get very close to the ideal proportions after 100,000 weeks. It's worth asking though: how many weeks must travel to reach this situation? In other words: after how long do our proportions converge on the ideal proportions?
 
 ```{r}
-expand_grid(week = seq(1000, 1e5, by = 1000), island = seq_len(10)) %>% 
+expand_grid(week = seq(1000, 1e5, by = 1000), island = seq_len(10)) |> 
   mutate(
     n = map2_int(week, island, ~ sum(positions[seq_len(.x)] == .y))
-  ) %>% 
-  group_by(week) %>% 
+  ) |> 
+  group_by(week) |> 
   mutate(
     observed = n / sum(n),
     ideal = island / sum(island)
-  ) %>% 
-  summarise(mse = mean((observed - ideal)^2)) %>% 
+  ) |> 
+  summarise(mse = mean((observed - ideal)^2)) |> 
   ggplot(aes(week, mse)) + 
   geom_line() + 
   geom_hline(yintercept = 0, linetype = 2)
@@ -140,7 +140,7 @@ S <- matrix(c(0.22, 0, 0, 0.22), ncol = 2)
 R <- matrix(c(1, -0.9, -0.9, 1), ncol = 2)
 Sigma <- S %*% R %*% S
 set.seed(1322)
-A <- mvtnorm::rmvnorm(n = 1e3, mean = mu, sigma = Sigma) %>% 
+A <- mvtnorm::rmvnorm(n = 1e3, mean = mu, sigma = Sigma)|> 
   as_tibble(.name_repair = ~ str_c("a", 1:2))
 
 ```
@@ -167,15 +167,15 @@ x_y_grid <- function(x_start = -1.6,
 }
 
 # Create a tibble with the densities at each point on that grid
-contour_plot_dat <- 
-  x_y_grid() %>% 
-  mutate(
-    d = mvtnorm::dmvnorm(as.matrix(.), mean = mu, sigma = Sigma)
-  )
+contour_plot_dat <- x_y_grid() |> 
+  {
+    function(.x) {
+      mutate(.x, d = mvtnorm::dmvnorm(as.matrix(.x), mean = mu, sigma = Sigma))
+    }
+  }()
 
 # Create the base contour plot, which will be used for both of the plots
-contour_plot <-
-  contour_plot_dat %>% 
+contour_plot <- contour_plot_dat |> 
   ggplot() + 
   geom_contour(
     aes(x = a1, y = a2, z = d), 
@@ -211,7 +211,11 @@ metropolis <- function(num_proposals = 50,
     candidate_y_history[i] <- candidate_point[2]
     
     # evaluate the density of our posterior at the proposal point
-    candidate_prob <- mvtnorm::dmvnorm(candidate_point, mean = mu, sigma = Sigma)
+    candidate_prob <- mvtnorm::dmvnorm(
+      candidate_point, 
+      mean = mu, 
+      sigma = Sigma
+    )
     
     # evaluate the density of our posterior at the current point
     current_prob <- mvtnorm::dmvnorm(current_point, mean = mu, sigma = Sigma)
@@ -239,7 +243,9 @@ metropolis <- function(num_proposals = 50,
   # compute the "acceptance rate" by dividing the total number of "moves"
   # by the total number of proposals
   
-  number_of_moves <- results %>% dplyr::pull(accept) %>% sum(.)
+  number_of_moves <- results |> 
+    dplyr::pull(accept) |> 
+    sum()
   acceptance_rate <- number_of_moves / num_proposals
   
   list(results = results, accept_rate = acceptance_rate)
@@ -288,21 +294,22 @@ And finally, the plots!
 ```
 
 The problems are fairly easy to see: with the small step size only half of the proposals are accepted and the chain gets stuck in one part of the posterior. In the second get get better exploration but even fewer proposals accepted. 
+
 We can repeat this many times to see how much it's affected by simulation variance. 
 
 ```{r}
-expand_grid(seed = seq_len(200), step_size = c(0.1, 0.25)) %>% 
+expand_grid(seed = seq_len(200), step_size = c(0.1, 0.25)) |> 
   mutate(
     accept_rate = map2_dbl(
       seed, 
       step_size,
       function(seed, step_size) {
         set.seed(seed)
-        metropolis(step_size = step_size) %>% 
+        metropolis(step_size = step_size) |> 
           pluck("accept_rate")
       }
     )
-  ) %>% 
+  ) |> 
   ggplot(aes(accept_rate)) + 
   geom_histogram(binwidth = 0.025) + 
   facet_wrap(~ step_size)
@@ -312,19 +319,19 @@ RM then talks about **concentration of measure**: in short, as we move into high
 
 ```{r}
 set.seed(1415)
-tibble(dim = 10^(seq(0, 3))) %>%
+tibble(dim = 10^(seq(0, 3))) |> 
   mutate(
     Y = map(
       dim, 
       ~ tibble(
         i = seq_len(1e3), 
-        Y = rmvnorm(1e3, rep(0, .x), sigma = diag(.x)) %>% 
+        Y = rmvnorm(1e3, rep(0, .x), sigma = diag(.x))|> 
           apply(MARGIN = 1, FUN = function(y) sqrt(sum(y^2)))
       )
     )
-  ) %>% 
-  unnest(Y) %>% 
-  mutate(dim = factor(dim)) %>% 
+  )|> 
+  unnest(Y) |> 
+  mutate(dim = factor(dim)) |> 
   ggplot(aes(Y, fill = dim)) + 
   geom_density(size = 0, alpha = 0.7) + 
   scale_x_continuous(
@@ -421,10 +428,10 @@ At last, we build a model with HMC! I'm going to try building the models with di
 
 ```{r}
 data(rugged)
-drugged <- rugged %>% 
-  as_tibble() %>% 
-  mutate(log_gdp = log(rgdppc_2000)) %>% 
-  drop_na(log_gdp) %>% 
+drugged <- rugged |> 
+  as_tibble() |> 
+  mutate(log_gdp = log(rgdppc_2000)) |> 
+  drop_na(log_gdp) |> 
   mutate(
     log_gdp_std = log_gdp / mean(log_gdp), 
     rugged_std = rugged / max(rugged), 
@@ -458,8 +465,8 @@ Two steps:
 2. Create a new list/data frame with only the variables in which we are interested. 
 
 ```{r}
-drugged_slim <- drugged %>% 
-  select(log_gdp_std, rugged_std, region) %>% 
+drugged_slim <- drugged |> 
+  select(log_gdp_std, rugged_std, region) |> 
   compose_data()
 str(drugged_slim)
 ```
@@ -475,7 +482,7 @@ Now we fit the model. We can skip straight to the step of running things in para
 I will try writing the Stan code separately in scripts to keep things tidier, and to get the benefit of the syntax highlighting in RStudio. 
 
 ```{r}
-m9_1 <- stan_model(file = here::here("inst/Stan/m9_1.stan")) %>% 
+m9_1 <- stan_model(file = here::here("inst/Stan/m9_1.stan"))|> 
   sampling(data = drugged_slim, seed = 949)
 ```
 
@@ -561,9 +568,9 @@ However to check convergence you need multiple chains, so you will need to chang
 RM mentions that wide, flat areas of the posterior can cause problems. 
 
 ```{r}
-m9_2 <- stan_model(file = here::here("inst/Stan/m9_2.stan")) %>% 
+m9_2 <- stan_model(file = here::here("inst/Stan/m9_2.stan"))|> 
   sampling(
-    data = tibble(y = c(-1, 1)) %>% 
+    data = tibble(y = c(-1, 1)) |> 
       compose_data(), 
     seed = 1157, 
     chains = 3
@@ -591,7 +598,7 @@ mcmc_trace(m9_2, np = nuts_params(m9_2))
 The problem with `m9_2` was the priors, which were far too flat. We can see this in the Stan code: 
 
 ```{r}
-readLines(here::here("inst/Stan/m9_2.stan")) %>% 
+readLines(here::here("inst/Stan/m9_2.stan")) |> 
   cat(sep = "\n")
 ```
 
@@ -609,9 +616,9 @@ $$
 Note that the prior for $\alpha$ isn't even centred at the right value. Now we refit. 
 
 ```{r}
-m9_3 <- stan_model(file = here::here("inst/Stan/m9_3.stan")) %>% 
+m9_3 <- stan_model(file = here::here("inst/Stan/m9_3.stan")) |> 
   sampling(
-    data = tibble(y = c(-1, 1)) %>% 
+    data = tibble(y = c(-1, 1)) |> 
       compose_data(), 
     seed = 1529, 
     chains = 3
@@ -633,8 +640,8 @@ map(
     mcmc_rank_overlay(.x, pars = c("alpha", "sigma")) + 
       theme(legend.position = "none")
   )
-) %>% 
-  reduce(c) %>% 
+)|> 
+  reduce(c) |> 
   wrap_plots(ncol = 1)
 ```
 
@@ -667,7 +674,7 @@ $$
 As RM puts it the linear model now contains two parameters that cannot be identified individually, only the sum can be. That sum should be about zero, which is what we simulated. 
 
 ```{r}
-m9_4 <- stan_model(file = here::here("inst/Stan/m9_4.stan")) %>% 
+m9_4 <- stan_model(file = here::here("inst/Stan/m9_4.stan")) |> 
   sampling(data = compose_data(y), seed = 1554, chains = 3)
 ```
 
@@ -700,9 +707,9 @@ The model still isn't good, exactly, but if we consider the sum of the two $\alp
 
 ```{r}
 set.seed(1619)
-rstan::extract(m9_5, pars = c("a1", "a2")) %>% 
-  as_tibble() %>% 
-  mutate(mu = a1 + a2) %>% 
+rstan::extract(m9_5, pars = c("a1", "a2")) |> 
+  as_tibble() |> 
+  mutate(mu = a1 + a2) |> 
   ggplot(aes(mu)) + 
   geom_density()
 ```
@@ -748,7 +755,7 @@ map(
   list(m9_2, m9_3), 
   ~ mcmc_trace(.x, n_warmup = 500, pars = c("alpha")) + 
       theme(legend.position = "none")
-) %>% 
+) |> 
   wrap_plots(ncol = 1)
 ```
 
@@ -760,7 +767,7 @@ In the top plot we see an unhealthy trace plot: no stationarity (local averages 
 map(
   list(m9_2, m9_3), 
   ~ mcmc_rank_overlay(.x, pars = c("alpha", "sigma"))
-) %>% 
+) |> 
   wrap_plots(ncol = 1, guides = "collect")
 ```
 
@@ -1263,3 +1270,352 @@ plot_HMC_globe(1e4)
 ```
 
 1,000 draws is enough to get a very good approximation to the analytical solution. 
+
+### Week 4 Homework
+
+Q1. 
+
+```{r}
+dmarriage <- xfun::cache_rds({
+  set.seed(11)
+  sim_happiness() %>% 
+    as_tibble()},
+  file = "wk4_hw_dmarriage.rds"
+)
+
+dmarriage_adults <- dmarriage %>% 
+  filter(age > 17L) %>% 
+  mutate(A = scales::rescale(age)) %>% 
+  mutate(mid = as.integer(married + 1L)) %>% 
+  select(happiness, A, mid) %>% 
+  compose_data()
+```
+
+
+```{r}
+m6_9 <- stan_model(file = here::here("inst/Stan/m6_9.stan")) %>% 
+  sampling(data = dmarriage_adults, seed = 1707)
+
+m6_10 <- stan_model(file = here::here("inst/Stan/m6_10.stan")) %>% 
+  sampling(data = dmarriage_adults, seed = 1711)
+```
+
+```{r}
+compare(m6_9, m6_10, func = PSIS)
+```
+
+The difference in PSIS is several times larger than the standard error, so we can be reasonably confident that the difference is meaningful. So in this case the model that gives the wrong inference also gives much more accurate predictions. We can revisit the parameter estimates: 
+
+```{r}
+precis(m6_9, depth = 2, pars = c("a[1]", "a[2]", "bA", "sigma"))
+```
+
+None of these estimates can be interpreted causally: they simply describe associations in the model. For example: the estimate for `bA` is solidly negative. If this were unbiased it would imply that people become unhappier as they get older. In this case though it is simply describing the association between age and unhappiness in our data. We know that this is not causal, because the simulation ensures it! However because we've stratified by marriage status, we see an association: older people are, within either the married or unmarried population, likely to be unhappier than younger ones. 
+
+Q2. 
+
+In the interests of speed let's just use `quap()` to fit these models, since there are seven possible models: 
+
+- One model with all three predictors; 
+- Three models with two predictors; 
+- Three models with one predictor. 
+
+```{r}
+data("foxes")
+dfox <- foxes %>% 
+  as_tibble() %>% 
+  transmute(across(c(avgfood, groupsize, area, weight), standardize))
+hw_q2_models <- list(
+  m1 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood) + (bG * groupsize) + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      c(bF, bG, bA) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m2 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood) + (bG * groupsize), 
+      a ~ dnorm(0, 0.2), 
+      c(bF, bG) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m3 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood) + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      c(bF, bA) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m4 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bG * groupsize) + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      c(bG, bA) ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m5 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bF * avgfood), 
+      a ~ dnorm(0, 0.2), 
+      bF ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m6 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bG * groupsize), 
+      a ~ dnorm(0, 0.2), 
+      bG ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  ), 
+  m7 = quap(
+    alist(
+      weight ~ dnorm(mu, sigma), 
+      mu <- a + (bA * area), 
+      a ~ dnorm(0, 0.2), 
+      bA ~ dnorm(0, 0.2), 
+      sigma ~ dexp(1)
+    ), 
+    data = dfox
+  )
+)
+```
+
+```{r}
+compare(
+  hw_q2_models[[1]], 
+  hw_q2_models[[2]], 
+  hw_q2_models[[3]], 
+  hw_q2_models[[4]],
+  hw_q2_models[[5]], 
+  hw_q2_models[[6]], 
+  hw_q2_models[[7]]
+)
+```
+
+The first three models (in order: using all three predictors; using groupsize and area; using avgfood and groupsize) are all within one standard error of each other. We can examine the parameter estimates for the best model: 
+
+```{r}
+precis(hw_q2_models[[1]])
+```
+
+All of these are confounded though, as we have adopted the 'causal salad' approach. The estimate for area is confounded by including its descendant; the estimate for avgfood is confounded by including the pipe through groupsize; the estimate for groupsize is confounded by including the fork from avgfood. So we cannot interpret any of them causally. We can check the implied conditional independencies though.
+
+```{r}
+dagitty::impliedConditionalIndependencies(
+  ggdag::dagify(W ~ F + G, G ~ F, F ~ A)
+)
+```
+We see that area should be independent of weight conditional on avgfood, in which case the estimate on area should be zero. In this case though it is estimated between -0.04 and 0.37. This might indicate that there is something wrong with the DAG, or that this sample is just a little strange. 
+
+Q3. 
+
+```{r}
+data("cherry_blossoms")
+cherry_full <- cherry_blossoms %>% 
+  as_tibble() %>% 
+  drop_na(doy, temp) %>% 
+  select(doy, temp) %>% 
+  mutate(doy = doy - mean(doy), temp = standardize(temp))
+```
+
+We can build two models: one with just an intercept, the other as a linear model on `doy`. 
+
+```{r}
+m_hwk4_q3a <- stan_model(file = here::here("inst/Stan/m_hwk4_q3a.stan")) %>% 
+  sampling(data = compose_data(cherry_full), seed = 1841)
+```
+
+```{r}
+m_hwk4_q3b <- stan_model(file = here::here("inst/Stan/m_hwk4_q3b.stan")) %>% 
+  sampling(data = compose_data(cherry_full), seed = 1843)
+```
+
+Now we can compare the two models. 
+
+```{r}
+compare(
+  m_hwk4_q3a, 
+  m_hwk4_q3b, 
+  func = PSIS
+)
+```
+
+The linear model is substantially better than the intercept-only model. We can now use that to generate predictions for a temperature of 9 degrees. First we have to convert that to the scale of the data, then use that to generate predictions. 
+
+```{r}
+new_temp <- cherry_blossoms %>% 
+  as_tibble() %>% 
+  drop_na(doy, temp) %>% 
+  summarise(sigma = sd(temp), mu = mean(temp)) %>% 
+  transmute(temp = (9 - mu) / sigma) %>% 
+  pull(temp)
+new_temp
+# Note: this temperature is more than 4 standard deviations above the mean we've
+# seen in the data, so we should treat this with caution.
+set.seed(1900)
+post_cherry <- spread_draws(m_hwk4_q3a, a, bT, sigma) %>% 
+  mutate(doy = rnorm(nrow(.), a + (bT * new_temp), sigma)) %>% 
+  mutate(
+    doy = (doy * sd(cherry_blossoms$doy, na.rm = TRUE)) + 
+      mean(cherry_blossoms$doy, na.rm = TRUE)
+  )
+post_cherry
+```
+
+Let's see what we get in a plot.
+
+```{r}
+post_cherry %>% 
+  ggplot(aes(doy)) + 
+  geom_density() + 
+  geom_vline(
+    aes(xintercept = x), 
+    data = . %>% 
+      summarise(x = HPDI(doy)), 
+    linetype = 2, 
+    colour = "grey50"
+  ) + 
+  labs(
+    title = "Distribution of day of year for first blossom", 
+    subtitle = "Dotted lines are 89% HPDI", 
+    x = NULL, 
+    y = NULL
+  ) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.text.y = element_blank()
+  )
+```
+
+Given that our new data point was extreme it's not so surprising that we get some extreme predictions. We even get a few predictions below zero, i.e. the first blossom will occur in the previous year. 
+
+Q4. 
+
+```{r}
+data("Dinosaurs")
+Dinosaurs %>% 
+  as_tibble() %>% 
+  group_by(sp_id, species) %>% 
+  count(sort = TRUE)
+```
+
+Growth should be positive in our model. It's also unlikely that the rate of growth will be the same throughout the dinosaur's life, but we can test this with a model that assumes a linear rate of growth for the whole lifetime. 
+
+Peeking at the [answers](https://github.com/rmcelreath/stat_rethinking_2022/blob/main/homework/week04_solutions.pdf) I see that there is a biological model, the [Von Bertalanffy model](https://en.wikipedia.org/wiki/Von_Bertalanffy_function), that we can use. This is based on the following differential equation (and solution):
+
+$$
+\begin{align*}
+\frac{dL}{da} &= k(L_{\infty} - L) \\
+L(a) &= L_{\infty}(1 - \exp(-k(a - t_0)))
+\end{align*}
+$$
+
+Here $a$ is the age; $k$ is the growth coefficient; $t_0$ is the age when size is zero; $L$ is the size (in our case will be mass); $L_{\infty}$ is the asymptotic size (i.e. how big the animal can get). We can simplify this a little by assuming that the dinosaurs have mass zero at birth: this will also simplify the linear model as it means we will have no intercept. With that change and some renaming of variables for this problem the equation becomes: 
+
+$$
+\begin{align*}
+M(a) &= S(1 - \exp(-ka))
+\end{align*}
+$$
+
+Now we can build up both models and compare results. We need to run some prior predictive checks for both models though. 
+
+```{r}
+set.seed(1854)
+tibble(
+  id = seq_len(100), 
+  bA = rexp(100, 5), 
+  sigma = rexp(1)
+) %>% 
+  expand(
+    nesting(id, bA, sigma), 
+    age = seq(0, 20)
+  ) %>% 
+  mutate(mass = rnorm(nrow(.), age * bA, sigma)) %>% 
+  ggplot(aes(x = age, y = mass, group = id)) + 
+  geom_point(alpha = 0.3)
+```
+
+This was after a bit of tinkering. There are some wild predictions, but mostly they are concentrated in the physically possible range.
+
+Now we can set up something similar for the VB model. 
+
+```{r}
+set.seed(1907)
+tibble(
+  id = seq_len(100), 
+  S = rnorm(100, 1, 0.5), 
+  k = rexp(100, 1)
+) %>% 
+  expand(
+    nesting(id, S, k), 
+    age = seq(0, 20)
+  ) %>% 
+  mutate(mass = S * (1 - exp(-k * age))) %>% 
+  ggplot(aes(x = age, y = mass, group = id)) + 
+  geom_line(alpha = 0.3)
+```
+
+Again these lines seem mostly to be reasonable. Now we can start modelling.
+
+```{r}
+ddino <- Dinosaurs %>%
+  as_tibble() %>% 
+  select(sp_id, age, mass) %>% 
+  group_by(sp_id) %>% 
+  mutate(mass = mass / max(mass)) %>% 
+  ungroup() %>% 
+  compose_data()
+```
+
+```{r}
+hwk4_dino_lin <- stan_model(file = here::here("inst/Stan/hwk4_dino_lin.stan")) %>% 
+  sampling(data = ddino, seed = 1914)
+```
+
+```{r}
+hwk4_dino_VB <- stan_model(file = here::here("inst/Stan/hwk4_dino_VB.stan")) %>% 
+  sampling(data = ddino, seed = 758)
+```
+
+```{r}
+compare(hwk4_dino_lin, hwk4_dino_VB, func = PSIS)
+```
+
+The linear model is better than the fancier VB model. But why? We can see it in the shapes of the growth curves in the prior predictive checks: they are all monotone, because that's what the function demands. By raising the whole thing to a power, $c$, we can get accelerating growth. 
+
+```{r}
+hwk4_dino_VB2 <- stan_model(
+  file = here::here("inst/Stan/hwk4_dino_VB2.stan")
+) %>% 
+  sampling(data = ddino, seed = 758)
+```
+
+```{r}
+compare(
+  hwk4_dino_lin, 
+  hwk4_dino_VB, 
+  hwk4_dino_VB2, 
+  func = PSIS
+)
+```
+

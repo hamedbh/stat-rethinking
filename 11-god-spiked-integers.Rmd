@@ -1,0 +1,1313 @@
+---
+title: "God Spike the Integers"
+output: html_document
+---
+
+```{r setup}
+library(rethinking)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+set_ulam_cmdstan(TRUE)
+library(patchwork)
+library(ggrepel)
+library(magrittr)
+library(corrr)
+library(furrr)
+library(tidyverse)
+library(tidybayes)
+library(bayesplot)
+library(shape)
+# set up the theme
+theme_set(
+  theme_light() + 
+    theme(panel.grid = element_blank())
+)
+```
+
+## Binomial regression
+
+In the globe-tossing example we denoted the binomial distribution as: 
+
+$$
+\begin{align*}
+y \sim \operatorname{Binomial}(n, p).
+\end{align*}
+$$
+
+Here $y$ is a count (often called the number of 'successes'), $p$ is the probability that any one trial is a success, and $n$ is the number of trials. RM distinguishes between two varieties of binomial regression, which differ only in how the data are structured. 
+
+1. **Logistic regression** is when the data are organised as single trials, so that the outcome variable is $\in \{0, 1\}$. 
+2. **Aggregated binomial regression** is when all trials with the same covariate values are combined together, and the outcome variable will be in $\in \{0, 1, \dots , n\}$.
+
+### Logistic regression: Prosocial chimpanzees
+
+RM outlines the experiment: in short, we want to see if the presence of another chimpanzee affects whethert chimpanzees will pick the prosocial option that gives food to both.
+
+```{r}
+data(chimpanzees)
+dchimp <- chimpanzees |> 
+  as_tibble() |> 
+  # Create the treatment variable that RM shows a bit later
+  mutate(treatment = 1L + prosoc_left + (2L * condition))
+dchimp
+```
+
+Here `pulled_left` is the outcome variable: an indicator of whether the focal chimp pulled the left lever. Then `prosoc_left` is a predictor: an indicator of whether the left side was the prosocial option. Finally `condition` indicates whether or not a partner was present. 
+
+Now we can set up our model: 
+
+$$
+\begin{align*}
+  L_i &\sim \operatorname{Bernoulli}(p_i) \\
+  \operatorname{logit}(p_i) &= \alpha_{\text{ACTOR}[i]} + 
+    \beta_{\text{TREATMENT}[i]} \\
+  \alpha_j &\sim \text{TBC} \\
+  \beta_k &\sim \text{TBC}
+\end{align*}
+$$
+
+$L_i$ is the indicator variable for `pulled_left`. In this model the $\alpha$ parameters are for each chimp, but the $\beta$ parameters are shared across all the chimps. RM teases that we will try estimating $\beta$ for each chimp later in the book. 
+
+Now we need to fill in those priors. RM illustrates a poor version of a simplified model to start with using `quap()`: let's do the same for speed. 
+
+$$
+\begin{align*}
+  L_i &\sim \operatorname{Bernoulli}(p_i) \\
+  \operatorname{logit}(p_i) &= \alpha\\
+  \alpha_j &\sim \mathcal{N}(0, \omega)
+\end{align*}
+$$
+
+So we need to pick $\omega$: we can recreate the plot from RM showing the effect of $\omega = 10$ vs. a more sensible value of $\omega = 1.5$
+
+```{r}
+set.seed(1999)
+fig11_3_1 <- list(
+  bad = quap(
+    alist(
+      pulled_left ~ dbinom(1, p), 
+      logit(p) <- a, 
+      a ~ dnorm(0, 10)
+    ), 
+    data = dchimp
+  ), 
+  good = quap(
+    alist(
+      pulled_left ~ dbinom(1, p), 
+      logit(p) <- a, 
+      a ~ dnorm(0, 1.5)
+    ), 
+    data = dchimp
+  )
+) |> 
+  imap_dfr(
+    ~ extract.prior(.x, n = 1e4) |> 
+      as_tibble() |> 
+      mutate(across(a, inv_logit)), 
+    .id = "prior"
+  ) |> 
+  ggplot(aes(a, colour = prior)) + 
+  geom_density(adjust = 0.2, size = 1.1) + 
+  geom_label_repel(
+    aes(x = x, y = y, label = label, colour = prior), 
+    data = tibble(
+      x = c(0.1, 0.5), 
+      y = c(4, 1.7), 
+      label = c("a ~ dnorm(0, 10)", "a ~ dnorm(0, 1.5)"), 
+      prior = c("bad", "good")
+    ), 
+    size = 4
+  ) + 
+  scale_colour_manual(values = c("black", "steelblue")) + 
+  scale_x_continuous("prior prob pulled left", breaks = seq(0, 1, by = 0.2)) + 
+  theme(
+    legend.position = "none", 
+    axis.ticks.y = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.title.y = element_blank()
+  )
+fig11_3_1
+```
+
+RM also shows the effect of a wide prior on the $\beta$ parameters. Let's do that, recreate the plot, and put it together to get the whole of figure 11.3. 
+
+```{r}
+set.seed(1999)
+fig11_3_1 + (
+  list(
+    bad = quap(
+      alist(
+        pulled_left ~ dbinom(1, p), 
+        logit(p) <- a + b[treatment], 
+        a ~ dnorm(0, 1.5), 
+        b[treatment] ~ dnorm(0, 10)
+      ), 
+      data = dchimp
+    ), 
+    good = quap(
+      alist(
+        pulled_left ~ dbinom(1, p), 
+        logit(p) <- a + b[treatment], 
+        a ~ dnorm(0, 1.5), 
+        b[treatment] ~ dnorm(0, 0.5)
+      ), 
+      data = dchimp
+    )
+  ) |> 
+    imap_dfr(
+      ~ .x |> 
+        extract.prior(n = 1e4) |> 
+        map(as_tibble, .name_repair = "universal") |> 
+        reduce(bind_cols) |> 
+        set_names(c("a", str_c("b", 1:4))) |> 
+        mutate(across(starts_with("b"), ~ inv_logit(a + .x))) |> 
+        transmute(contrast = abs(b1 - b2)), 
+      .id = "prior"
+    ) |> 
+    ggplot(aes(contrast, colour = prior)) + 
+    geom_density(adjust = 0.2, size = 1.1) + 
+    geom_label_repel(
+      aes(x = x, y = y, label = label, colour = prior), 
+      data = tibble(
+        x = c(0.9, 0.32), 
+        y = c(5, 2), 
+        label = c("b ~ dnorm(0, 10)", "b ~ dnorm(0, 0.5)"), 
+        prior = c("bad", "good")
+      ), 
+      size = 4
+    ) + 
+    scale_colour_manual(values = c("black", "steelblue")) + 
+    scale_x_continuous(
+      "prior diff between treatments", 
+      breaks = seq(0, 1, by = 0.2)
+    ) + 
+    theme(
+      legend.position = "none", 
+      axis.ticks.y = element_blank(), 
+      axis.text.y = element_blank(), 
+      axis.title.y = element_blank()
+    )
+)
+```
+
+In both plots we can see the effect of the wide prior: the prior gives too much plausibility to large values (in absolute terms), and on the log-odds scale that translates to near-certainty of success or failure. The better priors (in blue) are a bit more sceptical about large values: in the left plot this shows in the even spread of prior values across the range $[0, 1]$; in the right plot the model expects that smaller differences are more likely than large ones, but allows for all of them. 
+
+Now that we have the priors we can start fitting models. 
+
+```{r}
+chimp_list <- dchimp |> 
+  select(pulled_left, actor, treatment) |> 
+  compose_data()
+```
+
+```{r}
+m11_4 <- stan_model(file = here::here("inst/Stan/m11_4.stan")) |> 
+  sampling(data = chimp_list, seed = 1144)
+```
+
+```{r}
+precis(m11_4, depth = 2)
+```
+
+```{r}
+spread_draws(m11_4, a[i]) |> 
+  mutate(a = inv_logit(a)) |> 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(a), HPDI(a))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  mutate(i = str_c("V", i)) |> 
+  ggplot(aes(x = mean, y = fct_rev(i), xmin = lower, xmax = upper)) + 
+  geom_pointrange() +
+  geom_vline(xintercept = 0.5, linetype = 2, colour = "grey50") + 
+  coord_cartesian(xlim = c(0, 1)) + 
+  labs(x = "Value", y = NULL)
+```
+
+Now we can summarise the treatment effects. 
+
+```{r}
+spread_draws(m11_4, b[i]) |> 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(b), HPDI(b))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  arrange(i) |> 
+  mutate(i = c("R/N", "L/N", "R/P", "L/P")) |> 
+  mutate(i = fct_rev(fct_inorder(i))) |> 
+  ggplot(aes(x = mean, y = i, xmin = lower, xmax = upper)) + 
+  geom_pointrange() +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  labs(x = "Value", y = NULL)
+```
+
+The way RM has structured the treatment variable means we need to compare 1 with 3 and 2 with 4. Better to compute the contrasts explicitly. 
+
+```{r}
+spread_draws(m11_4, b[i]) |> 
+  ungroup() |> 
+  pivot_wider(names_from = "i", names_prefix = "b", values_from = "b") |> 
+  transmute(db13 = b1 - b3, db24 = b2 - b4) |> 
+  pivot_longer(everything(), names_to = "contrast") |> 
+  group_by(contrast) |> 
+  summarise(
+    tibble(
+      name = c("mean", "lower", "upper"), 
+      value = c(mean(value), HPDI(value))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  mutate(contrast = factor(contrast)) |> 
+  ggplot(aes(x = mean, y = fct_rev(contrast), xmin = lower, xmax = upper)) + 
+  geom_pointrange() +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  labs(x = "Value", y = NULL)
+```
+
+RM decodes this in the book: the contrasts are between no-partner and partner treatments. For `db13` this is where the prosocial option is on the right, so a positive value (i.e. a bigger difference) is evidence of prosocial behaviour: we want to see the chimps pulling the right lever more often with a partner present. For `db24` a negative value would be evidence of prosocial behaviour. We see the first but not the second, so there's nothing conclusive here at all. 
+
+Now we can do some posterior predictive checks. 
+
+```{r}
+list(
+  first = dchimp |> 
+    group_by(actor, treatment) |> 
+    summarise(across(pulled_left, mean), .groups = "drop") |> 
+    mutate(
+      grp = as.integer(treatment %% 2 == 0) + 1L, 
+      treatment_chr = case_when(
+        treatment == 1L ~ "R/N", 
+        treatment == 2L ~ "L/N", 
+        treatment == 3L ~ "R/P", 
+        treatment == 4L ~ "L/P", 
+        TRUE ~ "error"
+      )
+    ) |> 
+    {
+      \(x) {
+        assertthat::assert_that(!any(x[["treatment_chr"]] == "error"))
+        x
+      }
+    }() |> 
+    separate(
+      treatment_chr, 
+      into = c("side", "partner"), 
+      sep = "/", 
+      remove = FALSE
+    ) |> 
+    ggplot(aes(x = treatment, y = pulled_left, shape = partner)) + 
+    geom_point(colour = "steelblue") + 
+    geom_line(aes(group = grp), colour = "steelblue", alpha = 0.4) + 
+    geom_text_repel(
+      aes(label = treatment_chr), 
+      data = . %>% 
+        filter(actor == 1L)
+    ) + 
+    geom_hline(yintercept = 0.5, linetype = 2, alpha = 0.5) + 
+    facet_wrap(~ actor, nrow = 1) + 
+    scale_shape_manual(values = c(21, 19)) + 
+    scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1)) + 
+    labs(
+      subtitle = "observed proportions by actor", 
+      x = NULL, 
+      y = "proportion left lever"
+    ) + 
+    theme(
+      plot.subtitle = element_text(hjust = 0.5), 
+      axis.ticks.x = element_blank(), 
+      axis.text.x = element_blank(), 
+      legend.position = "none"
+    ), 
+  second = spread_draws(m11_4, a[i]) |> 
+    ungroup() |> 
+    inner_join(
+      spread_draws(m11_4, b[v]) |> 
+        ungroup()
+    ) |> 
+    mutate(p = inv_logit(a + b)) |> 
+    group_by(actor = i, treatment = v) |> 
+    summarise(
+      tibble(
+        name = c("pulled_left", "lower", "upper"), 
+        value = c(mean(p), HPDI(p))
+      )
+    ) |> 
+    pivot_wider() |> 
+    mutate(
+      grp = as.integer(treatment %% 2 == 0) + 1L, 
+      treatment_chr = case_when(
+        treatment == 1L ~ "R/N", 
+        treatment == 2L ~ "L/N", 
+        treatment == 3L ~ "R/P", 
+        treatment == 4L ~ "L/P", 
+        TRUE ~ "error"
+      )
+    ) |> 
+    {
+      \(x) {
+        assertthat::assert_that(!any(x[["treatment_chr"]] == "error"))
+        x
+      }
+    }() |> 
+    separate(
+      treatment_chr, 
+      into = c("side", "partner"), 
+      sep = "/", 
+      remove = FALSE
+    ) |> 
+    ggplot(aes(x = treatment, y = pulled_left, shape = partner)) + 
+    geom_linerange(aes(ymin = lower, ymax = upper)) + 
+    geom_point(colour = "black") + 
+    geom_line(aes(group = grp), colour = "grey30", alpha = 0.4) + 
+    geom_text_repel(
+      aes(label = treatment_chr), 
+      data = . %>% 
+        filter(actor == 1L)
+    ) + 
+    geom_hline(yintercept = 0.5, linetype = 2, alpha = 0.5) + 
+    facet_wrap(~ actor, nrow = 1) + 
+    scale_shape_manual(values = c(21, 19)) + 
+    scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1)) + 
+    labs(
+      subtitle = "posterior predictions by actor", 
+      x = NULL, 
+      y = "proportion left lever"
+    ) + 
+    theme(
+      plot.subtitle = element_text(hjust = 0.5), 
+      axis.ticks.x = element_blank(), 
+      axis.text.x = element_blank(), 
+      legend.position = "none"
+    )
+) |> 
+  wrap_plots(nrow = 2)
+```
+
+Our current model has varying intercepts by actor and then varying coefficients for the `treatment`, and this latter part is essentially an interaction between the `prosoc_left` (i.e. where is the prosocial option) and `condition` (i.e. whether or not a partner is present). So instead RM suggests another model: where we allow for each of those variables to act independently with no interaction. 
+
+```{r}
+m11_5 <- stan_model(file = here::here("inst/Stan/m11_5.stan")) |> 
+  sampling(
+    data = dchimp |> 
+      mutate(side = prosoc_left + 1L, cond = condition + 1L) |> 
+      select(pulled_left, side, cond, actor) |> 
+      compose_data(), 
+    seed = 1805
+  )
+```
+
+We can compare these models with PSIS: 
+
+```{r}
+compare(m11_4, m11_5, func = PSIS)
+```
+
+They have almost identical predictive accuracy. RM notes that this model comparison is not for use in selecting a model: that choice (`m11_4`) flows from the experiment and hypothesis. 
+
+### Relative shark and absolute deer
+
+The chimp problem focussed on **absolute effects**: how much different does the treatment make in the outcome (i.e. probability of pulling a lever)? Instead we can consider **relative effects**, or proportional changes in the odds of an outcome. 
+
+### Aggregated binomial: Chimpanzees again, condensed.
+
+In the chimps example above we had one row per experiment. So in `n` experiments each was modelled as being $\operatorname{Binomial}(1, p)$ (or, equivalently, $\operatorname{Bernoulli}(p)$). However we can compress the data and model each unique combination of predictors with the outcome as $\operatorname{Binomial}(n, p)$. 
+
+```{r}
+dchimp_agg <- chimpanzees |> 
+  as_tibble() |> 
+  group_by(
+    treatment = 1L + prosoc_left + (2L * condition), 
+    actor, 
+    side = prosoc_left + 1L, 
+    cond = condition + 1L
+  ) |> 
+  summarise(
+    n_trials = n(), 
+    left_pulls = sum(pulled_left), 
+    .groups = "drop"
+  )
+dchimp_agg
+```
+
+We've compressed the data frame from `r nrow(dchimp)` rows to `r nrow(dchimp_agg)`. Now we can build the model again. 
+
+```{r}
+m11_6 <- stan_model(file = here::here("inst/Stan/m11_6.stan")) |> 
+  sampling(data = compose_data(dchimp_agg), seed = 804)
+```
+
+**This is a bad comparison!!!** 
+
+```{r}
+compare(m11_6, m11_4, func = PSIS)
+```
+
+**Again: this is a bad comparison!!!** RM walks through the output carefully.  
+
+First the PSIS scores are very different. This is because the calculations are quite different for each: in the binomial regression case (i.e. 11_6) there is an extra factor at the front of the likelihood to account for different orderings of the data. This increases the probability, which in turn lowers the PSIS. 
+
+RM illustrates this with a simple example: deviance calculated for probability 0.2, 6 successes, 9 trials. 
+
+```{r}
+# aggregated, binomial regression
+-2 * dbinom(6, 9, prob = 0.2, log = TRUE)
+# disaggregated, logistic regression
+-2 * sum(dbinom(rep(c(1, 0), c(6, 3)), size = 1, prob = 0.2, log = TRUE))
+```
+
+RM says that this difference is "entirely meaningless", but then moves on to cover the warnings. However his discussion of the warnings makes me think this difference _isn't_ meaningless. In short: the organisation of the data makes a statement about how we should consider those trials. Are they a completely homogeneous block, which can be left out of the model (i.e. in cross-validation) en masse? If so then binomial regression is a reasonable approach, but otherwise (as RM says) logistic regression is preferable. 
+
+The different number of observations in each model is to be expected, since this was the main change we made to the model. We should never do this, because it changes the computations of the PSIS and WAIC. 
+
+Then there is the warning about high $k$ values, which didn't come up in logistic regression. This is because of the data structure also: by compressing the data we change the nature of the LOO cross-validation. Instead of one experiment being left out each time, 18 are left out. So compared with the logistic regression setting each observation can affect the results more dramatically. This is easy to see in a plot. 
+
+```{r}
+tibble(mod_name = c("m11_4", "m11_6")) |> 
+  mutate(mod = map(mod_name, get)) |> 
+  mutate(
+    penalty = map(mod, ~ WAIC(.x, pointwise = TRUE)[["penalty"]]), 
+    k = map(mod, ~ PSIS(.x, pointwise = TRUE)[["k"]])
+  ) |> 
+  select(-mod) |> 
+  unnest(c(penalty, k)) |> 
+  ggplot(aes(k, penalty)) + 
+  geom_vline(xintercept = 0.5, colour = "grey50", linetype = 2) + 
+  geom_point(colour = "steelblue", alpha = 0.4) + 
+  facet_wrap(~ mod_name)
+```
+
+As RM puts it: if you use the aggregated, binomial regression approach you are "implicitly assuming that only large chunks of the data are separable". 
+
+### Aggregated binomial: Graduate school admissions.
+
+Now comes a very famous example: the Berkeley admissions data. 
+
+```{r}
+data(UCBadmit)
+UCBadmit |> 
+  as_tibble() |> 
+  print(n = 12)
+```
+
+For six departments we have the numbers of male and female applicants who were accepted and rejected. So there are 12 rows in the data frame but these represent `r format(sum(UCBadmit[["applications"]]), big.mark = ",")` applications. We could easily split these data out with `tidyr::uncount()` and a modest amount of reshaping. 
+
+```{r}
+UCBadmit |> 
+  as_tibble() |> 
+  pivot_longer(cols = c(admit, reject), names_to = "result", values_to = "n") |> 
+  mutate(result = as.integer(result == "admit")) |> 
+  uncount(n)
+```
+
+In this case though we will work with the aggregated data to evaluate whether there is evidence of gender bias in the admissions. 
+
+$$
+\begin{align*}
+  A_i &\sim \operatorname{Binomial}(N_i, p_i) \\
+  \operatorname{logit}(p) &= \alpha_{\text{GID}[i]} \\
+  \alpha_j &\sim \mathcal{N}(0, 1.5)
+\end{align*}
+$$
+
+Here the $\text{GID}[i]$ is an index for the gender of the applicant. So let's fit the model. 
+
+```{r}
+dadmit <- UCBadmit |>
+  as_tibble() |> 
+  transmute(
+    admit, 
+    applications, 
+    gid = if_else(applicant.gender == "male", 1L, 2L)
+  )
+ladmit <- compose_data(dadmit)
+```
+
+
+```{r}
+m11_7 <- stan_model(file = here::here("inst/Stan/m11_7.stan")) |> 
+  sampling(data = ladmit, seed = 909)
+```
+
+```{r}
+precis(m11_7, depth = 2, pars = "a")
+```
+
+The estimate for male applicants is higher, but by how much? We need to compute the contrasts, which gets us back to the shark and deer: compute both absolute differences (shark, logit scale) and the relative differences (deer, outcome scale). 
+
+```{r}
+spread_draws(m11_7, a[gid]) |> 
+  mutate(gid = c("male", "female")[gid]) |> 
+  pivot_wider(names_from = "gid", values_from = "a") |> 
+  transmute(
+    diff_a = male - female, 
+    diff_p = inv_logit(male) - inv_logit(female)
+  ) |> 
+  precis()
+```
+
+So the absolute difference is positive (i.e. males have a higher log-odds of being admitted than females). The difference in probabilities is somewhere between 12% and 16%. 
+
+We can also plot posterior predictive checks. 
+
+```{r}
+m11_7 |> 
+  spread_draws(p[n]) |> 
+  mean_hdi(.width = 0.89) |> 
+  inner_join(
+    UCBadmit |> 
+      as_tibble() |> 
+      rowid_to_column("n") |> 
+      group_by(n, dept, gender = applicant.gender) |> 
+      summarise(true_prop = admit / applications, .groups = "drop"), 
+    by = "n"
+  ) |> 
+  select(n, dept, gender, p, .lower, .upper, true_prop) |> 
+  ggplot(aes(n)) + 
+  geom_point(aes(y = true_prop), col = "steelblue") + 
+  geom_line(aes(y = true_prop, group = dept), col = "steelblue") + 
+  geom_label(
+    aes(y = y, label = dept), 
+    data = . %>%
+      group_by(dept = as.character(dept)) %>%
+      summarise(
+        y = max(true_prop), 
+        n = mean(n)
+      ), 
+    colour = "steelblue"
+  ) + 
+  geom_pointrange(aes(y = p, ymin = .lower, ymax = .upper), fatten = 1) + 
+  scale_x_continuous("case", breaks = seq_len(12)) + 
+  scale_y_continuous(
+    "proportion admitted", 
+    breaks = seq(0, 1, by = 0.2), 
+    limits = c(0, 1)
+  ) + 
+  labs(
+    title = "Posterior validation check", 
+    subtitle = "Posterior prediction intervals in black, observed in blue"
+  )
+```
+
+For each department the men are on the left and women on the right. The slope of the blue line tells us about which group has a higher proportion admitted. Obviously the predictions are terrible. There are only two departments where the proportion of men admitted is higher than that of women, yet our model expects higher proportions of men in every department. Of course that is only because that's the question we asked of the model: there is a global mean for each gender, and the model uses that for all predictions. Which is why the prediction intervals are identical in each department (to within simulation error): our model cannot account for the differences between departments. 
+
+So we can change the question to ask "what is the average difference in probability of admission for men and women within the departments?"
+
+$$
+\begin{align*}
+  A_i &\sim \operatorname{Binomial}(N_i, p_i) \\
+  \operatorname{logit}(p_i) &= \alpha_{\text{GID}[i]} + \delta_{\text{DEPT}[i]} \\
+  \alpha_j &\sim \mathcal{N}(0, 1.5), j \in \{1, 2\} \\
+  \delta_k &\sim \mathcal{N}(0, 1.5), k \in \{1, \dots, 6\}
+\end{align*}
+$$
+
+```{r}
+ladmit_dept <- dadmit |> 
+  mutate(dept = rep(seq_len(6), each = 2)) |> 
+  compose_data()
+```
+
+```{r}
+m11_8 <- stan_model(file = here::here("inst/Stan/m11_8.stan")) |> 
+  sampling(data = ladmit_dept, seed = 1002, iter = 4000)
+```
+
+Now we do the same thing as we did before: calculate the contrasts on both relative and absolute scales. 
+
+```{r}
+spread_draws(m11_8, a[gid]) |> 
+  mutate(gid = c("male", "female")[gid]) |> 
+  pivot_wider(names_from = "gid", values_from = "a") |> 
+  transmute(
+    diff_a = male - female, 
+    diff_p = inv_logit(male) - inv_logit(female)
+  ) |> 
+  precis()
+```
+
+Now we see that there is little to no difference between the groups: the mean estimate for the contrasts are both slightly negative, but not conclusively so. 
+
+We can summarise this as RM does in the book: 
+
+```{r}
+UCBadmit |> 
+  as_tibble() |> 
+  group_by(dept) |> 
+  mutate(value = applications / sum(applications)) |> 
+  ungroup() |> 
+  select(dept, name = applicant.gender, value) |> 
+  mutate(across(value, round, digits = 2)) |> 
+  pivot_wider() |> 
+  inner_join(
+    UCBadmit |> 
+      as_tibble() |> 
+      group_by(dept) |> 
+      summarise(across(c(admit, applications), sum)) |> 
+      transmute(dept, admit_rate = round(admit / applications, digits = 2)), 
+    by = "dept"
+  )
+```
+
+The two departments with the highest admission rates, A and B, are overwhelmingly male. That inflates their admission rates overall, and led to the inferences in model `m11_7`. 
+
+RM then discusses the DAG, which I'll skip. Suffice to say that even if department is a confound we get a better model with it than without. 
+
+RM also touched on the fact that `m11_8` is over-parameterised, in the sense that there is some redundancy. This is a problem in frequentist statistics that needs to be handled (e.g. with ridge regression), but here it is fine. It leads to inflated standard deviation on our parameter estimates, but the posterior predictions are good. The reason to do it this way is that it makes setting priors much easier: whereas if we set one gender as the baseline then setting a prior on the difference would be difficult and harder to interpret. 
+
+## Poisson regression
+
+RM gives his set-up to the Poisson as a sort of extension to the binomial when the number of trials, $N$, is either unknown or uncountably large. The mean of a $\operatorname{Binomial}(N, p)$ random variable is $Np$, and the variance is $Np(1 - p)$. If $N$ is fairly large and $p$ is very small then these will be about the same. 
+
+RM uses an example of a monastery writing out manuscripts. There are 1,000 monks and on any given day about 1 of them will complete a manuscript. So a reasonable question is: what is the distribution of the number of manuscripts completed each day?
+
+$$
+\begin{align*}
+  y &\sim \operatorname{Binomial}(N, p) \\
+  N &= 1000 \\
+  p &= 1/1000 \\
+  \mathbb{E}(y) &= 1 \\
+  \operatorname{Var}(y) &= 1000 \times 1/1000 \times (999/1000) \approx 1
+\end{align*}
+$$
+
+As always, we can check with a quick simulation. 
+
+```{r}
+set.seed(1110)
+dmonk <- tibble(y = rbinom(1e5, 1e3, 1 / 1e3))
+head(dmonk)
+dmonk |> 
+  summarise(mean = mean(y), variance = var_pop(y))
+```
+
+To set up a model then we need only one parameter, $\lambda$, which serves as mean and variance. 
+
+$$
+\begin{align*}
+  y_i &\sim \operatorname{Poisson}(\lambda_i) \\
+  \ln(\lambda_i) &= \alpha + \beta(x_i - \bar{x})
+\end{align*}
+$$
+
+The link function is the natural log, which ensures that $\lambda$ is always positive. This implies though that $\lambda_i = e^{\alpha + \beta(x_i - \bar{x})}$, i.e. an exponential relationship between the predictors and $\lambda$. This may be reasonable at times, but can quickly lead to unreasonable inferences. This makes prior and posterior predictive checks even more important. 
+
+### Example: Oceanic tool complexity
+
+This example uses data on tools in Oceania societies. There are three hypotheses that we want to test: 
+
+1. Larger populations will develop and sustain more complex sets of tools. 
+2. More contact with other populations will have a similar effect to 1, essentially creating a larger population in which innovation happens. 
+3. The impact of popuation is moderated by contact. In other words, we expect the interaction effect between these to be positive. 
+
+```{r}
+data(Kline)
+Kline |> 
+  as_tibble()
+```
+
+So the model might be: 
+
+$$
+\begin{align*}
+  Y_i &\sim \operatorname{Poisson}(\lambda_i) \\
+  \ln(\lambda_i) &= \alpha_{\text{CID}[i]} + \beta_{\text{CID}[i]}\ln(P_i)
+\end{align*}
+$$
+
+Here $P_i$ is the population. So now we must set priors on $\alpha_j$ and $\beta_j$. The parameters pass through the link function, which means the relationship with the outcome will not be linear. 
+
+```{r}
+tibble(grp = c("a", "b"), meanlog = c(0, 3), sdlog = c(10, 0.5)) |> 
+  expand(
+    nesting(grp, meanlog, sdlog), 
+    x = seq(0, 100, by = 0.5)
+  ) |> 
+  mutate(y = dlnorm(x, meanlog, sdlog)) |> 
+  ggplot(aes(x, y, colour = grp)) + 
+  geom_path() + 
+  geom_text(
+    aes(label = label), 
+    data = tibble(
+      grp = c("a", "b"), 
+      x = c(14, 35), 
+      y = c(0.06, 0.035), 
+      label = c(
+        "a ~ dnorm(0, 10)", 
+        "a ~ dnorm(3, 0.5)"
+      )
+    )
+  ) + 
+  scale_x_continuous(
+    "mean number of tools", 
+    breaks = seq(0, 100, by = 20)
+  ) + 
+  scale_y_continuous("Density") + 
+  scale_colour_manual(values = c("black", "steelblue")) + 
+  theme(legend.position = "none")
+```
+
+What's wrong here? The black curve (corresponding to a wide, flat prior on $\alpha$) has a peak near zero and then a long tail to the right. It's hard to tell how much longer from this plot, but we can quickly simulate the mean of such a lognormal variable. 
+
+```{r}
+set.seed(1236)
+mean(exp(rnorm(1e4, 0, 10))) |> 
+  format(big.mark = ",")
+```
+
+The exact value of the mean of a lognormal variable is $e^{\mu + {\sigma^2}/2}$, which is $e^{50}$. This is extremely silly. 
+
+The blue line is the better prior: it re-centres the distribution on $\alpha$ at 3, but the more important change is in the reduction of the scale parameter. This drastically reduces the spread of possible values once it passes through the link function, since the mean of the lognormal variable increases at $O(e^{\sigma^2})$.
+
+```{r}
+set.seed(1236)
+mean(exp(rnorm(1e4, 3, 0.5))) |> 
+  round(digits = 2)
+```
+
+This is much more sensible. The maths behind this make sense: inverting the log link maps the interval $(-\infty, 0]$ to the interval $(0, 1]$, and the interval $(0, \infty)$ to the interval $(1, \infty)$. So if a prior is centred at zero then half the probability (on the outcome scale) will be on $(0, 1]$. This makes little sense here, so shifting the location to the right and reducing the scale gives us better answers. 
+
+Our updated model is: 
+
+$$
+\begin{align*}
+  Y_i &\sim \operatorname{Poisson}(\lambda_i) \\
+  \ln(\lambda_i) &= \alpha_{\text{CID}[i]} + \beta_{\text{CID}[i]}\ln(P_i) \\
+  \alpha_j &\sim \mathcal{N}(3, 0.5)
+\end{align*}
+$$
+
+We can repeat this for the $\beta$ parameter, i.e. the coefficient on log-population, using the prior on $\alpha$ chosen. We'll plot the bad prior and the good in one go. 
+
+```{r}
+set.seed(1251)
+fig11_8_pt1 <- tibble(
+  grp = seq_len(100), 
+  a = rnorm(100, 3, 0.5), 
+  `beta%~%Normal(0*', '*10)` = rnorm(100, 0, 10), 
+  `beta%~%Normal(0*', '*0.2)` = rnorm(100, 0, 0.2)
+) |> 
+  pivot_longer(contains("beta"), names_to = "prior", values_to = "b") |> 
+  expand(
+    nesting(grp, a, b, prior), 
+    x = seq(-2, 2, length.out = 101)
+  ) |> 
+  mutate(y = exp(a + b*x)) |> 
+  ggplot(aes(x = x, y = y, group = grp)) + 
+  geom_path(alpha = 0.5) + 
+  coord_cartesian(ylim = c(0, 100)) + 
+  facet_wrap(~ fct_rev(prior), labeller = label_parsed) + 
+  labs(
+    x = "log population (std)", 
+    y = "total tools"
+  )
+fig11_8_pt1
+```
+
+The left-hand plot shows some crazy relationships between the predictor and the outcome. In contrast the right-hand plot is more restrained. 
+
+We can do something similar but on the unstandardised predictor scale. Everything above on the x axis refers to a standardised variable, but that's hard to think about. We do this for the better prior only: log and natural population scales. 
+
+```{r}
+set.seed(1320)
+tibble(
+  grp = seq_len(100), 
+  a = rnorm(100, 3, 0.5), 
+  b = rnorm(100, 0, 0.2)
+) |> 
+  expand(
+    nesting(grp, a, b), 
+    x = seq(log(100), log(200000), length.out = 101)
+  ) |> 
+  mutate(y = exp(a + b*x), pop = exp(x)) |> 
+  transmute(
+    grp, 
+    log_pop = x, 
+    pop, 
+    y
+  ) |> 
+  pivot_longer(contains("pop"), names_to = "scale", values_to = "x") |> 
+  mutate(
+    scale = factor(if_else(scale == "log_pop", "log population", "population"))
+  ) |> 
+  ggplot(aes(x, y, group = grp)) + 
+  geom_path(alpha = 0.5) + 
+  coord_cartesian(ylim = c(0, 500)) + 
+  scale_x_continuous(NULL, labels = scales::label_comma()) + 
+  facet_wrap(~ scale, scales = "free_x")
+```
+
+The right-hand plot shows why using the log of a predictor can be useful: it implies 'diminishing returns' for the predictor as it grows, so that all of the lines flatten. This constrains our model and prevents us getting results that are too extreme. 
+
+Finally we have a full model: 
+
+$$
+\begin{align*}
+  Y_i &\sim \operatorname{Poisson}(\lambda_i) \\
+  \ln(\lambda_i) &= \alpha_{\text{CID}[i]} + \beta_{\text{CID}[i]}\ln(P_i) \\
+  \alpha_j &\sim \mathcal{N}(3, 0.5) \\
+  \beta_j &\sim \mathcal{N}(0, 0.2)
+\end{align*}
+$$
+
+Now we produce an intercept-only model and one with an interaction. 
+
+```{r}
+dkline <- Kline |>
+  as_tibble()
+lkline <- dkline |> 
+  transmute(
+    Y = total_tools, 
+    P = as.double(standardize(log(population))), 
+    cid = if_else(contact == "high", 2L, 1L)
+  ) |> 
+  compose_data()
+```
+
+```{r}
+m11_9 <- stan_model(file = here::here("inst/Stan/m11_9.stan")) |> 
+  sampling(data = lkline, seed = 1344)
+```
+
+```{r}
+m11_10 <- stan_model(file = here::here("inst/Stan/m11_10.stan")) |> 
+  sampling(data = lkline, seed = 1350)
+```
+
+```{r}
+set.seed(1518)
+compare(m11_9, m11_10, func = PSIS)
+```
+
+There are two things to note: 
+
+1. The model with the interaction performs better, which is as expected. 
+2. The model with fewer parameters (i.e. the intercept-only model) has a higher `pPSIS` score (i.e. effective number of parameters). This may seem counterintuitive, but only if we are thinking about it in the most basic frequentist setup (i.e. simple linear regression with flat priors). In that case there would be a direct relationship between model complexity and the number of parameters. However in this case the distribution is bounded, so parameter values near the boundary produce less overfitting than those far from it. This also applies to the distribution of the data: counts near zero are harder to overfit. So `pPSIS` as a measure of model complexity/overfitting risk depends on the structure of the model and the data. 
+
+```{r}
+set.seed(1908)
+P_seq <- seq(-1.4, 3, length.out = 100)
+full_kline <- bind_cols(
+  dkline, 
+  lkline |> 
+    as_tibble() |> 
+    select(-n)
+) |> 
+  mutate(
+    k = PSIS(m11_10, pointwise = TRUE) |> 
+      pluck("k"), 
+    P_natural = exp(P * 1.53 + 9)
+  )
+d_fig_11_9 <- m11_10 |> 
+  spread_draws(a[j], b[k]) |> 
+  ungroup() |>
+  filter(j == k) |> 
+  select(.iteration, a, b, cid = j) |> 
+  expand(
+    nesting(.iteration, a, b, cid), 
+    P = P_seq
+  ) |> 
+  mutate(lambda = exp(a + b * P)) |> 
+  group_by(P, cid) |> 
+  summarise(
+    tibble(
+      name = c("lambda", "lower", "upper"), 
+      value = c(mean(lambda), PI(lambda))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  mutate(
+    cid = if_else(cid == 1L, "low", "high") |> 
+      factor(levels = c("low", "high")), 
+    P_natural = exp(P * 1.53 + 9)
+  )
+
+(
+  d_fig_11_9 |> 
+  ggplot(aes(P)) + 
+  geom_line(aes(y = lambda, linetype = cid)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper, group = cid), 
+    colour = "grey60", 
+    alpha = 0.4
+  ) + 
+  geom_point(
+    aes(y = total_tools, shape = contact, size = k), 
+    data = full_kline, 
+    colour = "midnightblue"
+  ) + 
+  geom_text_repel(
+    aes(x = P, y = total_tools, label = label), 
+    data = full_kline |> 
+      filter(culture %in% c("Yap", "Tonga", "Trobriand", "Hawaii")) |> 
+      transmute(
+        label = sprintf("%s (%.2f)", as.character(culture), k), 
+        P, 
+        total_tools
+      ), 
+    nudge_y = 4
+  ) + 
+  scale_linetype_manual(values = c(2, 1)) + 
+  scale_shape_manual(values = c(16, 1)) + 
+  scale_x_continuous(
+    "log population (std)", 
+    breaks = seq(-1, 2)
+  ) + 
+  scale_y_continuous(
+    "total tools", 
+    breaks = seq(0, 60, by = 20)
+  ) + 
+  coord_cartesian(
+    xlim = c(-1.4, 2.5), 
+    ylim = c(0, 75)
+  ) + 
+  theme(legend.position = "none")
+) + (
+  d_fig_11_9 |> 
+  ggplot(aes(P_natural)) + 
+  geom_line(aes(y = lambda, linetype = cid)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper, group = cid), 
+    colour = "grey60", 
+    alpha = 0.4
+  ) + 
+  geom_point(
+    aes(y = total_tools, shape = contact, size = k), 
+    data = full_kline, 
+    colour = "midnightblue"
+  ) + 
+  scale_linetype_manual(values = c(2, 1)) + 
+  scale_shape_manual(values = c(16, 1)) + 
+  scale_x_continuous(
+    "population", 
+    breaks = c(0, 50000, 150000, 250000), 
+    labels = scales::label_comma()
+  ) + 
+  scale_y_continuous(
+    "total tools", 
+    breaks = seq(0, 60, by = 20)
+  ) + 
+  coord_cartesian(
+    xlim = c(0, 290000),
+    ylim = c(0, 75)
+  ) +
+  theme(legend.position = "none")
+)
+```
+
+Hawaii is moving the needle: it is far larger than any other and has far more tools. So we see that the low-contact line has to bend towards Hawaii: at the left of the distribution it is below the high-contact line, but then it flips. Also the posterior interval for the high-contact cultures is enormous, because we have no data points with a population larger than Tonga ($P = 0.5$). 
+
+Then RM covers an alternative model. Why bother with this? Let's look at the previous model again and ask a question about a counterfactual Hawaii with high contact. Such an island should have more tools: does our model predict this?
+
+```{r}
+m11_10 |> 
+  spread_draws(a[j], b[k]) |> 
+  ungroup() |>
+  filter(j == k) |> 
+  select(.iteration, .chain, a, b, cid = j) |> 
+  expand(
+    nesting(.iteration, .chain, a, b, cid), 
+    P = full_kline |> 
+      filter(culture == "Hawaii") |> 
+      pull(P)
+  ) |> 
+  mutate(
+    lambda = exp(a + b * P), 
+    cid = if_else(cid == 1L, "low", "high") |> 
+      factor(levels = c("low", "high"))
+  ) |> 
+  select(.iteration, .chain, name = cid, value = lambda) |>
+  pivot_wider() |> 
+  transmute(lambda = high - low) |> 
+  ggplot(aes(x = lambda)) + 
+  geom_density(fill = "steelblue", colour = "steelblue", alpha = 0.5) + 
+  geom_vline(xintercept = 0, colour = "grey40") + 
+  geom_vline(
+    aes(xintercept = x), 
+    data = . %>%
+      summarise(tibble(x = c(mean(lambda), HPDI(lambda)))), 
+    linetype = 2, 
+    colour = "grey50"
+  ) + 
+  labs(
+    title = "Contrast between high- and low-contact cultures", 
+    subtitle = "Population held constant at that of Hawaii", 
+    caption = "Dotted lines are mean and 89% HPDI of contrast", 
+    x = NULL, 
+    y = NULL
+  ) + 
+  theme(
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank()
+  )
+```
+
+Our model is quite uncertain, with a huge 89% HPDI for the difference. But more often than not it thinks that the high-contact cultures will have fewer tools. 
+
+So we try to improve on that: call `m11_10` the _geocentric model_, and the next one a _scientific model_. This is based on a scientific model of how population size related to tool kit complexity. We start by saying that the change in tools at each step in time is: 
+
+$$
+\begin{align*}
+  \Delta Y &= \alpha P^{\beta} - \gamma Y
+\end{align*}
+$$
+
+In other words: the change in the numbers of tools is a function of $P$, where we subtract a multiple of the current number of tools ($\gamma Y$) to reflect the fact that tool changes should decrease over time. We want the equilibrium state, so set $\Delta Y$ to zero and solve for $Y$. That gives: 
+
+$$
+\begin{align*}
+  \hat{Y} & = \frac{\alpha P^{\beta}}{\gamma}
+\end{align*}
+$$
+
+Now we embed that in a Poisson model. 
+
+$$
+\begin{align*}
+  Y_i &\sim \operatorname{Poisson}(\lambda_i) \\
+  \lambda_i &= \frac{\alpha_{\text{[CID]}} P_i^{\beta_{\text{[CID]}}}}{\gamma} \\
+  \log(\alpha_j) &\sim \mathcal{N}(1, 1) \\
+  \beta_k &\sim \operatorname{Exponential}(1) \\
+  \gamma &\sim \operatorname{Exponential}(1)
+\end{align*}
+$$
+
+We don't use the log link, but we have to constrain the right-hand side of the equation to be positive. We do that by setting priors on $\alpha$ and $\gamma$ that are strictly positive, as above. 
+
+Now we can fit the model. 
+
+```{r}
+lkline_sci <- dkline |> 
+  transmute(
+    Y = total_tools, 
+    P = population, 
+    cid = 3L - as.integer(contact)
+  ) |> 
+  compose_data()
+```
+
+```{r}
+m11_11 <- stan_model(file = here::here("inst/Stan/m11_11.stan")) |> 
+  sampling(data = lkline_sci, seed = 1219)
+```
+
+We can compare the models as RM suggests. 
+
+```{r}
+compare(m11_10, m11_11, func = PSIS)
+```
+
+And now we can recreate the plot from the book. 
+
+```{r}
+set.seed(1908)
+full_kline_sci <- bind_cols(
+  dkline, 
+  lkline_sci |> 
+    as_tibble() |> 
+    select(-n)
+) |> 
+  mutate(
+    k = PSIS(m11_11, pointwise = TRUE) |> 
+      pluck("k")
+  )
+
+d_fig_11_10 <- m11_11 |> 
+  spread_draws(a[j], b[k], g) |> 
+  ungroup() |>
+  filter(j == k) |> 
+  select(.iteration, a, b, g, cid = j) |> 
+  expand(
+    nesting(.iteration, a, b, g, cid), 
+    P = seq(0, 280000, length.out = 100)
+  ) |> 
+  mutate(lambda = (exp(a) * P^b) / g) |> 
+  group_by(P, cid) |> 
+  summarise(
+    tibble(
+      name = c("lambda", "lower", "upper"), 
+      value = c(mean(lambda), PI(lambda))
+    ), 
+    .groups = "drop"
+  ) |> 
+  pivot_wider() |> 
+  mutate(
+    cid = if_else(cid == 1L, "low", "high") |> 
+      factor(levels = c("low", "high"))
+  )
+
+d_fig_11_10 |> 
+  ggplot(aes(P)) + 
+  geom_line(aes(y = lambda, linetype = cid)) + 
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper, group = cid), 
+    colour = "grey60", 
+    alpha = 0.4
+  ) + 
+  geom_point(
+    aes(y = total_tools, shape = contact, size = k), 
+    data = full_kline_sci, 
+    colour = "midnightblue"
+  ) + 
+  scale_linetype_manual(values = c(2, 1)) + 
+  scale_shape_manual(values = c(16, 1)) + 
+  scale_x_continuous(
+    "population", 
+    breaks = c(0, 50000, 150000, 250000), 
+    labels = scales::label_comma()
+  ) + 
+  scale_y_continuous(
+    "total tools", 
+    breaks = seq(0, 70, by = 10)
+  ) + 
+  coord_cartesian(
+    xlim = c(0, 300000),
+    ylim = c(0, 75)
+  ) +
+  theme(legend.position = "none")
+```
+
+### Negative binomial (gamma-Poisson) models
+
+The Poisson model assumes a constant $\lambda$, but this can underestimate the variation. So instead we can account for _rate heterogeneity_ with a negative binomial or gamma-Poisson model. 
+
+### Example: Exposure and the offset
+
+RM extends the monastery and manuscripts example: now we have one monastery that counts the manuscripts each day and another per week. By thinking of $\lambda$ as the rate per unit time, i.e. the expected number of events $\mu$ per unit time $\tau$, so that $\lambda = \mu/\tau$, we get: 
+
+$$
+\begin{align*}
+   y_i &\sim \operatorname{Poisson}(\lambda_i) \\
+   \log \lambda_i &= \log \frac{\mu_i}{\tau_i} \\
+                  &= \log \mu_i - \log \tau_i \\
+                  &= \alpha + \beta x_i \\
+  \log \mu_i &= \log \tau_i + \alpha + \beta x_i
+\end{align*}
+$$
+
+If $\tau_i = 1$ then $\log \tau_i = 0$ and we get back to the Poisson model. This $\tau_i$ is fixed for each observation, and is referred to as the offset.
+
+So let's simulate data for our current monastery, for which we have daily data and the true $\lambda = 1.5$; and the new monastery, for which we have weekly data and the true $\lambda = 0.5$. 
+
+```{r}
+set.seed(926)
+dmonk <- bind_rows(
+  tibble(
+    y = rpois(30, 1.5), 
+    offset = log(1L), 
+    monastery = 0L
+  ), 
+  tibble(
+    y = rpois(4, 0.5 * 7), 
+    offset = log(7L), 
+    monastery = 1L
+  )
+)
+```
+
+```{r}
+m11_12 <- stan_model(file = here::here("inst/Stan/m11_12.stan")) |> 
+  sampling(data = compose_data(dmonk), seed = 909)
+```
+
+```{r}
+m11_12 |> 
+  spread_draws(a, b) |> 
+  transmute(
+    old = exp(a), 
+    new = exp(a + b)
+  ) |> 
+  precis()
+```
+
+I tried this originally with data created from random seed 900 and got very different results, posterior means for old and new were about 0.85 and 0.45 respectively. So given the sample sizes here the posterior mean estimates aren't telling the whole story. So instead of doing what RM does in the text, let's actually compute the contrast and plot that. 
+
+```{r}
+contrast_11_12 <- m11_12 |> 
+  spread_draws(a, b) |> 
+  transmute(contrast = exp(a) - exp(a + b))
+
+summ_11_12 <- contrast_11_12 |>
+  summarise(x = c(mean(contrast), HPDI(contrast)))
+
+contrast_11_12 |> 
+  ggplot(aes(contrast)) + 
+  geom_density(fill = "steelblue", alpha = 0.5) + 
+  geom_vline(
+    aes(xintercept = x), 
+    data = summ_11_12, 
+    linetype = 2, 
+    colour = "grey50"
+  ) + 
+  labs(
+    title = "Contrast: old monstery minus new", 
+    x = NULL, 
+    y = NULL
+  ) + 
+  theme(
+    axis.ticks.y = element_blank(), 
+    axis.text.y = element_blank()
+  )
+```
+
+The contrast is reliably positive, but with a fair bit of variation. 
+
+## Multinomial and categorical models
+
+Generalise from the binomial to multiple possible outcomes. RM mentions that there are numerous approaches. 
+
+The conventional choice for the link function is the **multinomial logit**, or **softmax**. 
+
+$$
+\operatorname{P}(k | s_1, s_2, \dots, s_K) = 
+  \frac{e^{s_k}}{\sum_{i = 1}^K e^{s_i}}
+$$
+
+RM says we need $K - 1$ models for $K$ event types, with one of the types acting as a 'pivot'. Importantly the predictors and parameters don't have to be the same in each one. 
+
+There are two basic cases then: 
+
+1. predictors have different values for different values of the outcome; and 
+2. parameters are distinct for each value of the outcome. 
+
+### Predictors matched to outcomes
+
+We are modelling choice of career for young people, for which one predictor is the expected income. So we expect the same parameter $\beta_\text{INCOME}$ to appear in each model, multiplying the different values of expected income. 
+
+Start by simulating some data, then building the model. 
+
+```{r}
+set.seed(34302)
+career <- sample(
+  3, 
+  size = 500, 
+  replace = TRUE, 
+  prob = softmax(c(1, 2, 5) * 0.5)
+)
+career
+```
+
+```{r}
+dcareer <- list(
+  N = 500, 
+  K = 3, 
+  career = career, 
+  income = c(1, 2, 5)
+)
+```
+
+```{r}
+m11_13 <- stan_model(file = here::here("inst/Stan/m11_13.stan")) |> 
+  sampling(data = dcareer, seed = 1121)
+stancode(m11_13)
+```
+
