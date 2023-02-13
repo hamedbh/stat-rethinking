@@ -1,12 +1,10 @@
----
-title: "Sampling the Imaginary"
-output: html_document
----
+# Sampling the Imaginary
 
-```{r setup}
-library(rethinking)
+```{r}
+#| label: setup
+#| output: false
 library(tidyverse)
-# set up the theme
+library(rethinking)
 theme_set(theme_light())
 ```
 
@@ -14,17 +12,15 @@ The chapter starts with a new take on a popular way to introduce Bayesian infere
 
 $$
 \begin{align}
-\text{P}(\text{vampire}|\text{positive test})& = 
+\text{P}(\text{vampire}|\text{positive test}) &= 
     \frac{\text{P}(\text{positive test}|\text{vampire})\text{P}(\text{vampire})}
     {\text{P}(\text{positive test})} \\
-
-\text{P}(\text{vampire}|\text{positive test})& = 
+\text{P}(\text{vampire}|\text{positive test}) &= 
     \frac{\text{P}(\text{positive test}|\text{vampire})\text{P}(\text{vampire})}
     {\text{P}(\text{positive test}|\text{vampire})\text{P}(\text{vampire}) + 
         \text{P}(\text{positive test}|\text{mortal})\text{P}(\text{mortal})} \\
-
-& = \frac{0.95 \times 0.001}{(0.95 \times 0.001) + (0.01 \times 0.999)} \\
-& \approx 0.087
+&= \frac{0.95 \times 0.001}{(0.95 \times 0.001) + (0.01 \times 0.999)} \\
+&\approx 0.087
 \end{align}
 $$
 
@@ -56,11 +52,11 @@ First set up the probability grid (using the globe-tossing example).
 
 ```{r}
 d01 <- tibble(
-    p = seq(0, 1, length.out = 1000), 
-    prior = 1
+  p = seq(0, 1, length.out = 1000), 
+  prior = 1
 ) |> 
-    mutate(likelihood = dbinom(6, 9, prob = p)) |> 
-    mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
+  mutate(likelihood = dbinom(6, 9, prob = p)) |> 
+  mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
 d01
 ```
 
@@ -69,15 +65,10 @@ Now draw samples from `p` using the `posterior` probabilities.
 ```{r}
 set.seed(1411)
 N <- 1e4
-samples01 <- tibble(
-    index = seq_len(N), 
-    p_sample = sample(
-        d01$p, 
-        size = N, 
-        replace = TRUE, 
-        prob = d01$posterior
-    )
-)
+samples01 <- d01 |> 
+  slice_sample(n = N, weight_by = posterior, replace = TRUE) |> 
+  rowid_to_column("index") |> 
+  select(index, p_sample = p)
 samples01
 ```
 
@@ -87,26 +78,19 @@ Can plot this in a couple of ways.
 # Plot by index, RM describes this as looking down on the posterior 
 # from above
 samples01 |> 
-    ggplot(aes(index, p_sample)) + 
-    geom_point(alpha = 0.3, colour = "steelblue") + 
-    coord_cartesian(ylim = c(0, 1)) + 
-    labs(
-        x = "sample number", 
-        y = "proportion water (p)"
-    )
+  ggplot(aes(index, p_sample)) + 
+  geom_point(alpha = 0.3, colour = "steelblue") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  labs(x = "sample number", y = "proportion water (p)")
 ```
 
 
 ```{r}
 # and then a density plot
 samples01 |> 
-    ggplot(aes(p_sample)) + 
-    geom_density(bw = 0.008, 
-                 colour = "steelblue", 
-                 alpha = 0.4) + 
-    labs(
-        x = "proportion water (p)"
-    )
+  ggplot(aes(p_sample)) + 
+  geom_density(bw = 0.008,  colour = "steelblue",  alpha = 0.4) + 
+  labs(x = "proportion water (p)")
 ```
 
 ## Sampling to summarise
@@ -121,22 +105,22 @@ We have the answer available from the probability grid:
 
 ```{r}
 d01 |> 
-    filter(p < 0.5) |> 
-    summarise(prob = sum(posterior))
+  filter(p < 0.5) |> 
+  summarise(prob = sum(posterior))
 ```
 
 But we can also get this from the samples (and in other cases this may be the only way to do it). 
 
 ```{r}
 samples01 |> 
-    summarise(prob = mean(p_sample < 0.5))
+  summarise(prob = mean(p_sample < 0.5))
 ```
 
 Now ask how probable is it that $0.5 < p < 0.75$?
 
 ```{r}
 samples01 |> 
-    summarise(prob = mean(0.5 < p_sample & p_sample < 0.75))
+  summarise(prob = mean(0.5 < p_sample & p_sample < 0.75))
 ```
 
 ### Intervals of defined mass
@@ -148,19 +132,17 @@ This is straightforward if we want the interval to start/finish at specific poin
 ```{r}
 # find the lower 80% posterior probability
 samples01 |> 
-    summarise(q_0 = 0, 
-              q_80 = quantile(p_sample, 0.8))
+  summarise(q_0 = 0,  q_80 = quantile(p_sample, 0.8))
 
 # find the middle 80% posterior probability
 samples01 |> 
-    summarise(q_10 = quantile(p_sample, 0.1), 
-              q_90 = quantile(p_sample, 0.9))
+  summarise(q_10 = quantile(p_sample, 0.1), q_90 = quantile(p_sample, 0.9))
 ```
 
 But there are many intervals that would contain 80%. A more useful interval is the narrowest one containing 80% of the posterior probability. For that we use `rethinking::HPDI()`. 
 
 ```{r}
-HPDI(samples01$p_sample, prob = 0.8)
+HPDI(samples01[["p_sample"]], prob = 0.8)
 ```
 
 Highest Posterior Density Interval (HPDI) is perhaps more informative, but it has a couple of drawbacks: 
@@ -360,7 +342,7 @@ hw_m_samples_step <- hw_m_post_step |>
     sample_n(size = 1e4, replace = TRUE, weight = posterior) |> 
     select(p)
 
-HPDI(hw_m_samples_step$p, 0.9)
+HPDI(hw_m_samples_step[["p"]], 0.9)
 
 # Do the PPD check, including the plot
 hw_m_ppd_step <- hw_m_samples_step |> 
@@ -414,12 +396,16 @@ estimate_post_width <- function(n) {
     sample_n(size = 1e4, replace = TRUE, weight = posterior) |> 
     select(p)
   
-  PI(hw_m_samples_acc$p, 0.99) |> 
+  PI(hw_m_samples_acc[["p"]], 0.99) |> 
     reduce(~ .y - .x)
 }
 
 tibble(n = seq(2000, 4000, by = 100)) |> 
-  mutate(width = map_dbl(n, estimate_post_width))
+  mutate(width = map_dbl(n, estimate_post_width)) |> 
+  ggplot(aes(n, width)) + 
+  geom_point() + 
+  geom_line() + 
+  geom_hline(yintercept = 0.05, linetype = 2, alpha = 0.4)
 ```
 
 It seems that 3,200 tosses is rather more than is required, as we get the desired width in the posterior 99% interval somewhere between 2,400 and 2,500. 
@@ -459,13 +445,13 @@ Compare to the frequentist MLE:
 hw_h_samples <- hw_h_post |> 
   sample_n(size = 1e4, weight = posterior, replace = TRUE) |> 
   select(p)
-map(c(0.5, 0.89, 0.97), ~ HPDI(hw_h_samples$p, .x))
+map(c(0.5, 0.89, 0.97), ~ HPDI(hw_h_samples[["p"]], .x))
 ```
 
 3H3. 
 
 ```{r}
-tibble(draws = rbinom(1e4, 200, prob = hw_h_samples$p)) |> 
+tibble(draws = rbinom(1e4, 200, prob = hw_h_samples[["p"]])) |> 
   ggplot(aes(draws)) + 
   geom_density() + 
   geom_vline(xintercept = boys, colour = "red")
@@ -528,12 +514,12 @@ tibble(p = p_grid) |>
   mutate(likelihood = dbinom(4, 6, prob = p_grid)) |> 
   mutate(posterior = (prior * likelihood) / sum((prior * likelihood))) |> 
   sample_n(size = 1e4, replace = TRUE, weight = posterior) |> 
-  summarise(
+  reframe(
     tibble(
-      name = c("PI_low", "PI_upp", "HPDI_low", "HPDI_upp"), 
+      name = c("PI_low", "PI_upp", "HPDI_low", "HPDI_upp"),
       value = c(PI(p), HPDI(p))
     )
-  ) |> 
+  ) |>
   pivot_wider() |> 
   mutate(PI_width = PI_upp - PI_low, HPDI_width = HPDI_upp - HPDI_low)
 ```
@@ -568,7 +554,7 @@ hw_biased_sample |>
 ```
 
 ```{r}
-hw_biased_w <- sum(hw_biased_sample$water)
+hw_biased_w <- sum(hw_biased_sample[["water"]])
 tibble(p = p_grid) |> 
   mutate(prior = dbeta(p_grid, 1, 1)) |> 
   mutate(
@@ -594,4 +580,3 @@ tibble(p = p_grid) |>
     legend.position = "bottom"
   )
 ```
-

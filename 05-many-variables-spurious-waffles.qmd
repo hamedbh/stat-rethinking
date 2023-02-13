@@ -1,9 +1,8 @@
----
-title: "The Many Variables & The Spurious Waffles"
-output: html_document
----
+# The Many Variables & The Spurious Waffles
 
-```{r setup}
+```{r}
+#| label: setup
+#| output: false
 library(rethinking)
 library(patchwork)
 library(zeallot)

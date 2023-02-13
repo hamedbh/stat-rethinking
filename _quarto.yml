@@ -1,0 +1,22 @@
+project:
+  type: book
+
+book:
+  title: "Statistical Rethinking, 2nd Edition"
+  subtitle: "Notes and exercises from the book"
+  author: "Hamed Bastan-Hagh"
+  chapters:
+    - index.qmd
+    - 01-golem.qmd
+    - 02-small-worlds-large-worlds.qmd
+    - 03-sampling-imaginary.qmd
+    - 04-geocentric-models.qmd
+    - 05-many-variables-spurious-waffles.qmd
+
+toc: true
+toc-depth: 3
+
+format:
+  html:
+    theme: simplex
+    highlight-style: textmate

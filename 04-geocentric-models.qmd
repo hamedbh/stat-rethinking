@@ -1,9 +1,8 @@
----
-title: "Geocentric Models"
-output: html_document
----
+# Geocentric Models
 
-```{r setup}
+```{r}
+#| label: setup
+#| output: false
 library(rethinking)
 library(tidyverse)
 library(patchwork)
@@ -113,7 +112,7 @@ $$
 y_i   &\sim \mathcal{N}(\mu_i, \sigma) \\
 \mu_i &=    \beta x_i \\
 \beta &\sim \mathcal{N}(0, 10) \\
-\sigma &\sim \text{Exponential}(1) \\
+\sigma &\sim \operatorname{Exponential}(1) \\
 x_i &\sim \mathcal{N}(0, 1) \\
 \end{align}
 $$
@@ -242,7 +241,7 @@ post_height <- expand_grid(
     LL = map2_dbl(
       mu, 
       sigma, 
-      ~ sum(dnorm(adult_kung$height, .x, .y, log = TRUE)
+      ~ sum(dnorm(adult_kung[["height"]], .x, .y, log = TRUE)
       )
     )
   ) |> 
@@ -280,7 +279,7 @@ Similar approach to before, made easier by using tidyverse.
 ```{r}
 set.seed(1853)
 post_samples <- post_height |> 
-  sample_n(size = 1e4, replace = TRUE, weight = prob)
+  slice_sample(n = 1e4, replace = TRUE, weight_by = prob)
 
 post_samples |> 
   ggplot(aes(mu, sigma)) + 
@@ -481,6 +480,8 @@ round(vcov(m4_3), 3)
 There is v little covariance between the parameters. Can get this in plots with: 
 
 ```{r}
+#| warning: false
+# suppress warnings from pairs()
 pairs(m4_3)
 ```
 
@@ -541,10 +542,14 @@ First we can generate samples for $\mu$ at each possible value of weight, then p
 ```{r}
 set.seed(722)
 mu <- link(m4_3, data = tibble(weight = seq(25, 70))) |> 
-  as_tibble(.name_repair = "unique") |> 
+  as_tibble(.name_repair = ~ paste0("w", seq(25, 70))) |> 
   rowid_to_column(".id") |> 
-  pivot_longer(-.id, names_to = "weight", values_to = "height") |> 
-  mutate(weight = (str_sub(weight, 4L) |> as.integer()) + 24L)
+  pivot_longer(
+    -.id,
+    names_to = "weight",
+    values_to = "height",
+    names_transform = list(weight = parse_number)
+  )
 ```
 
 ```{r}
@@ -556,15 +561,12 @@ mu |>
 Can also plot the raw data with the 89% PI overlaid. First create a helper function to get PI summaries 
 
 ```{r}
-get_89_PI <- function(x) {
-  tibble(x = PI(x), bound = c("lower", "upper"))
-}
+get_89_PI <- function(x) tibble(x = PI(x), bound = c("lower", "upper"))
 ```
 
 ```{r}
 mu_summary <- mu |> 
-  group_by(weight) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = weight) |> 
   pivot_wider(names_from = "bound", values_from = x) |> 
   mutate(height = mean(post_4_3$a) + mean(post_4_3$b) * (weight - xbar))
 
@@ -587,11 +589,14 @@ The next step beyond is to propagate the uncertainty about both $\mu$ and $\sigm
 ```{r}
 set.seed(758)
 sim_heights <- sim(m4_3, data = tibble(weight = seq(25, 70))) |> 
-  as_tibble(.name_repair = "unique") |> 
+  as_tibble(.name_repair = ~ paste0("w", seq(25, 70))) |> 
   rowid_to_column(".id") |> 
-  pivot_longer(-.id, names_to = "weight", values_to = "height") |> 
-  mutate(weight = (str_sub(weight, 4L) |> as.integer()) + 24L)
-
+  pivot_longer(
+    -.id,
+    names_to = "weight",
+    values_to = "height",
+    names_transform = list(weight = parse_number)
+  )
 sim_heights
 ```
 
@@ -599,8 +604,7 @@ Can summarise the PI for the heights at each weight.
 
 ```{r}
 height_PI <- sim_heights |> 
-  group_by(weight) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = weight) |> 
   pivot_wider(names_from = "bound", values_from = x)
 height_PI
 ```
@@ -618,7 +622,7 @@ adult_kung |>
   geom_point(aes(y = height), alpha = 0.3, colour = "steelblue") + 
   geom_smooth(
     aes(y = height, ymin = lower, ymax = upper), 
-    data = mu_summary, 
+    data = mu_summary,
     stat = "identity", 
     colour = "grey25"
   ) + 
@@ -651,7 +655,7 @@ Now we can fit the model.
 ```{r}
 d <- Howell1 |> 
   as_tibble() |> 
-  mutate(weight_s = scale(weight) |> as.double()) |> 
+  mutate(weight_s = as.double(scale(weight))) |> 
   mutate(weight_s2 = weight_s^2)
 
 m4_5 <- quap(
@@ -668,7 +672,7 @@ m4_5 <- quap(
 precis(m4_5)
 ```
 
-Can redo the late plot from above, using this new fit. 
+Can redo the last plot from above, using this new fit. 
 
 ```{r}
 set.seed(929)
@@ -677,18 +681,16 @@ mu2_summary <- link(
   m4_5, 
   data = tibble(weight_s = weight_seq, weight_s2 = weight_seq^2)
 ) |> 
-  as_tibble(.name_repair = "unique") |> 
+  as_tibble(.name_repair = ~ paste0("w", weight_seq)) |> 
   rowid_to_column(".id") |> 
-  pivot_longer(-.id, names_to = "weight", values_to = "height") |> 
-  mutate(
-    weight_s = map_dbl(
-      weight, 
-      ~ weight_seq[(str_sub(.x, 4L) |> as.integer())]
-    ), 
-    weight_s2 = weight_s^2
-  ) |>
-  group_by(weight_s, weight_s2) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  pivot_longer(
+    -.id,
+    names_to = "weight_s",
+    values_to = "height",
+    names_transform = list(weight_s = parse_number)
+  ) |> 
+  mutate(weight_s2 = weight_s^2) |>
+  reframe(get_89_PI(height), .by = c(weight_s, weight_s2)) |> 
   pivot_wider(names_from = "bound", values_from = x) |> 
   mutate(
     height = coef(m4_5)[["a"]] + (coef(m4_5)[["b1"]] * weight_s) + 
@@ -699,22 +701,18 @@ sim_heights2 <- sim(
   m4_5, 
   data = tibble(weight_s = weight_seq, weight_s2 = weight_seq^2)
 ) |> 
-  as_tibble(.name_repair = "unique") |> 
-  rowid_to_column(".id") |> 
-  pivot_longer(-.id, names_to = "weight", values_to = "height") |> 
-  transmute(
-    .id, 
-    weight_s = map_dbl(
-      weight, 
-      ~ weight_seq[(str_sub(.x, 4L) |> as.integer())]
-    ), 
-    weight_s2 = weight_s^2, 
-    height
-  )
+  as_tibble(.name_repair = ~ paste0("w", weight_seq)) |>
+  rowid_to_column(".id") |>
+  pivot_longer(
+    -.id,
+    names_to = "weight_s",
+    values_to = "height",
+    names_transform = list(weight_s = parse_number)
+  ) |>
+  mutate(weight_s2 = weight_s^2)
 
 height_PI2 <- sim_heights2 |> 
-  group_by(weight_s, weight_s2) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = c(weight_s, weight_s2)) |> 
   pivot_wider(names_from = "bound", values_from = x)
 
 d |> 
@@ -762,19 +760,16 @@ mu_summary_cubic <- link(
     weight_s3 = weight_seq^3
   )
 ) |> 
-  as_tibble(.name_repair = "unique") |> 
-  rowid_to_column(".id") |> 
-  pivot_longer(-.id, names_to = "weight", values_to = "height") |> 
-  mutate(
-    weight_s = map_dbl(
-      weight, 
-      ~ weight_seq[(str_sub(.x, 4L) |> as.integer())]
-    ), 
-    weight_s2 = weight_s^2, 
-    weight_s3 = weight_s^3
+  as_tibble(.name_repair = ~ paste0("w", weight_seq)) |>
+  rowid_to_column(".id") |>
+  pivot_longer(
+    -.id,
+    names_to = "weight_s",
+    values_to = "height",
+    names_transform = list(weight_s = parse_number)
   ) |>
-  group_by(weight_s, weight_s2, weight_s3) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  mutate(weight_s2 = weight_s^2, weight_s3 = weight_s^3) |> 
+  reframe(get_89_PI(height), .by = c(weight_s, weight_s2, weight_s3)) |> 
   pivot_wider(names_from = "bound", values_from = x) |> 
   mutate(
     height = coef(m4_6)[["a"]] + 
@@ -791,23 +786,18 @@ sim_heights_cubic <- sim(
     weight_s3 = weight_seq^3
   )
 ) |> 
-  as_tibble(.name_repair = "unique") |> 
-  rowid_to_column(".id") |> 
-  pivot_longer(-.id, names_to = "weight", values_to = "height") |> 
-  transmute(
-    .id, 
-    weight_s = map_dbl(
-      weight, 
-      ~ weight_seq[(str_sub(.x, 4L) |> as.integer())]
-    ), 
-    weight_s2 = weight_s^2, 
-    weight_s3 = weight_s^3, 
-    height
-  )
+  as_tibble(.name_repair = ~ paste0("w", weight_seq)) |>
+  rowid_to_column(".id") |>
+  pivot_longer(
+    -.id,
+    names_to = "weight_s",
+    values_to = "height",
+    names_transform = list(weight_s = parse_number)
+  ) |> 
+  mutate(weight_s2 = weight_s^2, weight_s3 = weight_s^3)
 
 height_PI_cubic <- sim_heights_cubic |> 
-  group_by(weight_s, weight_s2, weight_s3) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = c(weight_s, weight_s2, weight_s3)) |> 
   pivot_wider(names_from = "bound", values_from = x)
 
 d_cubic |> 
@@ -846,7 +836,7 @@ cherry_full <- cherry |>
   filter(!is.na(doy))
 
 knot_list <- cherry_full |> 
-  summarise(knots = quantile(year, probs = seq(0, 1, length.out = 15))) |> 
+  reframe(knots = quantile(year, probs = seq(0, 1, length.out = 15))) |> 
   rowid_to_column("id")
 
 B <- bs(
@@ -940,10 +930,9 @@ cherry_mu <- link(m4_7) |>
   mutate(year = as.integer(year))
 
 cherry_mu_PI <- cherry_mu |> 
-  group_by(year) |> 
-  summarise(
-    tibble(x = PI(value, prob = 0.97), bound = c("lower", "upper")), 
-    .groups = "drop"
+  reframe(
+    tibble(x = PI(value, prob = 0.97), bound = c("lower", "upper")),
+    .by = year
   ) |> 
   pivot_wider(names_from = "bound", values_from = "x")
 
@@ -1093,8 +1082,7 @@ mu_hw <- link(m4_3_hw, data = tibble(weight = seq(25, 70))) |>
   mutate(weight = as.integer(weight))
 
 mu_summary_hw <- mu_hw |> 
-  group_by(weight) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = weight) |> 
   pivot_wider(names_from = "bound", values_from = x) |> 
   mutate(height = mean(post_4_3$a) + mean(post_4_3$b) * (weight - xbar))
 
@@ -1105,8 +1093,7 @@ sim_heights_hw <- sim(m4_3_hw, data = tibble(weight = seq(25, 70))) |>
   mutate(weight = as.integer(weight))
 
 height_PI_hw <- sim_heights_hw |> 
-  group_by(weight) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = weight) |> 
   pivot_wider(names_from = "bound", values_from = x)
 
 hw_4m7_p1 <- adult_kung |> 
@@ -1158,7 +1145,7 @@ It will speed things up to functionalise the process.
 ```{r}
 hw_plot_cherry <- function(k, w_sd) {
   knot_list <- cherry_full |> 
-    summarise(knots = quantile(year, probs = seq(0, 1, length.out = k))) |> 
+    reframe(knots = quantile(year, probs = seq(0, 1, length.out = k))) |> 
     rowid_to_column("id")
   
   B <- bs(
@@ -1195,10 +1182,9 @@ hw_plot_cherry <- function(k, w_sd) {
     mutate(year = as.integer(year))
   
   cherry_mu_PI <- cherry_mu |> 
-    group_by(year) |> 
-    summarise(
+    reframe(
       tibble(x = PI(value, prob = 0.97), bound = c("lower", "upper")), 
-      .groups = "drop"
+      .by = year
     ) |> 
     pivot_wider(names_from = "bound", values_from = "x")
   
@@ -1334,8 +1320,7 @@ mu_hw4h2 <- link(hw_m4h2, data = tibble(weight = hw_4h2_weights)) |>
   mutate(weight = as.double(weight))
 
 mu_summary_hw4h2 <- mu_hw4h2 |> 
-  group_by(weight) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = weight) |> 
   pivot_wider(names_from = "bound", values_from = x) |> 
   mutate(
     height = mean(post_hw4h2$a) + mean(post_hw4h2$b) * (weight - child_xbar)
@@ -1348,8 +1333,7 @@ sim_heights_hw4h2 <- sim(hw_m4h2, data = tibble(weight = hw_4h2_weights)) |>
   mutate(weight = as.double(weight))
 
 height_PI_hw4h2 <- sim_heights_hw4h2 |> 
-  group_by(weight) |> 
-  summarise(get_89_PI(height), .groups = "drop") |> 
+  reframe(get_89_PI(height), .by = weight) |> 
   pivot_wider(names_from = "bound", values_from = x)
 
 child_kung |> 
@@ -1413,15 +1397,12 @@ mu_hw4h3 <- link(hw_m4h3, data = tibble(weight = hw_4h3_weights)) |>
   mutate(weight = as.double(weight))
 
 mu_summary_hw4h3 <- mu_hw4h3 |> 
-  group_by(weight) |> 
-  summarise(
+  reframe(
     tibble(x = PI(height, prob = 0.97), bound = c("lower", "upper")), 
-    .groups = "drop"
+    .by = weight
   ) |> 
   pivot_wider(names_from = "bound", values_from = x) |> 
-  mutate(
-    height = mean(post_hw4h3$a) + mean(post_hw4h3$b) * log(weight)
-  )
+  mutate(height = mean(post_hw4h3$a) + mean(post_hw4h3$b) * log(weight))
 
 sim_heights_hw4h3 <- sim(hw_m4h3, data = tibble(weight = hw_4h3_weights)) |> 
   as_tibble(.name_repair = ~ paste(hw_4h3_weights)) |> 
@@ -1430,10 +1411,9 @@ sim_heights_hw4h3 <- sim(hw_m4h3, data = tibble(weight = hw_4h3_weights)) |>
   mutate(weight = as.double(weight))
 
 height_PI_hw4h3 <- sim_heights_hw4h3 |> 
-  group_by(weight) |> 
-  summarise(
+  reframe(
     tibble(x = PI(height, prob = 0.97), bound = c("lower", "upper")), 
-    .groups = "drop"
+    .by = weight
   ) |> 
   pivot_wider(names_from = "bound", values_from = x)
 
@@ -1568,12 +1548,9 @@ mu_hw4h5 <- link(hw_m4h5, data = tibble(temp = hw_4h5_temps)) |>
   mutate(temp = as.double(temp))
 
 mu_summary_hw4h5 <- mu_hw4h5 |> 
-  group_by(temp) |> 
-  summarise(get_89_PI(doy), .groups = "drop") |> 
+  reframe(get_89_PI(doy), .by = temp) |> 
   pivot_wider(names_from = "bound", values_from = x) |> 
-  mutate(
-    doy = mean(post_hw4h5$a) + mean(post_hw4h5$b) * temp
-  )
+  mutate(doy = mean(post_hw4h5$a) + mean(post_hw4h5$b) * temp)
 
 sim_doy_hw4h5 <- sim(hw_m4h5, data = tibble(temp = hw_4h5_temps)) |> 
   as_tibble(.name_repair = ~ paste(hw_4h5_temps)) |> 
@@ -1582,8 +1559,7 @@ sim_doy_hw4h5 <- sim(hw_m4h5, data = tibble(temp = hw_4h5_temps)) |>
   mutate(temp = as.double(temp))
 
 doy_PI_hw4h5 <- sim_doy_hw4h5 |> 
-  group_by(temp) |> 
-  summarise(get_89_PI(doy), .groups = "drop") |> 
+  reframe(get_89_PI(doy), .by = temp) |> 
   pivot_wider(names_from = "bound", values_from = x)
 
 cherry_hw |> 
@@ -1618,13 +1594,12 @@ prior_pred_cherry <- function(model, B, N = 100) {
   c(alpha, sigma, W) %<-% extract.prior(model, n = 100)
   
   lines <- (W %*% t(B)) |> 
-    as_tibble(.name_repair = ~ str_c(1:827)) |> 
+    as_tibble(.name_repair = ~ str_c(seq_len(827))) |> 
     rowid_to_column(".id") |> 
     mutate(alpha = alpha, sigma = sigma) |> 
     pivot_longer(-c(.id, alpha, sigma), names_to = "spline_num") |> 
     mutate(mu = alpha + value) |> 
-    # mutate(y = rnorm(n = nrow(.), mean = mu, sd = sigma)) |> 
-    {\(x) mutate(x, y = rnorm(n = nrow(x), mean = mu, sd = sigma))} () |> 
+    {\(x) mutate(x, y = rnorm(n = nrow(x), mean = mu, sd = sigma))}() |> 
     mutate(year = rep(cherry_full$year, 100))
   
   summary <- lines |> 
@@ -1733,10 +1708,9 @@ hw_cherry_mu <- link(hw_m4h8) |>
   mutate(year = as.integer(year))
 
 hw_cherry_mu_PI <- hw_cherry_mu |> 
-  group_by(year) |> 
-  summarise(
+  reframe(
     tibble(x = PI(value, prob = 0.97), bound = c("lower", "upper")), 
-    .groups = "drop"
+    .by = year
   ) |> 
   pivot_wider(names_from = "bound", values_from = "x")
 
