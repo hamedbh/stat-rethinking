@@ -23,7 +23,12 @@ RUN cd /usr/share/ \
   && ln -s .cmdstan cmdstan && cd .cmdstan \
   && make build
 
-RUN install2.r --error --skipinstalled "remotes"
+ENV R_PACKAGES="\
+    remotes \
+    renv \
+"
+
+RUN install2.r --error --skipinstalled $R_PACKAGES
 
 COPY ./rstudio-prefs.json /home/rstudio/.config/rstudio/rstudio-prefs.json
 
