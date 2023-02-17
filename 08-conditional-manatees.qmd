@@ -1,26 +1,22 @@
----
-title: "Conditional Manatees"
-output: html_document
----
+# Conditional Manatees
 
-```{r setup}
+```{r}
+#| label: setup
+#| output: false
 library(rethinking)
-options(mc.cores = parallel::detectCores())
-rstan_options(auto_write = TRUE)
 library(patchwork)
 library(zeallot)
 library(dagitty)
 library(ggdag)
 library(ggrepel)
 library(magrittr)
-library(corrr)
-library(furrr)
 library(tidyverse)
 # set up the theme
 theme_set(
   theme_light() + 
     theme(panel.grid = element_blank())
 )
+walk(list.files(here::here("R"), full.names = TRUE), source)
 ```
 
 The chapter introduces the idea of interactions. 
@@ -142,9 +138,7 @@ fig_8_3_1 <- link(
   post = extract.prior(m8_1_bad), 
   data = tibble(rugged_std = rugged_seq)
 ) |> 
-  as_tibble(
-    .name_repair = ~ str_c(rugged_seq)
-  ) |> 
+  as_tibble(.name_repair = ~ str_c(rugged_seq)) |> 
   rowid_to_column() |> 
   slice_sample(n = 50) |> 
   pivot_longer(
@@ -155,10 +149,7 @@ fig_8_3_1 <- link(
   ) |> 
   ggplot(aes(rugged_std, log_gdp_std, group = rowid)) + 
   geom_line(alpha = 0.5, colour = "grey50") + 
-  coord_cartesian(
-    xlim = c(0, 1), 
-    ylim = c(0.5, 1.5)
-  ) + 
+  coord_cartesian(xlim = c(0, 1), ylim = c(0.5, 1.5)) + 
   geom_hline(yintercept = range(drugged$log_gdp_std), linetype = 2) + 
   labs(
     title = sprintf("a ~ dnorm(1, 1)\nb ~ dnorm(0, 1)"), 
@@ -205,9 +196,7 @@ fig_8_3_2 <- link(
   post = extract.prior(m8_1), 
   data = tibble(rugged_std = rugged_seq)
 ) |> 
-  as_tibble(
-    .name_repair = ~ str_c(rugged_seq)
-  ) |> 
+  as_tibble(.name_repair = ~ str_c(rugged_seq)) |> 
   rowid_to_column() |> 
   slice_sample(n = 50) |> 
   pivot_longer(
@@ -218,10 +207,7 @@ fig_8_3_2 <- link(
   ) |> 
   ggplot(aes(rugged_std, log_gdp_std, group = rowid)) + 
   geom_line(alpha = 0.5, colour = "grey50") + 
-  coord_cartesian(
-    xlim = c(0, 1), 
-    ylim = c(0.5, 1.5)
-  ) + 
+  coord_cartesian(xlim = c(0, 1), ylim = c(0.5, 1.5)) + 
   geom_hline(yintercept = range(drugged$log_gdp_std), linetype = 2) + 
   labs(
     title = sprintf("a ~ dnorm(1, 0.1)\nb ~ dnorm(0, 0.3)"), 
@@ -315,10 +301,7 @@ PSIS(m8_3, pointwise = TRUE) |>
   geom_hline(yintercept = 0.5, linetype = 2, alpha = 0.6) + 
   scale_y_continuous(breaks = c(0.5, 1)) + 
   labs(x = NULL) + 
-  theme(
-    axis.text.x = element_blank(), 
-    axis.ticks.x = element_blank()
-  )
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 ```
 
 ### Plotting an interaction
@@ -345,24 +328,10 @@ mu8_3 <- map_dfr(
     mutate(cid = .x)
 )
 mu8_3_summary <- mu8_3 |>
-  group_by(cid, rugged_std) |> 
-  summarise(
-    tibble(
-      tibble(
-        name = c("mean", "lower", "upper"), 
-        value = c(mean(value), PI(value, prob = 0.97))
-      )
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(c(cid, rugged_std), width = 0.97) |> 
   pivot_wider() |> 
-  mutate(
-    cid = if_else(
-      cid == 1L, 
-      "Non-African nations", 
-      "African nations"
-    )
-  )
+  mutate(cid = if_else(cid == 1L, "Non-African nations", "African nations"))
+
 mu8_3_summary |> 
   ggplot(aes(x = rugged_std)) + 
   geom_line(aes(y = mean)) + 
@@ -442,7 +411,7 @@ $$
 \end{align}
 $$
 
-Exactly one of the terms in the sum will be non-zero for each country, and we can 'flip' the contintent for any country and get a different estimate for $\mu$ based on its ruggedness. 
+Exactly one of the terms in the sum will be non-zero for each country, and we can 'flip' the continent for any country and get a different estimate for $\mu$ based on its ruggedness. 
 
 ```{r}
 set.seed(1105)
@@ -465,16 +434,7 @@ mu8_3_delta <- map(
   )
 
 mu8_3_delta_summary <- mu8_3_delta |>
-  group_by(rugged_std) |> 
-  summarise(
-    tibble(
-      tibble(
-        name = c("mean", "lower", "upper"), 
-        value = c(mean(value), PI(value, prob = 0.97))
-      )
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(rugged_std, width = 0.97) |> 
   pivot_wider()
 
 mu8_3_delta_summary |> 
@@ -513,7 +473,7 @@ dtulips <- tulips |>
     B = scales::rescale(blooms), 
     bed_idx = as.integer(bed)
   )
-str(dtulips)
+glimpse(dtulips)
 ```
 
 We predict blooms as a function of water and shade. However these variables are both continuous and we expect them to interact. 
@@ -762,9 +722,7 @@ The last form is maybe the most suggestive: we see that $1 - T_i$ is just killin
 The question says that ravens depend on wolves, but not the reverse. So the DAG would be: 
 
 ```{r}
-dagify(
-  R ~ W
-) |> 
+dagify(R ~ W) |> 
   ggdag() + 
   theme_dag()
 ```
@@ -904,6 +862,7 @@ tibble(
 ```{r}
 compare(m8_3, m8h3b)
 ```
+
 We can also compute the effect of the continent for each model. 
 
 ```{r}
@@ -919,14 +878,8 @@ map2_dfr(
 ) |> 
   ggplot(aes(contrast, colour = model, fill = model)) + 
   geom_density(alpha = 0.4) + 
-  scale_fill_viridis_d(
-    aesthetics = c("colour", "fill")
-  ) + 
-  labs(
-    y = NULL, 
-    colour = NULL, 
-    fill = NULL
-  ) + 
+  scale_fill_viridis_d(aesthetics = c("colour", "fill")) + 
+  labs(y = NULL, colour = NULL, fill = NULL) + 
   theme(
     axis.text.y = element_blank(), 
     axis.ticks.y = element_blank(), 
@@ -1059,25 +1012,11 @@ sim(m8h4c) |>
   as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) |> 
   rowid_to_column("sample_id") |> 
   select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") |> 
-  pivot_longer(
-    -sample_id, 
-    names_to = "country", 
-    values_to = "L"
-  ) |> 
-  group_by(country) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(L), PI(L))
-    ), 
-    .groups = "drop"
-  ) |> 
+  pivot_longer(-sample_id, names_to = "country") |> 
+  reframe_mean_PI(country) |> 
   pivot_wider() |> 
   inner_join(
     dnettle |> 
-      filter(
-        country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil")
-      ) |> 
       select(country, L), 
     by = "country"
   ) |> 
@@ -1109,7 +1048,6 @@ m8h4d <- quap(
   ), 
   data = dnettle
 )
-
 precis(m8h4d)
 ```
 
@@ -1121,25 +1059,11 @@ sim(m8h4d) |>
   as_tibble(.name_repair = ~ str_c(dnettle[["country"]])) |> 
   rowid_to_column("sample_id") |> 
   select(sample_id, "Vanuatu", "Cuba", "Papua New Guinea", "Brazil") |> 
-  pivot_longer(
-    -sample_id, 
-    names_to = "country", 
-    values_to = "L"
-  ) |> 
-  group_by(country) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(L), PI(L))
-    ), 
-    .groups = "drop"
-  ) |> 
+  pivot_longer(-sample_id, names_to = "country") |> 
+  reframe_mean_PI(country) |> 
   pivot_wider() |> 
   inner_join(
     dnettle |> 
-      filter(
-        country %in% c("Vanuatu", "Cuba", "Papua New Guinea", "Brazil")
-      ) |> 
       select(country, L), 
     by = "country"
   ) |> 
@@ -1225,11 +1149,7 @@ m8h5 |>
   ggplot(aes(y = reorder(name, mean), colour = param)) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
   scale_colour_manual(values = c("steelblue", "firebrick")) + 
-  labs(
-    x = "score", 
-    y = NULL, 
-    colour = NULL
-  )
+  labs(x = "score", y = NULL, colour = NULL)
 ```
 
 Based on the plot there seems to be more variation among the judges than the wines. 
@@ -1277,11 +1197,7 @@ m8h6 |>
   ggplot(aes(y = name, colour = param)) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
   geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
-  labs(
-    x = "score", 
-    y = NULL, 
-    colour = NULL
-  )
+  labs(x = "score", y = NULL, colour = NULL)
 ```
 
 The plot is suggestive of some things: 
@@ -1312,10 +1228,7 @@ contrasts_8h6 |>
   ggplot(aes(value, colour = contrast, fill = contrast)) + 
   geom_density(alpha = 0.3) + 
   geom_vline(xintercept = 0, linetype = 2, alpha = 0.4) + 
-  labs(
-    y = NULL, 
-    x = "contrast"
-  ) + 
+  labs(y = NULL, x = "contrast") + 
   theme(axis.ticks.y = element_blank(), axis.text.y = element_blank())
 ```
 
@@ -1400,14 +1313,7 @@ link(
   as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) |> 
   rowid_to_column("sample_id") |> 
   pivot_longer(-sample_id, names_to = "grp") |> 
-  group_by(grp) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(grp) |> 
   pivot_wider() |> 
   ggplot(aes(y = reorder(grp, mean))) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 
@@ -1425,21 +1331,11 @@ What happens when we do posterior predictive simulation?
 
 ```{r}
 set.seed(1703)
-sim(
-  m8h7, 
-  data = sim_grid_8h7
-) |> 
+sim(m8h7, data = sim_grid_8h7) |> 
   as_tibble(.name_repair = ~ sim_grid_8h7[["label"]]) |> 
   rowid_to_column("sample_id") |> 
   pivot_longer(-sample_id, names_to = "grp") |> 
-  group_by(grp) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(grp) |> 
   pivot_wider() |> 
   ggplot(aes(y = reorder(grp, mean))) + 
   geom_pointrange(aes(xmin = lower, x = mean, xmax = upper)) + 

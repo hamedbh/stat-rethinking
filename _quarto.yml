@@ -13,6 +13,8 @@ book:
     - 04-geocentric-models.qmd
     - 05-many-variables-spurious-waffles.qmd
     - 06-haunted-dag-causal-terror.qmd
+    - 07-ulysses-compass.qmd
+    - 08-conditional-manatees.qmd
 
 toc: true
 toc-depth: 3

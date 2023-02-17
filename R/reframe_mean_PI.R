@@ -11,7 +11,7 @@ reframe_mean_PI <- function(d, .by, ..., width = 0.89) {
     reframe(
       tibble(
         name = c("mean", "lower", "upper"), 
-        value = c(mean(value), PI(value))
+        value = c(mean(value), PI(value, prob = width))
       ),
       .by = {{ .by }}
     )

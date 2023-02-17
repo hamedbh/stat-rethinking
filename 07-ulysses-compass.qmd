@@ -1,26 +1,22 @@
----
-title: "Ulysses' Compass"
-output: html_document
----
+# Ulysses' Compass
 
-```{r setup}
+```{r}
+#| label: setup
+#| output: false
 library(rethinking)
-options(mc.cores = parallel::detectCores())
-rstan_options(auto_write = TRUE)
 library(patchwork)
 library(zeallot)
 library(dagitty)
 library(ggdag)
 library(ggrepel)
 library(magrittr)
-library(corrr)
-library(furrr)
 library(tidyverse)
 # set up the theme
 theme_set(
   theme_light() + 
     theme(panel.grid = element_blank())
 )
+walk(list.files(here::here("R"), full.names = TRUE), source)
 ```
 
 At the start of the chapter we get a key point from RM: 
@@ -57,7 +53,7 @@ dbrain |>
   ggplot(aes(mass, brain)) + 
   geom_point(alpha = 0.6, colour = "steelblue") + 
   geom_text_repel(aes(label = species)) + 
-  coord_cartesian()
+  coord_cartesian() +
   labs(x = "body mass (kg)", y = "brain volume (cc)")
 ```
 
@@ -228,14 +224,7 @@ plot_R2_is_bad <- function(quap_fit_chr, poly_order) {
       names_to = "mass_std", 
       names_transform = list(mass_std = parse_number)
     ) |> 
-    group_by(mass_std) |> 
-    summarise(
-      tibble(
-        name = c("mean", "lower", "upper"), 
-        value = c(mean(value), PI(value))
-      ), 
-      .groups = "drop"
-    ) |> 
+    reframe_mean_PI(mass_std) |> 
     pivot_wider() |> 
     ggplot(aes(x = mass_std)) + 
     geom_line(aes(y = mean)) + 
@@ -248,13 +237,13 @@ plot_R2_is_bad <- function(quap_fit_chr, poly_order) {
     )
 }
 
-plot_R2_is_bad("m7_1") + 
-  plot_R2_is_bad("m7_2") + 
-  plot_R2_is_bad("m7_3") + 
-  plot_R2_is_bad("m7_4") + 
-  plot_R2_is_bad("m7_5") + 
+plot_R2_is_bad("m7_1") +
+  plot_R2_is_bad("m7_2") +
+  plot_R2_is_bad("m7_3") +
+  plot_R2_is_bad("m7_4") +
+  plot_R2_is_bad("m7_5") +
   (
-    plot_R2_is_bad("m7_6") + 
+    plot_R2_is_bad("m7_6") +
       geom_hline(yintercept = 0, linetype = 2)
   )
 ```
@@ -424,34 +413,38 @@ map_chr(
 We can try iterating over a number of values to see how it varies. 
 
 ```{r}
-expand_grid(
-  wet_cost = seq(0, 6, by = 0.2), 
-  brolly_cost = seq(0, 6, by = 0.2)
+inner_join(
+  wperson1_preds |> rename(pred1 = pred),
+  wperson2_preds |> rename(pred2 = pred),
+  by = "day"
 ) |> 
-  mutate(
-    cost_diff = map2_dbl(
-      wet_cost, 
-      brolly_cost, 
-      function(W, U) {
-        map_dbl(
-          1:2, 
-          ~ sprintf("wperson%s_preds", .x) |> 
-            get() |> 
-            bind_cols(observed) |> 
-            summarise(
-              cost = sum((W * (1 - pred) * (rain == 1L)) + (U * pred))
-            ) |> 
-            pull(cost)
-        ) |> 
-          reduce(~ .x - .y)
-      }
-    )
+  bind_cols(observed) |> 
+  pivot_longer(
+    starts_with("pred"),
+    names_prefix = "pred",
+    names_to = "wperson",
+    values_to = "pred"
+  ) |> 
+  expand(
+    nesting(day, rain, wperson, pred),
+    W = seq(0, 6, by = 0.2), 
+    U = seq(0, 6, by = 0.2)
   ) |> 
   mutate(
-    which_better = if_else(cost_diff < 0, "one", "two") |> 
-      factor()
+    cost = (W * (1 - pred) * (rain == 1L)) + (U * pred)
   ) |> 
-  ggplot(aes(wet_cost, brolly_cost, fill = which_better)) + 
+  group_by(wperson, W, U) |> 
+  summarise(
+    cost = sum(cost),
+    .groups = "drop"
+  ) |> 
+  pivot_wider(
+    names_from = wperson,
+    names_prefix = "wperson",
+    values_from = cost
+  ) |> 
+  mutate(which_better = if_else(wperson1 - wperson2 < 0, "one", "two")) |> 
+  ggplot(aes(W, U, fill = which_better)) + 
   geom_raster() + 
   scale_fill_manual(values = c("steelblue", "firebrick")) + 
   labs(
@@ -634,6 +627,7 @@ This leads us to the equation for the **score** of a model $q$, $S(q)$:
 $$
 S(q) = \sum_i \log (q_i)
 $$
+
 Of course for a Bayesian model we must use the entire posterior distribution to calculate the score, which leads to the **log pointwise predictive density**: 
 
 $$
@@ -656,11 +650,7 @@ In practice we need to be careful when working with small values, as they may no
 ```{r}
 set.seed(1)
 sim(m7_1, ll = TRUE, n = 1e4) |> 
-  apply(
-    2, 
-    function(x) 
-      log_sum_exp(x) - log(1e4)
-    )
+  apply(2, function(x) log_sum_exp(x) - log(1e4))
 ```
 
 ### Scoring the right data
@@ -680,7 +670,7 @@ The procedure needs to be better:
 1. Start with training sample of $N$ observations. 
 2. Compute the posterior distribution for a given model on those data, compute the score on the training data, $D_{\text{train}}$. 
 3. Take a new sample of $N$ observations, the test sample. 
-4.Use the existing posterior to compute the score on those test data, $D_{\text{test}}$. 
+4. Use the existing posterior to compute the score on those test data, $D_{\text{test}}$. 
 
 RM illustrates this with simulation, but the code takes ages to run. It generates the plots on page 212. 
 
@@ -794,11 +784,10 @@ set.seed(94)
 logprob <- extract.samples(waic_m, n = 1000) |>
   as_tibble() |>
   rowid_to_column("sample_id") |>
-  full_join(
+  cross_join(
     cars |>
       as_tibble() |>
-      rowid_to_column("obs_id"),
-    by = character()
+      rowid_to_column("obs_id")
   ) |>
   mutate(logprob = dnorm(dist, a + (b * speed), sigma, log = TRUE))
 
@@ -895,8 +884,6 @@ set.seed(77)
 compare(m6_6, m6_7, m6_8, func = PSIS)
 ```
 
-(NB. the warning about the high values of $k$ is for model `m6_7`. The values are above 0.5 but below 0.7, so we ignore the warning and carry one for now.)
-
 The values are near-identical. Model `m6_7` gives the best predictions and scores seem substantially better than the others. In fact the 'good' model (i.e. the one that is consistent with the causal model) is only slightly better than the intercept-only model. But are these big differences? To check that we need to consider the standard error, but not of the WAIC itself. Instead we compute the standard error of the difference between WAIC for two models. 
 
 ```{r}
@@ -906,9 +893,7 @@ tibble(
   waic_m6_8 = WAIC(m6_8, pointwise = TRUE) |> pluck("WAIC")
 ) |> 
   mutate(diff_waic = waic_m6_7 - waic_m6_8) |> 
-  {
-    \(x) summarise(x, dSE = sqrt(nrow(x) * var(diff_waic)))
-  }()
+  summarise(dSE = sqrt(nrow(dfungus) * var(diff_waic)))
 ```
 
 This is roughly what we see in the second row of the WAIC table under `dSE`, to within simulation variance. Since the actual difference (`dWAIC`) is 41, the 99% interval for the difference between the two models is: 
@@ -985,7 +970,7 @@ set.seed(24071847)
 compare(m5_1, m5_2, m5_3, func = PSIS)
 ```
 
-We get the same warning about high values of $k$, which is happening because of outliers (like Idaho). We can get the pointwise PSIS and plot things to make it clearer. 
+We get a warning about high values of $k$, which is happening because of outliers (like Idaho). We can get the pointwise PSIS and plot things to make it clearer. 
 
 ```{r}
 set.seed(4)
@@ -1179,11 +1164,8 @@ This will make it incredibly hard for any amount of evidence in the data to shif
 data("Laffer")
 dlaffer <- Laffer |> 
   as_tibble() |> 
-  mutate(
-    tax_rate_2 = tax_rate^2, 
-    tax_rate_3 = tax_rate^3
-  ) |> 
-  mutate(across(.fns = standardize))
+  mutate(tax_rate_2 = tax_rate^2, tax_rate_3 = tax_rate^3) |> 
+  mutate(across(everything(), .fns = standardize))
 ```
 
 We will try three models: straight-line, quadratic, and cubic. 
@@ -1398,19 +1380,9 @@ island1_7h3 <- d_7h3 |>
   )
 island2_7h3 <- island1_7h3 |> 
   rename_with(~ str_replace(.x, "1", "2"))
-D_KL_7h3 <- full_join(
-  island1_7h3, 
-  island2_7h3, 
-  by = character()
-) |> 
+D_KL_7h3 <- cross_join(island1_7h3, island2_7h3) |> 
   filter(island1 != island2) |> 
-  mutate(
-    D_KL = map2_dbl(
-      bird_vec1, 
-      bird_vec2, 
-      ~ sum(.x * (log(.x / .y)))
-    )
-  )
+  mutate(D_KL = map2_dbl(bird_vec1, bird_vec2, ~ sum(.x * (log(.x / .y)))))
 
 D_KL_7h3 |> 
   arrange(D_KL)
@@ -1437,7 +1409,6 @@ dmarriage_adults <- dmarriage |>
   filter(age > 17L) |> 
   mutate(A = scales::rescale(age)) |> 
   mutate(mid = married + 1L)
-
 
 m6_9 <- quap(
   alist(
@@ -1565,7 +1536,7 @@ dag_plot_fox <- dag_fox |>
     by = "name"
   ) |> 
   ggplot(aes(x = x, y = y, xend = xend, yend = yend)) +
-  geom_dag_node() +
+  geom_dag_point(size = 12) +
   geom_dag_text(aes(label = label)) +
   geom_dag_edges() +
   theme_dag()
