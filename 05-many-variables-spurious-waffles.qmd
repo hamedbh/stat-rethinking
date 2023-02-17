@@ -13,6 +13,7 @@ library(magrittr)
 library(tidyverse)
 # set up the theme
 theme_set(theme_light())
+walk(list.files(here::here("R"), full.names = TRUE), source)
 ```
 
 Revealing the spurious association between the presence of Waffle Houses and divorce rates. We can plot it to see that there is some association between them. 
@@ -95,13 +96,8 @@ prior_mu_5_1 |>
   filter(.id <= 50) |> 
   ggplot(aes(x, value, group = .id)) + 
   geom_line(alpha = 0.3) + 
-  labs(
-    y = "Divorce rate (std)", 
-    x = "Median age marriage (std)"
-  ) + 
-  theme(
-    panel.grid = element_blank()
-  )
+  labs(y = "Divorce rate (std)", x = "Median age marriage (std)") + 
+  theme(panel.grid = element_blank())
 ```
 
 The priors on $\alpha$ and $\beta_A$ are keeping the lines sensible. RM suggests trying more vague priors and plotting them, which we can try. 
@@ -159,10 +155,7 @@ fig_5_2_2 <- d |>
     alpha = 0.4
   ) + 
   geom_point(colour = "steelblue", alpha = 0.4) + 
-  labs(
-    y = "Divorce rate (std)", 
-    x = "Median age marriage (std)"
-  ) + 
+  labs(y = "Divorce rate (std)", x = "Median age marriage (std)") + 
   theme(panel.grid = element_blank())
 fig_5_2_2
 ```
@@ -195,13 +188,8 @@ prior_mu_5_2 |>
   filter(.id <= 50) |> 
   ggplot(aes(x, value, group = .id)) + 
   geom_line(alpha = 0.3) + 
-  labs(
-    y = "Divorce rate (std)", 
-    x = "Marriage rate (std)"
-  ) + 
-  theme(
-    panel.grid = element_blank()
-  )
+  labs(y = "Divorce rate (std)", x = "Marriage rate (std)") + 
+  theme(panel.grid = element_blank())
 ```
 
 
@@ -226,10 +214,7 @@ fig_5_2_1 <- d |>
     alpha = 0.4
   ) + 
   geom_point(colour = "steelblue", alpha = 0.4) + 
-  labs(
-    y = "Divorce rate (std)", 
-    x = "Marriage rate (std)"
-  ) + 
+  labs(y = "Divorce rate (std)", x = "Marriage rate (std)") + 
   theme(panel.grid = element_blank())
 
 fig_5_2_1 + fig_5_2_2
@@ -254,7 +239,7 @@ dagify(
   )
 ) |> 
   ggdag() + 
-  theme_void()
+  theme_dag()
 ```
 
 Another is: 
@@ -270,7 +255,7 @@ dagify(
   )
 ) |> 
   ggdag() + 
-  theme_void()
+  theme_dag()
 ```
 
 The change being that marriage rate no longer affects divorce rate directly, and all of the effect comes from median age of marriage. 
@@ -331,16 +316,16 @@ m5_3 <- quap(
 precis(m5_3)
 ```
 
-The mean estimate for `bM` is close to zero its interval includes negative and positive numbers. Easier to see in a plot. 
+The mean estimate for `bM` is close to zero: its interval includes negative and positive numbers. Easier to see in a plot. 
 
 ```{r}
 coeftab(m5_1, m5_2, m5_3) |> 
   plot(par = c("bA", "bM"))
 ```
 
-We get consistently negative estimates for `bA` across both models where it's present. Whereas the intervals for `bM` change a lot, depending on whether we know `bA` or not. This implies that $D \perp\!\!\!\perp M | A$, which means the second of our two DAGs was the right one. 
+We get consistently negative estimates for `bA` across both models where it's present. Whereas the intervals for `bM` change a lot, depending on whether we know `bA` or not. This implies that $D \perp\!\!\!\perp M | A$, which means the second of our two DAGs was the right one.
 
-RM suggests that we can investigate the relationship between marriage age and marriage rate, so let's do that. Our DAG assumes that marriage age is causing marriage rate. 
+RM suggests that we can investigate the relationship between marriage age and marriage rate, so let's do that. Our DAG assumes that marriage age is causing marriage rate.
 
 $$
 \begin{align}
@@ -455,7 +440,7 @@ Here is the first of the plots.
 fig_5_4_1 <- mu_5_4 |> 
   ggplot(aes(A, M)) + 
   geom_point(alpha = 0.4, colour = "steelblue") + 
-  geom_segment(aes(xend = A, yend = mu), size = 1/4) + 
+  geom_segment(aes(xend = A, yend = mu), linewidth = 1/4) + 
   geom_line(aes(y = mu)) + 
   geom_text_repel(
     data = d |> filter(Loc %in% c("ME", "HI", "ND", "WY", "DC")),  
@@ -474,12 +459,11 @@ We generate the other plot but save it for later when we plot all four.
 fig_5_4_2 <- mu_5_4_b |> 
     ggplot(aes(M, A)) + 
     geom_point(alpha = 0.4, colour = "steelblue") + 
-    geom_segment(aes(xend = M, yend = mu), size = 1/4) + 
+    geom_segment(aes(xend = M, yend = mu), linewidth = 1/4) + 
     geom_line(aes(y = mu)) + 
     geom_text_repel(
-        data = d |> filter(Loc %in% c("ID", "HI", "DC")),  
-        aes(label = Loc), 
-        
+        data = d |> filter(Loc %in% c("ID", "HI", "DC")),
+        aes(label = Loc),
         seed = 1042
     ) + 
     labs(x = "Marriage rate (std)", y = "Age at marriage (std)") + 
@@ -575,7 +559,6 @@ m5_3_A <- quap(
     bA ~ dnorm(mean = 0, sd = 0.5), 
     bM ~ dnorm(mean = 0, sd = 0.5), 
     sigma ~ dexp(1), 
-    
     # Now the model for A -> M
     M ~ dnorm(mu_M, sigma_M), 
     mu_M <- aM + (bAM * A), 
@@ -606,23 +589,21 @@ sim_5_3_A <- post_5_3_A |>
   # Now that we have an M for each set of parameters we use that to generate
   # predictions for D
   {
-    \(x) mutate(x, D = rnorm(nrow(x), mean = a + (bA * A) + (bM * M), sd = sigma))
+    \(x) mutate(
+      x, 
+      D = rnorm(nrow(x), mean = a + (bA * A) + (bM * M), sd = sigma)
+    )
   }()
+
+# reframe_mean_PI() is my own function to keep the pipelines simpler for
+# something I end up doing a lot
+reframe_mean_PI
 
 # We can now summarise the predictions, ready for plotting
 summary_5_3_A <- sim_5_3_A |> 
   pivot_longer(c(M, D), names_to = "var") |> 
-  group_by(A, var) |> 
-  summarise(
-    tibble(
-      stat = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
-  pivot_wider(
-    names_from = c(var, stat)
-  ) 
+  reframe_mean_PI(c(A, var)) |> 
+  pivot_wider(names_from = c(var, name))
 
 # Now generate the plots
 (
@@ -636,19 +617,18 @@ summary_5_3_A <- sim_5_3_A |>
       y = "counterfactual D"
     ) + 
     theme(panel.grid = element_blank())
-) + 
-  (
-    summary_5_3_A |> 
-      ggplot(aes(A)) + 
-      geom_line(aes(y = M_mean)) + 
-      geom_ribbon(aes(ymin = M_lower, ymax = M_upper), alpha = 0.3) + 
-      labs(
-        title = "Total counterfactual effect of A -> M", 
-        x = "manipulated A", 
-        y = "counterfactual M"
-      ) + 
-      theme(panel.grid = element_blank())
-  )
+) + (
+  summary_5_3_A |> 
+    ggplot(aes(A)) + 
+    geom_line(aes(y = M_mean)) + 
+    geom_ribbon(aes(ymin = M_lower, ymax = M_upper), alpha = 0.3) + 
+    labs(
+      title = "Total counterfactual effect of A -> M", 
+      x = "manipulated A", 
+      y = "counterfactual M"
+    ) + 
+    theme(panel.grid = element_blank())
+)
 ```
 
 Both plots tell the story that as A increases we expect both marriage rate and divorce rate to go down. 
@@ -666,7 +646,7 @@ dagify(
   )
 ) |> 
   ggdag() + 
-  theme_void()
+  theme_dag()
 ```
 
 The association between M and A no longer exists because we will be controlling M completely. Run the simulation again: we already have the posterior samples in `post_5_3_A`. So we are varying M, then we hold A constant at 0. What happens to D? 
@@ -679,17 +659,8 @@ post_5_3_A |>
   ) |> 
   {\(x) mutate(x, D = rnorm(nrow(x), mean = a + (bM * M), sd = sigma))}() |> 
   pivot_longer(c(D), names_to = "var") |> 
-  group_by(M, var) |> 
-  summarise(
-    tibble(
-      stat = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
-  pivot_wider(
-    names_from = c(var, stat)
-  ) |> 
+  reframe_mean_PI(c(M, var)) |> 
+  pivot_wider(names_from = c(var, name)) |> 
   ggplot(aes(M)) + 
     geom_line(aes(y = D_mean)) + 
     geom_ribbon(aes(ymin = D_lower, ymax = D_upper), alpha = 0.3) + 
@@ -829,14 +800,7 @@ post_summary_5_5 <- post_pred_5_5 |>
     names_to = "N", 
     names_transform = list(N = parse_number)
   ) |> 
-  group_by(N) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(N) |>
   pivot_wider()
 
 fig_5_9_1 <- dmilk_cc |> 
@@ -877,14 +841,7 @@ post_summary_5_6 <- post_pred_5_6 |>
     names_to = "M", 
     names_transform = list(M = parse_number)
   ) |> 
-  group_by(M) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(M) |> 
   pivot_wider()
 
 fig_5_9_2 <- dmilk_cc |> 
@@ -945,15 +902,8 @@ fig_5_9_1 + fig_5_9_2 + (
       names_to = "N", 
       names_transform = list(N = parse_number)
     ) |> 
-    group_by(N) |> 
-    summarise(
-      tibble(
-        stat = c("mean", "lower", "upper"), 
-        value = c(mean(value), PI(value))
-      ), 
-      .groups = "drop"
-    ) |> 
-    pivot_wider(names_from = stat) |> 
+    reframe_mean_PI(N) |> 
+    pivot_wider() |> 
     ggplot(aes(N)) + 
     geom_line(aes(y = mean)) + 
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
@@ -971,15 +921,8 @@ fig_5_9_1 + fig_5_9_2 + (
       names_to = "M", 
       names_transform = list(M = parse_number)
     ) |> 
-    group_by(M) |> 
-    summarise(
-      tibble(
-        stat = c("mean", "lower", "upper"), 
-        value = c(mean(value), PI(value))
-      ), 
-      .groups = "drop"
-    ) |> 
-    pivot_wider(names_from = stat) |> 
+    reframe_mean_PI(M) |> 
+    pivot_wider() |> 
     ggplot(aes(M)) + 
     geom_line(aes(y = mean)) + 
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
@@ -1024,7 +967,7 @@ dagify(
   )
 ) |> 
   ggdag() + 
-  theme_void()
+  theme_dag()
 set.seed(1530)
 tibble(N = rnorm(100)) |> 
   mutate(M = rnorm(100, N)) |> 
@@ -1075,7 +1018,7 @@ Not totally sure what to do with this. Which ones are not possible?
 
 ## Categorical variables
 
-Now need to learn about handling categorical variables. RM shows both dummy encoding and index variables, although he prefers the latter. 
+Now need to learn about handling categorical variables. RM shows both dummy encoding and index variables, although he prefers the latter.
 
 ### Binary categories
 
@@ -1155,10 +1098,8 @@ If we want to understand the difference between the categories we can use simula
 ```{r}
 set.seed(1724)
 m_5_8 |> 
-  extract.samples() |>
-  {
-    \(x) list(sigma = x$sigma, a = x$a, diff_fm = x$a[, 1] - x$a[, 2])
-  }() |> 
+  extract.samples() |> 
+  {\(x) list(sigma = x$sigma, a = x$a, diff_fm = x$a[, 1] - x$a[, 2])}() |> 
   precis(depth = 2)
 ```
 
@@ -1289,7 +1230,8 @@ Let $x$ be the number of hours per week a person spends in the gym, $s$ the amou
 set.seed(1054)
 tibble(x = rnorm(1e3)) |> 
   mutate(s = rnorm(1e3, mean = x), y = rnorm(1e3, mean = x)) |> 
-  corrr::correlate()
+  as.matrix() |> 
+  cor()
 ```
 
 Now we can run the quap model and get the parameter estimates. 
@@ -1367,7 +1309,7 @@ hw_5m4_d
 
 hw_5m4_d |> 
   ggplot(aes(L)) + 
-  geom_histogram()
+  geom_histogram(bins = 30)
 ```
 
 
@@ -1468,15 +1410,8 @@ sim_hw_5h2 <- sim(m_hw_5h2, data = tibble(M = M_seq), vars = c("A", "D")) |>
   )
 
 summary_hw_5h2 <- sim_hw_5h2 |> 
-  group_by(M) |> 
-  summarise(
-    tibble(
-      stat = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
-  pivot_wider(names_from = stat)
+  reframe_mean_PI(M) |> 
+  pivot_wider(names_from = name)
 
 hw_5h2_halving_diff <- summary_hw_5h2 |> 
         filter(between(M, 0.45, 1.05)) |> 
@@ -1558,15 +1493,8 @@ sim_hw_5h3 <- sim(m_hw_5h3, data = tibble(M = M_seq), vars = c("N", "K")) |>
   )
 
 summary_hw_5h3 <- sim_hw_5h3 |> 
-  group_by(M) |> 
-  summarise(
-    tibble(
-      stat = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
-  pivot_wider(names_from = stat)
+  reframe_mean_PI(M) |> 
+  pivot_wider(names_from = name)
 
 hw_5h3_doubling_diff <- summary_hw_5h3 |> 
         filter(between(M, 0.45, 1.05)) |> 
@@ -1674,17 +1602,10 @@ So the expected change in divorce rate based on being in the South is `r round(m
 ```{r}
 post_hw_5h4 |> 
   select(-sigma) |> 
-  pivot_longer(everything()) |> 
-  group_by(name) |> 
-  summarise(
-    tibble(
-      stat = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
-  pivot_wider(names_from = stat) |> 
-  ggplot(aes(y = fct_rev(name), colour = fct_rev(name))) + 
+  pivot_longer(everything(), names_to = "variable") |> 
+  reframe_mean_PI(variable) |> 
+  pivot_wider(names_from = name) |> 
+  ggplot(aes(y = fct_rev(variable), colour = fct_rev(variable))) + 
   geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) + 
   geom_vline(xintercept = 0, linetype = 2, colour = "grey50") + 
   labs(x = NULL, y = NULL) + 
@@ -1718,19 +1639,13 @@ hw_new_heights <- tibble(
 set.seed(1112)
 sim(m_hw_height, data = hw_new_heights) |> 
   as_tibble(.name_repair = ~ str_c("ht_", seq_len(nrow(hw_new_heights)))) |> 
-  pivot_longer(everything()) |> 
-  group_by(name) |> 
-  summarise(
-    across(
-      value, 
-      .fns = list(
-        mean = mean, 
-        PI_lower = ~ PI(.x)[1], 
-        PI_upper = ~ PI(.x)[2]
-      ), 
-      .names = "{.fn}"
-    )
-  )
+  pivot_longer(
+    everything(), 
+    names_to = "height", 
+    names_transform = list(height = parse_number)
+  ) |> 
+  reframe_mean_PI(height) |> 
+  pivot_wider()
 ```
 
 Q2. 
@@ -1766,8 +1681,10 @@ tibble(
   bA = rlnorm(N), 
   sigma = rexp(1)
 ) |> 
-  mutate(A = map(rowid, ~ seq(0, 12.5, by = 0.5))) |> 
-  unnest(A) |> 
+  expand(
+    nesting(rowid, a, bA, sigma),
+    A = seq(0, 12.5, by = 0.5)
+  ) |> 
   {\(x) mutate(x, W = rnorm(nrow(x), mean = a + (bA * A), sd = sigma))}() |> 
   ggplot(aes(A, W)) + 
   geom_point(alpha = 0.4) + 
@@ -1848,12 +1765,11 @@ post_weight_sex <- map(
 
 post_weight_sex |> 
   group_by(age) |> 
-  summarise(
+  reframe(
     tibble(
       name = c("mean", "lower89", "upper89", "lower50", "upper50"), 
       value = c(mean(weight), PI(weight), PI(weight, 0.5))
-    ), 
-    .groups = "drop"
+    )
   ) |> 
   pivot_wider() |> 
   ggplot(aes(x = age)) + 
@@ -1910,13 +1826,28 @@ post_weight_sex |>
   )
 ```
 
-There's not much difference we can discern in the distributions like this. We can also summarise how many girls are heavier at these ages.
+There's not much difference we can discern in the distributions like this. We can also plot how many girls are heavier at each age.
 
 ```{r}
 post_weight_sex |> 
-  filter(age %in% c(3, 6, 9, 12)) |> 
   group_by(age) |> 
-  summarise(prop_heavier_girls = scales::percent_format()(mean(weight < 0)))
+  summarise(prop_girls_heavier = mean(weight < 0)) |> 
+  ggplot(aes(age, prop_girls_heavier)) +
+  stat_smooth(
+    method = "loess",
+    formula = y ~ x,
+    colour = "grey50"
+  ) +
+  geom_line(colour = "steelblue", linewidth = 1) + 
+  geom_point(colour = "steelblue") + 
+  scale_y_continuous(
+    NULL,
+    labels = scales::label_percent()
+  ) + 
+  labs(
+    title = "Proportion of girls heavier at each age",
+    subtitle = "Grey line and band show LOESS-smoothed values"
+  )
 ```
 
 It does seem that the proportion of girls who are heavier is decreasing, but it is still more than one quarter at 12 years old. 
@@ -2030,7 +1961,7 @@ extract.samples(m_oxboys) |>
   geom_vline(
     aes(xintercept = x), 
     data = . %>% 
-      summarise(x = PI(x)), 
+      reframe(x = PI(x)), 
     linetype = 2, 
     colour = "grey30"
   ) + 
@@ -2075,7 +2006,7 @@ extract.samples(m_oxboys, n = 80000) |>
   geom_vline(
     aes(xintercept = total), 
     data = . %>%
-      summarise(total = PI(total)),
+      reframe(total = PI(total)),
     linetype = 2, 
     colour = "grey30"
   ) + 

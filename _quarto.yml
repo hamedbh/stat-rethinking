@@ -12,6 +12,7 @@ book:
     - 03-sampling-imaginary.qmd
     - 04-geocentric-models.qmd
     - 05-many-variables-spurious-waffles.qmd
+    - 06-haunted-dag-causal-terror.qmd
 
 toc: true
 toc-depth: 3

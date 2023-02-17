@@ -1,9 +1,8 @@
----
-title: "The Many Variables & The Spurious Waffles"
-output: html_document
----
+# The Many Variables & The Spurious Waffles
 
-```{r setup}
+```{r}
+#| label: setup
+#| output: false
 library(rethinking)
 library(patchwork)
 library(zeallot)
@@ -11,11 +10,10 @@ library(dagitty)
 library(ggdag)
 library(ggrepel)
 library(magrittr)
-library(corrr)
 library(tidyverse)
-library(furrr)
 # set up the theme
 theme_set(theme_light())
+walk(list.files(here::here("R"), full.names = TRUE), source)
 ```
 
 Let's first do the simulation of _Berkson's Paradox_ that RM shows. 
@@ -39,10 +37,7 @@ berkson_ex |>
     aesthetics = c("fill", "colour")
   ) + 
   labs(x = "Newsworthiness", y = "Trustworthiness") + 
-  theme(
-    legend.position = "none", 
-    panel.grid = element_blank()
-  )
+  theme(legend.position = "none", panel.grid = element_blank())
 ```
 
 We can compute the correlation as RM does also. 
@@ -51,7 +46,7 @@ We can compute the correlation as RM does also.
 berkson_ex |> 
   filter(selected) |> 
   select(-selected) |> 
-  correlate()
+  cor()
 ```
 
 A strong negative correlation, even though we know from the simulation that trustworthiness and newsworthiness are entirely independent. But they are **not** independent conditional on selection for publication. Or we can say: 
@@ -281,7 +276,7 @@ dfungus |>
 
 ### A prior is born
 
-We know set up the model as though we don't already know the data generating structure, but using some scientific knowledge and physical constraints. 
+We now set up the model as though we don't already know the data generating structure, but using some scientific knowledge and physical constraints. 
 
 To start with we can consider the ratio $p = h_1 / h_0$. Then we set up a linear model: 
 
@@ -353,14 +348,7 @@ set.seed(1504)
 prior_summary_6_7 <- extract.prior(m6_7) |> 
   enframe(name = "var") |> 
   unnest(value) |> 
-  group_by(var) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(var) |> 
   pivot_wider()
 
 prior_summary_6_7 |> 
@@ -563,7 +551,6 @@ So both ageing and happiness affect marriage. Two arrows going into $M \implies$
 Some simulation to illustrate the issue. 
 
 ```{r}
-set.seed(11)
 dmarriage <- sim_happiness() |> 
   as_tibble()
 precis(dmarriage)
@@ -585,7 +572,7 @@ dmarriage |>
 
 There's a clear pattern to the distribution of blue and white dots: happier people are more likely to be married at every age, but overall older people are more likely to be married. 
 
-Now if we want to understand whether age is related to happiness we can build a model. The linear moel part is: 
+Now if we want to understand whether age is related to happiness we can build a model. The linear model part is: 
 
 $$
 \begin{align}
@@ -604,7 +591,6 @@ dmarriage_adults <- dmarriage |>
   filter(age > 17L) |> 
   mutate(A = scales::rescale(age)) |> 
   mutate(mid = married + 1L)
-
 ```
 
 Now fit the model. 
@@ -686,7 +672,7 @@ Some simulation to illustrate.
 bGP <- 1 # effect of G on P
 bGC <- 0 # effect of G on C
 bPC <- 1 # direct effect of P on C
-bU <- 2 # direct effect of U on P and C
+bU <-  2 # direct effect of U on P and C
 
 set.seed(1)
 dhaunted <- tibble(
@@ -733,7 +719,7 @@ dhaunted |>
     formula = "y ~ x", 
     se = FALSE, 
     colour = "grey30", 
-    size = 0.5
+    linewidth = 0.5
   ) + 
   geom_text(
     aes(label = label, colour = hood), 
@@ -798,15 +784,11 @@ m6_11c |>
 Now `bGC` is lower than it should be, the interval for `a` is huge, and `sigma` has exploded. Easier to see in a plot. 
 
 ```{r}
-coeftab(
-  m6_11, 
-  m6_11b, 
-  m6_11c
-) |> 
-  plot()
+coeftab(m6_11, m6_11b, m6_11c) |> 
+  coeftab_plot()
 ```
 
-We get similar inferences for the effect of parents in `m6_11` and `b`, but for everything else the results are markedly different across the models. 
+We get similar inferences for the effect of parents in `m6_11` and `m6_11b`, but for everything else the results are markedly different across the models. 
 
 The only solution is to measure $U$. We can fit a model to it and check the results. 
 
@@ -827,20 +809,15 @@ precis(m6_12)
 We recover the same values for our parameters that we used for simulation. It's helpful to see these in a plot with the rest. 
 
 ```{r}
-coeftab(
-  m6_11, 
-  m6_11b, 
-  m6_11c, 
-  m6_12
-) |> 
-  plot()
+coeftab(m6_11, m6_11b, m6_11c, m6_12) |> 
+  coeftab_plot()
 ```
 
 ## Confronting confounding
 
 RM's definition of confounding is worth repeating.
 
-> Let's define **confounding** as any context in which the association ebtween an outcome $Y$ and a predictor of interest $X$ is not the same as it would be if we had experimentally determined the values of $X$.
+> Let's define **confounding** as any context in which the association between an outcome $Y$ and a predictor of interest $X$ is not the same as it would be if we had experimentally determined the values of $X$.
 
 This is almost inevitable in any sort of observational study/modelling: there will be other variables (measured or unmeasured) that affect $X$. 
 
@@ -869,7 +846,19 @@ The direction of the arrows doesn't matter when considering whether confounders 
 RM lists the four elemental confounds. 
 
 ```{r}
-(
+plot_DAG_for_grid <- function(d, title) {
+  p <- d |>
+    tidy_dagitty() |> 
+    ggplot(aes(x = x, y = y, xend = xend, yend = yend)) + 
+    geom_dag_point(size = 9) + 
+    geom_dag_edges() + 
+    geom_dag_text() + 
+    theme_dag() + 
+    labs(title = title) +
+    theme(plot.title = element_text(hjust = 0.49))
+  p
+}
+dag_list <- list(
   dagify(
     X ~ Z, 
     Y ~ Z, 
@@ -878,12 +867,7 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2), 
       y = c(1, 1, 0)
     )
-  ) |> 
-    ggdag() + 
-    theme_dag() + 
-    labs(title = "The Fork") + 
-    theme(plot.title = element_text(hjust = 0.49))
-) + (
+  ),
   dagify(
     Z ~ X, 
     Y ~ Z, 
@@ -892,12 +876,7 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2), 
       y = c(2, 0, 1)
     )
-  ) |> 
-    ggdag() + 
-    theme_dag() + 
-    labs(title = "The Pipe") + 
-    theme(plot.title = element_text(hjust = 0.49))
-) + (
+  ),
   dagify(
     Z ~ X + Y, 
     coords = tibble(
@@ -905,12 +884,7 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2), 
       y = c(1, 1, 2)
     )
-  ) |> 
-    ggdag() + 
-    theme_dag() + 
-    labs(title = "The Collider") + 
-    theme(plot.title = element_text(hjust = 0.49))
-) + (
+  ),
   dagify(
     Z ~ X + Y, 
     D ~ Z, 
@@ -919,12 +893,14 @@ RM lists the four elemental confounds.
       x = c(1, 3, 2, 2), 
       y = c(1, 1, 2, 1.2)
     )
-  ) |> 
-    ggdag() + 
-    theme_dag() + 
-    labs(title = "The Descendent") + 
-    theme(plot.title = element_text(hjust = 0.49))
+  )
 )
+map2(
+  dag_list,
+  c("The Fork", "The Pipe", "The Collider", "The Descendent"),
+  plot_DAG_for_grid
+) |> 
+  wrap_plots()
 ```
 
 From these four we can build any DAG. 
@@ -1134,7 +1110,7 @@ tibble(X = rnorm(200), Y = rnorm(200)) |>
   mutate(B = rnorm(200, (X + Y) / 2)) |> 
   mutate(sampled = ntile(B, 10) == 10) |> 
   ggplot(aes(X, Y, colour = sampled, fill = sampled)) + 
-  geom_point(alpha = 0.4) + 
+  geom_point(alpha = 0.8) + 
   stat_smooth(
     data = . %>% filter(sampled), 
     formula = "y ~ x", 
@@ -1142,7 +1118,7 @@ tibble(X = rnorm(200), Y = rnorm(200)) |>
     se = FALSE
   ) + 
   scale_colour_manual(
-    values = c("black", "steelblue"), 
+    values = c("grey60", "steelblue"), 
     aesthetics = c("fill", "colour")
   ) + 
   theme(
@@ -1196,7 +1172,7 @@ d_6m2 <- tibble(X = rnorm(200)) |>
   mutate(Y = rnorm(200, mean = Z + rnorm(200, sd = 0.2)))
 
 d_6m2 |> 
-  corrr::correlate()
+  cor()
 ```
 
 First run the model as suggested, with both predictors. 
@@ -1563,8 +1539,8 @@ dag_fox <- dagify(
   weight ~ avgfood + groupsize, 
   coords = tibble(
     name = c("avgfood", "area", "weight", "groupsize"), 
-    x = c(1, 2, 2, 3), 
-    y = c(2, 3, 1, 2)
+    x = c(0, 0.5, 0.5, 1), 
+    y = c(0.5, 1, 0, 0.5)
   )
 )
 
@@ -1579,7 +1555,7 @@ dag_plot_fox <- dag_fox |>
     by = "name"
   ) |> 
   ggplot(aes(x = x, y = y, xend = xend, yend = yend)) +
-  geom_dag_node() +
+  geom_dag_point(size = 10) +
   geom_dag_text(aes(label = label)) +
   geom_dag_edges() +
   theme_dag()
@@ -1650,7 +1626,7 @@ tibble(a = rnorm(N, sd = 0.2), bA = rnorm(N, sd = 0.5)) |>
   expand(nesting(.id, a, bA), x = c(-2, 2)) |> 
   mutate(y = a + (bA * x)) |> 
   ggplot(aes(x, y, group = .id)) + 
-  geom_line(colour = "steelblue", alpha = 0.4) + 
+  geom_line(colour = "steelblue", alpha = 0.2) + 
   geom_hline(yintercept = c(-2, 2), linetype = 2, colour = "grey20")
 ```
 
@@ -1693,6 +1669,7 @@ We now want to infer the effect of avgfood on weight.
 dag_fox |> 
   adjustmentSets(exposure = "avgfood", outcome = "weight")
 ```
+
 No conditioning required, can again model directly. 
 
 $$
@@ -1768,8 +1745,9 @@ At least some of the effect of avgfood (`F` in the DAG) is mediated through grou
 ```{r}
 dfox |> 
   select(avgfood, groupsize, weight) |> 
-  correlate()
+  cor()
 ```
+
 The correlation between avgfood and groupsize is very high, but because the arrow goes $F \to S$ then the path $FSW$ isn't a backdoor. So when we model $F \to W$ directly we get the correct answer to our question, which is that _on its own_ $F$ is a poor predictor of $W$. 
 
 When we include $S$ in our model we then have to close the backdoor path $SFW$, so we condition on the fork ($F$) to get the full picture of the three. This reveals that _conditional on knowing the group size, there is a strong positive association between food and weight_. We can try modelling $S \to W$ directly, without closing the backdoor path, to see what happens. 
@@ -1933,11 +1911,11 @@ Now we can address the question of what sort of sample size we need through simu
 
 ```{r}
 stroke_repeats <- xfun::cache_rds({
-  future_imap_dfr(
+  furrr::future_imap_dfr(
     rep(2^(6:10), each = 50), 
     ~ model_stroke_XY(N = .x), 
     .progress = TRUE, 
-    .options = furrr_options(seed = TRUE)
+    .options = furrr::furrr_options(seed = TRUE)
   )}, 
   file = "stroke_repeats.rds"
 )
@@ -1949,17 +1927,11 @@ Now we can check how close our estimates were, and how narrow the PI for the est
 stroke_repeats |> 
   mutate(err = abs(mean - 1), width = upper - lower) |> 
   pivot_longer(c(err, width), names_to = "measure") |> 
-  group_by(N, measure) |> 
-  summarise(
-    tibble(
-      name = c("mean", "lower", "upper"), 
-      value = c(mean(value), PI(value))
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI(c(N, measure)) |> 
   pivot_wider() |> 
   ggplot(aes(x = N)) + 
   geom_pointrange(aes(y = mean, ymin = lower, ymax = upper)) + 
+  scale_x_continuous(trans = "log2") +
   facet_wrap(~ measure)
 ```
 
