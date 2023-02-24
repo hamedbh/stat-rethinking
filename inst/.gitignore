@@ -1,2 +1,4 @@
-Stan/*.rds
-
+# ignore everything in Stan by default
+Stan/*
+# except Stan source code
+!Stan/*.stan

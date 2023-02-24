@@ -15,6 +15,7 @@ book:
     - 06-haunted-dag-causal-terror.qmd
     - 07-ulysses-compass.qmd
     - 08-conditional-manatees.qmd
+    - 09-markov-chain-monte-carlo.qmd
 
 toc: true
 toc-depth: 3

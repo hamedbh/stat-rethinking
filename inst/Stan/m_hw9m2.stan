@@ -2,7 +2,7 @@ data{
     int<lower = 1> n ; // number of observations, included by compose_data()
     vector[n] log_gdp_std; // can now use n instead of hardcoding 170
     vector[n] rugged_std; 
-    int region[n]; 
+    array[n] int region; 
 }
 
 parameters{

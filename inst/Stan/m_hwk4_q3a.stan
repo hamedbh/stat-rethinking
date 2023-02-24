@@ -22,8 +22,8 @@ model {
 }
 
 generated quantities {
-  vector[n] log_lik; 
   vector[n] mu;
+  vector[n] log_lik;
   for (i in 1:n) {
     mu[i] = a + (bT * temp[i]); 
   }

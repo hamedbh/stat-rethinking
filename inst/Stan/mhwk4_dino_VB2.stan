@@ -1,9 +1,10 @@
-data{
-    int n;
-    vector[n] mass;
-    int age[n];
-    int sp_id[n];
+data {
+  int n; 
+  array[n] int sp_id; 
+  array[n] int age; 
+  vector[n] mass;
 }
+
 parameters{
     vector<lower=0>[6] c;
     vector<lower=0>[6] k;

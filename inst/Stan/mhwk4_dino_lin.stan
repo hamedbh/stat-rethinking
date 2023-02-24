@@ -1,7 +1,7 @@
 data {
   int n; 
-  int sp_id[n]; 
-  int age[n]; 
+  array[n] int sp_id; 
+  array[n] int age; 
   vector[n] mass;
 }
 

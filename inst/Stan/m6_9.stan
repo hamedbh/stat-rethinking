@@ -2,7 +2,7 @@ data {
   int<lower = 0> n; 
   vector[n] happiness; 
   vector<lower = 0, upper = 1>[n] A; 
-  int mid[n];
+  array[n] int mid;
 }
 
 parameters {
