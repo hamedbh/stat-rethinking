@@ -1,18 +1,15 @@
----
-title: "Big Entropy and the Generalised Linear Model"
-output: html_document
+# Big Entropy and the Generalised Linear Model
+
 ---
 
-```{r setup}
+```{r}
+#| label: setup
+#| output: false
 library(rethinking)
-options(mc.cores = parallel::detectCores())
-rstan_options(auto_write = TRUE)
 set_ulam_cmdstan(TRUE)
 library(patchwork)
 library(ggrepel)
 library(magrittr)
-library(corrr)
-library(furrr)
 library(tidyverse)
 library(tidybayes)
 library(bayesplot)
@@ -22,6 +19,7 @@ theme_set(
   theme_light() + 
     theme(panel.grid = element_blank())
 )
+walk(list.files(here::here("R"), full.names = TRUE), source)
 ```
 
 ## Maximum entropy
@@ -74,17 +72,17 @@ inner_join(
     mutate(logwayspp = log(ways) / 10), 
   by = "name"
 ) |> 
-  ggplot(aes(logwayspp, H, label = name)) +
+  ggplot(aes(logwayspp, H)) +
   geom_smooth(
     formula = y ~ x, 
     method = "lm", 
     linetype = 2, 
-    size = 0.5, 
+    linewidth = 0.5, 
     colour = "grey10", 
     se = FALSE
   ) + 
   geom_point() + 
-  geom_text_repel(nudge_y = -0.011, seed = 1805) + 
+  geom_text_repel(aes(label = name), nudge_y = -0.011, seed = 1805) + 
   labs(
     x = "log(ways) per pebble", 
     y = "entropy"
@@ -124,17 +122,21 @@ solve_for_alpha <- function(beta, variance = 1) {
 }
 
 (
-  tibble(beta = c(1, 1.5, 2, 4)) |> 
+  # Need to suppress warnings as ggplot doesn't like using linewidth for a
+  # discrete variable.
+  suppressWarnings({
+    tibble(beta = c(1, 1.5, 2, 4)) |> 
     mutate(alpha = solve_for_alpha(beta)) |> 
     mutate(Gaussian = beta == 2) |> 
     expand(nesting(beta, alpha, Gaussian), x = seq(-4, 4, length.out = 101)) |> 
     mutate(y = dgnorm(x, 0, alpha, beta)) |> 
-    ggplot(aes(x, y, group = beta, colour = Gaussian, size = Gaussian)) + 
+    ggplot(aes(x, y, group = beta, colour = Gaussian, linewidth = Gaussian)) + 
     geom_line() + 
     scale_colour_manual(values = c("grey70", "steelblue")) + 
-    scale_size_manual(values = c(0.75, 1.25)) + 
+    scale_linewidth_discrete(range = c(0.75, 1.25)) +
     labs(x = "value", y = "Density") + 
     theme(legend.position = "none")
+  })
 ) + (
   
   tibble(beta = seq(1, 4, length.out = 100)) |> 
@@ -143,7 +145,7 @@ solve_for_alpha <- function(beta, variance = 1) {
       entropy = (1 / beta) - log((beta) / (2 * alpha * gamma(1 / beta)))
     ) |> 
     ggplot(aes(beta, entropy)) + 
-    geom_line(colour = "steelblue") + 
+    geom_line(colour = "steelblue", linewidth = 1.25) + 
     geom_vline(xintercept = 2, linetype = 2, colour = "grey50") + 
     scale_x_continuous("shape", breaks = seq(1, 5, by = 0.5))
 )
@@ -282,9 +284,7 @@ d |>
     ylim = c(0, 8.6), 
     expand = FALSE
   ) + 
-  labs(
-    y = "Density"
-  )
+  labs(y = "Density")
 ```
 
 ```{r}
@@ -379,12 +379,12 @@ logistic_example <- tibble(x = seq(-1, 1, length.out = 101)) |>
 
 (
   ggplot(logistic_example, aes(x, log_odds)) + 
-    geom_line(colour = "steelblue", size = 1) + 
+    geom_line(colour = "steelblue", linewidth = 1) + 
     geom_hline(aes(yintercept = log_odds), data = logistic_lines, alpha = 0.2) + 
     labs(y = "log-odds")
 ) + (
   ggplot(logistic_example, aes(x, probability)) + 
-    geom_line(colour = "steelblue", size = 1) + 
+    geom_line(colour = "steelblue", linewidth = 1) + 
     geom_hline(
       aes(yintercept = probability), data = logistic_lines, alpha = 0.2
     ) + 
@@ -413,14 +413,14 @@ loglink_example <- tibble(x = seq(-1, 1, length.out = 101)) |>
 
 (
   ggplot(loglink_example, aes(x, log_measurement)) + 
-    geom_line(colour = "steelblue", size = 1) + 
+    geom_line(colour = "steelblue", linewidth = 1) + 
     geom_hline(
       aes(yintercept = log_measurement), data = loglink_lines, alpha = 0.2
     ) + 
     labs(y = "log measurement")
 ) + (
   ggplot(loglink_example, aes(x, probability)) + 
-    geom_line(colour = "steelblue", size = 1) + 
+    geom_line(colour = "steelblue", linewidth = 1) + 
     geom_hline(
       aes(yintercept = probability), 
       data = loglink_lines |> 
@@ -462,7 +462,7 @@ This is a little simpler as we avoid $\cosh$, but we still have the same interac
 
 ### Omitted variable bias again
 
-RM explains a situation where our inferences may be wrong: $X$ and $Z$Z both predict $Y$ independently, and if either is large enough then $Y = 1$. In this case we might decide to measure just $X$, maybe to save money or something. But this might lead us to underestimate the effects of $X$. 
+RM explains a situation where our inferences may be wrong: $X$ and $Z$ both predict $Y$ independently, and if either is large enough then $Y = 1$. In this case we might decide to measure just $X$, maybe to save money or something. But this might lead us to underestimate the effects of $X$. 
 
 ```{r}
 set.seed(840)
@@ -519,10 +519,10 @@ RM points out that we can no longer interpret coefficients directly because we a
 Now that we are using different likelihoods we must only use something like WAIC to compare two models with the same likelihood. This is because of the normalising constant in Bayes theorem: when the likelihoods are the same this just subtracts out, but this won't work when the likelihoods are different. 
 
 
-Since we used the binomial likelihood for both models in the omitted variable example we can compare them with WAIC. 
+Since we used the binomial likelihood for both models in the omitted variable example we can compare them with PSIS. 
 
 ```{r}
-compare(m_omitted_full, m_omitted_partial)
+compare(m_omitted_full, m_omitted_partial, func = PSIS)
 ```
 
 The difference is very large. 

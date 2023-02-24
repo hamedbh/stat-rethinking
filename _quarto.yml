@@ -16,6 +16,7 @@ book:
     - 07-ulysses-compass.qmd
     - 08-conditional-manatees.qmd
     - 09-markov-chain-monte-carlo.qmd
+    - 10-big-entropt-glm.qmd
 
 toc: true
 toc-depth: 3

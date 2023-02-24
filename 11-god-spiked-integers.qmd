@@ -1,18 +1,13 @@
----
-title: "God Spike the Integers"
-output: html_document
----
+# God Spiked the Integers
 
-```{r setup}
+```{r}
+#| label: setup
+#| output: false
 library(rethinking)
-options(mc.cores = parallel::detectCores())
-rstan_options(auto_write = TRUE)
 set_ulam_cmdstan(TRUE)
 library(patchwork)
 library(ggrepel)
 library(magrittr)
-library(corrr)
-library(furrr)
 library(tidyverse)
 library(tidybayes)
 library(bayesplot)
@@ -22,6 +17,7 @@ theme_set(
   theme_light() + 
     theme(panel.grid = element_blank())
 )
+walk(list.files(here::here("R"), full.names = TRUE), source)
 ```
 
 ## Binomial regression
