@@ -1,11 +1,11 @@
 data{
     int n;
-    int treatment[n];
-    int actor[n];
-    int side[n];
-    int cond[n];
-    int n_trials[n];
-    int left_pulls[n];
+    array[n] int treatment;
+    array[n] int actor;
+    array[n] int side;
+    array[n] int cond;
+    array[n] int n_trials;
+    array[n] int left_pulls;
 }
 
 parameters{
@@ -18,8 +18,7 @@ model{
     a ~ normal(0, 1.5);
     b ~ normal(0, 0.5);
     for (i in 1:n) {
-        p[i] = a[actor[i]] + b[treatment[i]];
-        p[i] = inv_logit(p[i]);
+        p[i] = inv_logit(a[actor[i]] + b[treatment[i]]);
     }
     left_pulls ~ binomial(n_trials, p);
 }
@@ -27,8 +26,7 @@ generated quantities{
     vector[n] log_lik;
     vector[n] p;
     for (i in 1:n) {
-        p[i] = a[actor[i]] + b[treatment[i]];
-        p[i] = inv_logit(p[i]);
+        p[i] = inv_logit(a[actor[i]] + b[treatment[i]]);
     }
     for (i in 1:n) {
       log_lik[i] = binomial_lpmf(left_pulls[i] | n_trials[i], p[i]);

@@ -1,8 +1,8 @@
 data {
   int n; 
-  int cid[n]; 
-  int P[n]; 
-  int Y[n]; 
+  array[n] int cid; 
+  array[n] real P; 
+  array[n] int Y; 
 }
 
 parameters {

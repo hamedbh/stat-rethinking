@@ -1,8 +1,8 @@
 data {
   int n; 
-  int admit[n]; 
-  int applications[n]; 
-  int gid[n]; 
+  array[n] int admit;
+  array[n] int applications;
+  array[n] int gid;
 }
 
 parameters {

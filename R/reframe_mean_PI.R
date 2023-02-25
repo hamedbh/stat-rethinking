@@ -1,4 +1,4 @@
-reframe_mean_PI <- function(d, .by, ..., width = 0.89) {
+reframe_mean_PI <- function(d, .by = NULL, ..., width = 0.89) {
   assertthat::assert_that(
     !assertthat::has_name(d, "name"),
     msg = "Data frame cannot contain a variable called `name`."

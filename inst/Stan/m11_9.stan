@@ -1,8 +1,8 @@
 data {
   int n; 
-  int cid[n]; 
-  real P[n]; 
-  int Y[n]; 
+  array[n] int cid; 
+  array[n] real P; 
+  array[n] int Y; 
 }
 
 parameters {
@@ -12,16 +12,14 @@ parameters {
 model {
   real lambda; 
   a ~ normal(3, 0.5); 
-  lambda = a; 
-  lambda = exp(lambda); 
+  lambda = exp(a); 
   Y ~ poisson(lambda); 
 }
 
 generated quantities {
   real lambda; 
   vector[n] log_lik; 
-  lambda = a; 
-  lambda = exp(lambda); 
+  lambda = exp(a); 
   for (i in 1:n) {
     log_lik[i] = poisson_lpmf(Y[i] | lambda);
   }

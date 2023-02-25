@@ -37,7 +37,7 @@ Here $y$ is a count (often called the number of 'successes'), $p$ is the probabi
 
 ### Logistic regression: Prosocial chimpanzees
 
-RM outlines the experiment: in short, we want to see if the presence of another chimpanzee affects whethert chimpanzees will pick the prosocial option that gives food to both.
+RM outlines the experiment: in short, we want to see if the presence of another chimpanzee affects whether chimpanzees will pick the prosocial option that gives food to both.
 
 ```{r}
 data(chimpanzees)
@@ -103,7 +103,7 @@ fig11_3_1 <- list(
     .id = "prior"
   ) |> 
   ggplot(aes(a, colour = prior)) + 
-  geom_density(adjust = 0.2, size = 1.1) + 
+  geom_density(adjust = 0.2, linewidth = 1.1) + 
   geom_label_repel(
     aes(x = x, y = y, label = label, colour = prior), 
     data = tibble(
@@ -161,7 +161,7 @@ fig11_3_1 + (
       .id = "prior"
     ) |> 
     ggplot(aes(contrast, colour = prior)) + 
-    geom_density(adjust = 0.2, size = 1.1) + 
+    geom_density(adjust = 0.2, linewidth = 1.1) + 
     geom_label_repel(
       aes(x = x, y = y, label = label, colour = prior), 
       data = tibble(
@@ -197,23 +197,22 @@ chimp_list <- dchimp |>
 ```
 
 ```{r}
-m11_4 <- stan_model(file = here::here("inst/Stan/m11_4.stan")) |> 
-  sampling(data = chimp_list, seed = 1144)
+mod_11_4 <- cmdstan_model(here::here("inst/Stan/m11_4.stan"))
+m11_4 <- mod_11_4$sample(data = chimp_list, seed = 1144, refresh = 0)
 ```
 
 ```{r}
-precis(m11_4, depth = 2)
+precis_cmdstan(m11_4, variables = c("a", "b"))
 ```
 
 ```{r}
 spread_draws(m11_4, a[i]) |> 
   mutate(a = inv_logit(a)) |> 
-  summarise(
+  reframe(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(a), HPDI(a))
-    ), 
-    .groups = "drop"
+    )
   ) |> 
   pivot_wider() |> 
   mutate(i = str_c("V", i)) |> 
@@ -228,7 +227,7 @@ Now we can summarise the treatment effects.
 
 ```{r}
 spread_draws(m11_4, b[i]) |> 
-  summarise(
+  reframe(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(b), HPDI(b))
@@ -254,12 +253,11 @@ spread_draws(m11_4, b[i]) |>
   transmute(db13 = b1 - b3, db24 = b2 - b4) |> 
   pivot_longer(everything(), names_to = "contrast") |> 
   group_by(contrast) |> 
-  summarise(
+  reframe(
     tibble(
       name = c("mean", "lower", "upper"), 
       value = c(mean(value), HPDI(value))
-    ), 
-    .groups = "drop"
+    )
   ) |> 
   pivot_wider() |> 
   mutate(contrast = factor(contrast)) |> 
@@ -323,21 +321,16 @@ list(
       axis.text.x = element_blank(), 
       legend.position = "none"
     ), 
-  second = spread_draws(m11_4, a[i]) |> 
-    ungroup() |> 
-    inner_join(
-      spread_draws(m11_4, b[v]) |> 
-        ungroup()
-    ) |> 
+  second = spread_draws(m11_4, a[i], b[j]) |> 
     mutate(p = inv_logit(a + b)) |> 
-    group_by(actor = i, treatment = v) |> 
-    summarise(
+    reframe(
       tibble(
         name = c("pulled_left", "lower", "upper"), 
         value = c(mean(p), HPDI(p))
       )
     ) |> 
     pivot_wider() |> 
+    rename(actor = i, treatment = j) |> 
     mutate(
       grp = as.integer(treatment %% 2 == 0) + 1L, 
       treatment_chr = case_when(
@@ -391,20 +384,21 @@ list(
 Our current model has varying intercepts by actor and then varying coefficients for the `treatment`, and this latter part is essentially an interaction between the `prosoc_left` (i.e. where is the prosocial option) and `condition` (i.e. whether or not a partner is present). So instead RM suggests another model: where we allow for each of those variables to act independently with no interaction. 
 
 ```{r}
-m11_5 <- stan_model(file = here::here("inst/Stan/m11_5.stan")) |> 
-  sampling(
-    data = dchimp |> 
-      mutate(side = prosoc_left + 1L, cond = condition + 1L) |> 
-      select(pulled_left, side, cond, actor) |> 
-      compose_data(), 
-    seed = 1805
-  )
+mod_11_5 <- cmdstan_model(here::here("inst/Stan/m11_5.stan"))
+m11_5 <- mod_11_5$sample(
+  data = dchimp |> 
+    mutate(side = prosoc_left + 1L, cond = condition + 1L) |> 
+    select(pulled_left, side, cond, actor) |> 
+    compose_data(),
+  seed = 1805,
+  refresh = 0
+)
 ```
 
 We can compare these models with PSIS: 
 
 ```{r}
-compare(m11_4, m11_5, func = PSIS)
+compare_cmdstan(m11_4, m11_5)
 ```
 
 They have almost identical predictive accuracy. RM notes that this model comparison is not for use in selecting a model: that choice (`m11_4`) flows from the experiment and hypothesis. 
@@ -437,14 +431,18 @@ dchimp_agg
 We've compressed the data frame from `r nrow(dchimp)` rows to `r nrow(dchimp_agg)`. Now we can build the model again. 
 
 ```{r}
-m11_6 <- stan_model(file = here::here("inst/Stan/m11_6.stan")) |> 
-  sampling(data = compose_data(dchimp_agg), seed = 804)
+mod_11_6 <- cmdstan_model(here::here("inst/Stan/m11_6.stan"))
+m11_6 <- mod_11_6$sample(
+  data = compose_data(dchimp_agg),
+  seed = 804,
+  refresh = 0
+)
 ```
 
 **This is a bad comparison!!!** 
 
 ```{r}
-compare(m11_6, m11_4, func = PSIS)
+compare_cmdstan(m11_6, m11_4)
 ```
 
 **Again: this is a bad comparison!!!** RM walks through the output carefully.  
@@ -462,7 +460,7 @@ RM illustrates this with a simple example: deviance calculated for probability 0
 
 RM says that this difference is "entirely meaningless", but then moves on to cover the warnings. However his discussion of the warnings makes me think this difference _isn't_ meaningless. In short: the organisation of the data makes a statement about how we should consider those trials. Are they a completely homogeneous block, which can be left out of the model (i.e. in cross-validation) en masse? If so then binomial regression is a reasonable approach, but otherwise (as RM says) logistic regression is preferable. 
 
-The different number of observations in each model is to be expected, since this was the main change we made to the model. We should never do this, because it changes the computations of the PSIS and WAIC. 
+The different number of observations in each model is to be expected, since this was the main change we made to the model. We should never do this, because it changes the computations of the PSIS. 
 
 Then there is the warning about high $k$ values, which didn't come up in logistic regression. This is because of the data structure also: by compressing the data we change the nature of the LOO cross-validation. Instead of one experiment being left out each time, 18 are left out. So compared with the logistic regression setting each observation can affect the results more dramatically. This is easy to see in a plot. 
 
@@ -470,8 +468,18 @@ Then there is the warning about high $k$ values, which didn't come up in logisti
 tibble(mod_name = c("m11_4", "m11_6")) |> 
   mutate(mod = map(mod_name, get)) |> 
   mutate(
-    penalty = map(mod, ~ WAIC(.x, pointwise = TRUE)[["penalty"]]), 
-    k = map(mod, ~ PSIS(.x, pointwise = TRUE)[["k"]])
+    penalty = map(
+      mod, 
+      ~ suppressWarnings(
+        loo::waic(.x$draws("log_lik"))[["pointwise"]][, "p_waic"]
+      )
+    ),
+    k = map(
+      mod, 
+      ~ suppressWarnings(
+        loo::psis(.x$draws("log_lik"))[["diagnostics"]][["pareto_k"]]
+      )
+    )
   ) |> 
   select(-mod) |> 
   unnest(c(penalty, k)) |> 
@@ -529,12 +537,16 @@ ladmit <- compose_data(dadmit)
 
 
 ```{r}
-m11_7 <- stan_model(file = here::here("inst/Stan/m11_7.stan")) |> 
-  sampling(data = ladmit, seed = 909)
+mod_11_7 <- cmdstan_model(here::here("inst/Stan/m11_7.stan"))
+m11_7 <- mod_11_7$sample(
+  data = ladmit,
+  seed = 909,
+  refresh = 0
+)
 ```
 
 ```{r}
-precis(m11_7, depth = 2, pars = "a")
+precis_cmdstan(m11_7, variables = "a")
 ```
 
 The estimate for male applicants is higher, but by how much? We need to compute the contrasts, which gets us back to the shark and deer: compute both absolute differences (shark, logit scale) and the relative differences (deer, outcome scale). 
@@ -613,8 +625,14 @@ ladmit_dept <- dadmit |>
 ```
 
 ```{r}
-m11_8 <- stan_model(file = here::here("inst/Stan/m11_8.stan")) |> 
-  sampling(data = ladmit_dept, seed = 1002, iter = 4000)
+mod_11_8 <- cmdstan_model(here::here("inst/Stan/m11_8.stan"))
+m11_8 <- mod_11_8$sample(
+  data = ladmit_dept,
+  seed = 1002,
+  refresh = 0,
+  iter_warmup = 2000L,
+  iter_sampling = 2000L
+)
 ```
 
 Now we do the same thing as we did before: calculate the contrasts on both relative and absolute scales. 
@@ -641,7 +659,7 @@ UCBadmit |>
   mutate(value = applications / sum(applications)) |> 
   ungroup() |> 
   select(dept, name = applicant.gender, value) |> 
-  mutate(across(value, round, digits = 2)) |> 
+  mutate(across(value, \(x) round(x, digits = 2))) |> 
   pivot_wider() |> 
   inner_join(
     UCBadmit |> 
@@ -702,7 +720,7 @@ This example uses data on tools in Oceania societies. There are three hypotheses
 
 1. Larger populations will develop and sustain more complex sets of tools. 
 2. More contact with other populations will have a similar effect to 1, essentially creating a larger population in which innovation happens. 
-3. The impact of popuation is moderated by contact. In other words, we expect the interaction effect between these to be positive. 
+3. The impact of population is moderated by contact. In other words, we expect the interaction effect between these to be positive. 
 
 ```{r}
 data(Kline)
@@ -729,7 +747,7 @@ tibble(grp = c("a", "b"), meanlog = c(0, 3), sdlog = c(10, 0.5)) |>
   ) |> 
   mutate(y = dlnorm(x, meanlog, sdlog)) |> 
   ggplot(aes(x, y, colour = grp)) + 
-  geom_path() + 
+  geom_path(linewidth = 1) + 
   geom_text(
     aes(label = label), 
     data = tibble(
@@ -769,7 +787,7 @@ mean(exp(rnorm(1e4, 3, 0.5))) |>
   round(digits = 2)
 ```
 
-This is much more sensible. The maths behind this make sense: inverting the log link maps the interval $(-\infty, 0]$ to the interval $(0, 1]$, and the interval $(0, \infty)$ to the interval $(1, \infty)$. So if a prior is centred at zero then half the probability (on the outcome scale) will be on $(0, 1]$. This makes little sense here, so shifting the location to the right and reducing the scale gives us better answers. 
+This is much more sensible. The maths behind this make sense: inverting the log link maps the interval $(-\infty, 0]$ to the interval $(0, 1]$, and the interval $(0, \infty)$ to the interval $(1, \infty)$. So if a prior is centred at zero then half the probability (on the outcome scale) will be on $(0, 1]$. This makes little sense here, so shifting the location to the right and reducing the scale gives us better answers.
 
 Our updated model is: 
 
@@ -869,18 +887,26 @@ lkline <- dkline |>
 ```
 
 ```{r}
-m11_9 <- stan_model(file = here::here("inst/Stan/m11_9.stan")) |> 
-  sampling(data = lkline, seed = 1344)
+mod_11_9 <- cmdstan_model(here::here("inst/Stan/m11_9.stan"))
+m11_9 <- mod_11_9$sample(
+  data = lkline,
+  seed = 1344,
+  refresh = 0
+)
 ```
 
 ```{r}
-m11_10 <- stan_model(file = here::here("inst/Stan/m11_10.stan")) |> 
-  sampling(data = lkline, seed = 1350)
+mod_11_10 <- cmdstan_model(here::here("inst/Stan/m11_10.stan"))
+m11_10 <- mod_11_10$sample(
+  data = lkline,
+  seed = 1350,
+  refresh = 0
+)
 ```
 
 ```{r}
 set.seed(1518)
-compare(m11_9, m11_10, func = PSIS)
+compare_cmdstan(m11_9, m11_10)
 ```
 
 There are two things to note: 
@@ -895,109 +921,99 @@ full_kline <- bind_cols(
   dkline, 
   lkline |> 
     as_tibble() |> 
-    select(-n)
+    select(-n) |> 
+    mutate(across(everything(), as.double))
 ) |> 
   mutate(
-    k = PSIS(m11_10, pointwise = TRUE) |> 
-      pluck("k"), 
+    k = psis_with_relative_eff(m11_10), 
     P_natural = exp(P * 1.53 + 9)
   )
 d_fig_11_9 <- m11_10 |> 
-  spread_draws(a[j], b[k]) |> 
-  ungroup() |>
-  filter(j == k) |> 
-  select(.iteration, a, b, cid = j) |> 
-  expand(
-    nesting(.iteration, a, b, cid), 
-    P = P_seq
-  ) |> 
-  mutate(lambda = exp(a + b * P)) |> 
+  spread_draws(a[i], b[i]) |> 
+  select(.iteration, a, b, cid = i) |> 
+  expand(nesting(.iteration, a, b), P = P_seq) |> 
+  mutate(value = exp(a + b * P)) |> 
   group_by(P, cid) |> 
-  summarise(
-    tibble(
-      name = c("lambda", "lower", "upper"), 
-      value = c(mean(lambda), PI(lambda))
-    ), 
-    .groups = "drop"
-  ) |> 
+  reframe_mean_PI() |> 
   pivot_wider() |> 
+  rename(lambda = mean) |> 
   mutate(
     cid = if_else(cid == 1L, "low", "high") |> 
       factor(levels = c("low", "high")), 
     P_natural = exp(P * 1.53 + 9)
   )
 
-(
-  d_fig_11_9 |> 
-  ggplot(aes(P)) + 
-  geom_line(aes(y = lambda, linetype = cid)) + 
-  geom_ribbon(
-    aes(ymin = lower, ymax = upper, group = cid), 
-    colour = "grey60", 
-    alpha = 0.4
-  ) + 
-  geom_point(
-    aes(y = total_tools, shape = contact, size = k), 
-    data = full_kline, 
-    colour = "midnightblue"
-  ) + 
-  geom_text_repel(
-    aes(x = P, y = total_tools, label = label), 
-    data = full_kline |> 
-      filter(culture %in% c("Yap", "Tonga", "Trobriand", "Hawaii")) |> 
-      transmute(
-        label = sprintf("%s (%.2f)", as.character(culture), k), 
-        P, 
-        total_tools
-      ), 
-    nudge_y = 4
-  ) + 
-  scale_linetype_manual(values = c(2, 1)) + 
-  scale_shape_manual(values = c(16, 1)) + 
-  scale_x_continuous(
-    "log population (std)", 
-    breaks = seq(-1, 2)
-  ) + 
-  scale_y_continuous(
-    "total tools", 
-    breaks = seq(0, 60, by = 20)
-  ) + 
-  coord_cartesian(
-    xlim = c(-1.4, 2.5), 
-    ylim = c(0, 75)
-  ) + 
-  theme(legend.position = "none")
-) + (
-  d_fig_11_9 |> 
-  ggplot(aes(P_natural)) + 
-  geom_line(aes(y = lambda, linetype = cid)) + 
-  geom_ribbon(
-    aes(ymin = lower, ymax = upper, group = cid), 
-    colour = "grey60", 
-    alpha = 0.4
-  ) + 
-  geom_point(
-    aes(y = total_tools, shape = contact, size = k), 
-    data = full_kline, 
-    colour = "midnightblue"
-  ) + 
-  scale_linetype_manual(values = c(2, 1)) + 
-  scale_shape_manual(values = c(16, 1)) + 
-  scale_x_continuous(
-    "population", 
-    breaks = c(0, 50000, 150000, 250000), 
-    labels = scales::label_comma()
-  ) + 
-  scale_y_continuous(
-    "total tools", 
-    breaks = seq(0, 60, by = 20)
-  ) + 
-  coord_cartesian(
-    xlim = c(0, 290000),
-    ylim = c(0, 75)
-  ) +
-  theme(legend.position = "none")
-)
+list(
+  left = d_fig_11_9 |> 
+    ggplot(aes(P)) + 
+    geom_line(aes(y = lambda, linetype = cid)) + 
+    geom_ribbon(
+      aes(ymin = lower, ymax = upper, group = cid), 
+      colour = "grey60", 
+      alpha = 0.4
+    ) + 
+    geom_point(
+      aes(y = total_tools, shape = contact, size = k), 
+      data = full_kline, 
+      colour = "midnightblue"
+    ) + 
+    geom_text_repel(
+      aes(x = P, y = total_tools, label = label), 
+      data = full_kline |> 
+        filter(culture %in% c("Yap", "Tonga", "Trobriand", "Hawaii")) |> 
+        transmute(
+          label = sprintf("%s (%.2f)", as.character(culture), k), 
+          P, 
+          total_tools
+        ), 
+      nudge_y = 4
+    ) + 
+    scale_linetype_manual(values = c(2, 1)) + 
+    scale_shape_manual(values = c(16, 1)) + 
+    scale_x_continuous(
+      "log population (std)", 
+      breaks = seq(-1, 2)
+    ) + 
+    scale_y_continuous(
+      "total tools", 
+      breaks = seq(0, 60, by = 20)
+    ) + 
+    coord_cartesian(
+      xlim = c(-1.4, 2.5), 
+      ylim = c(0, 75)
+    ) + 
+    labs(size = "Pareto k"),
+  right = d_fig_11_9 |> 
+    ggplot(aes(P_natural)) + 
+    geom_line(aes(y = lambda, linetype = cid)) + 
+    geom_ribbon(
+      aes(ymin = lower, ymax = upper, group = cid), 
+      colour = "grey60", 
+      alpha = 0.4
+    ) + 
+    geom_point(
+      aes(y = total_tools, shape = contact, size = k), 
+      data = full_kline, 
+      colour = "midnightblue"
+    ) + 
+    scale_linetype_manual(values = c(2, 1)) + 
+    scale_shape_manual(values = c(16, 1)) + 
+    scale_x_continuous(
+      "population", 
+      breaks = c(0, 50000, 150000, 250000), 
+      labels = scales::label_comma()
+    ) + 
+    scale_y_continuous(
+      "total tools", 
+      breaks = seq(0, 60, by = 20)
+    ) + 
+    coord_cartesian(
+      xlim = c(0, 290000),
+      ylim = c(0, 75)
+    ) + 
+    labs(size = "Pareto k")
+) |> 
+  wrap_plots(guides = "collect")
 ```
 
 Hawaii is moving the needle: it is far larger than any other and has far more tools. So we see that the low-contact line has to bend towards Hawaii: at the left of the distribution it is below the high-contact line, but then it flips. Also the posterior interval for the high-contact cultures is enormous, because we have no data points with a population larger than Tonga ($P = 0.5$). 
@@ -1006,12 +1022,9 @@ Then RM covers an alternative model. Why bother with this? Let's look at the pre
 
 ```{r}
 m11_10 |> 
-  spread_draws(a[j], b[k]) |> 
-  ungroup() |>
-  filter(j == k) |> 
-  select(.iteration, .chain, a, b, cid = j) |> 
-  expand(
-    nesting(.iteration, .chain, a, b, cid), 
+  spread_draws(a[i], b[i]) |> 
+  select(.iteration, .chain, a, b, cid = i) |> 
+  mutate(
     P = full_kline |> 
       filter(culture == "Hawaii") |> 
       pull(P)
@@ -1021,6 +1034,7 @@ m11_10 |>
     cid = if_else(cid == 1L, "low", "high") |> 
       factor(levels = c("low", "high"))
   ) |> 
+  ungroup() |> 
   select(.iteration, .chain, name = cid, value = lambda) |>
   pivot_wider() |> 
   transmute(lambda = high - low) |> 
@@ -1030,7 +1044,7 @@ m11_10 |>
   geom_vline(
     aes(xintercept = x), 
     data = . %>%
-      summarise(tibble(x = c(mean(lambda), HPDI(lambda)))), 
+      reframe(tibble(x = c(mean(lambda), HPDI(lambda)))), 
     linetype = 2, 
     colour = "grey50"
   ) + 
@@ -1092,6 +1106,15 @@ lkline_sci <- dkline |>
 ```
 
 ```{r}
+mod_11_11 <- cmdstan_model(here::here("inst/Stan/m11_11.stan"))
+m11_11 <- mod_11_11$sample(
+  data = lkline_sci,
+  seed = 1219,
+  refresh = 0
+)
+```
+
+```{r}
 m11_11 <- stan_model(file = here::here("inst/Stan/m11_11.stan")) |> 
   sampling(data = lkline_sci, seed = 1219)
 ```
@@ -1099,7 +1122,7 @@ m11_11 <- stan_model(file = here::here("inst/Stan/m11_11.stan")) |>
 We can compare the models as RM suggests. 
 
 ```{r}
-compare(m11_10, m11_11, func = PSIS)
+compare_cmdstan(m11_10, m11_11)
 ```
 
 And now we can recreate the plot from the book. 
@@ -1110,36 +1133,24 @@ full_kline_sci <- bind_cols(
   dkline, 
   lkline_sci |> 
     as_tibble() |> 
-    select(-n)
+    select(-n) |> 
+    mutate(across(everything(), as.double))
 ) |> 
-  mutate(
-    k = PSIS(m11_11, pointwise = TRUE) |> 
-      pluck("k")
-  )
+  mutate(k = psis_with_relative_eff(m11_11))
 
 d_fig_11_10 <- m11_11 |> 
-  spread_draws(a[j], b[k], g) |> 
+  spread_draws(a[i], b[i], g) |> 
   ungroup() |>
-  filter(j == k) |> 
-  select(.iteration, a, b, g, cid = j) |> 
+  select(.iteration, a, b, g, cid = i) |> 
   expand(
     nesting(.iteration, a, b, g, cid), 
     P = seq(0, 280000, length.out = 100)
   ) |> 
-  mutate(lambda = (exp(a) * P^b) / g) |> 
-  group_by(P, cid) |> 
-  summarise(
-    tibble(
-      name = c("lambda", "lower", "upper"), 
-      value = c(mean(lambda), PI(lambda))
-    ), 
-    .groups = "drop"
-  ) |> 
+  mutate(value = (exp(a) * P^b) / g) |> 
+  reframe_mean_PI(.by = c(P, cid)) |> 
   pivot_wider() |> 
-  mutate(
-    cid = if_else(cid == 1L, "low", "high") |> 
-      factor(levels = c("low", "high"))
-  )
+  rename(lambda = mean) |> 
+  mutate(cid = factor(c("low", "high")[cid], levels = c("low", "high")))
 
 d_fig_11_10 |> 
   ggplot(aes(P)) + 
@@ -1178,7 +1189,7 @@ The Poisson model assumes a constant $\lambda$, but this can underestimate the v
 
 ### Example: Exposure and the offset
 
-RM extends the monastery and manuscripts example: now we have one monastery that counts the manuscripts each day and another per week. By thinking of $\lambda$ as the rate per unit time, i.e. the expected number of events $\mu$ per unit time $\tau$, so that $\lambda = \mu/\tau$, we get: 
+RM extends the monastery and manuscripts example: now we have one monastery that counts the manuscripts each day and another per week. By thinking of $\lambda$ as the rate per unit time, i.e. the expected number of events $\mu$ per unit time $\tau$, so that $\lambda = \mu / \tau$, we get: 
 
 $$
 \begin{align*}
@@ -1199,20 +1210,24 @@ set.seed(926)
 dmonk <- bind_rows(
   tibble(
     y = rpois(30, 1.5), 
-    offset = log(1L), 
+    tau = log(1L), 
     monastery = 0L
   ), 
   tibble(
     y = rpois(4, 0.5 * 7), 
-    offset = log(7L), 
+    tau = log(7L), 
     monastery = 1L
   )
 )
 ```
 
 ```{r}
-m11_12 <- stan_model(file = here::here("inst/Stan/m11_12.stan")) |> 
-  sampling(data = compose_data(dmonk), seed = 909)
+mod_11_12 <- cmdstan_model(here::here("inst/Stan/m11_12.stan"))
+m11_12 <- mod_11_12$sample(
+  data = compose_data(dmonk),
+  seed = 909,
+  refresh = 0
+)
 ```
 
 ```{r}
@@ -1233,7 +1248,7 @@ contrast_11_12 <- m11_12 |>
   transmute(contrast = exp(a) - exp(a + b))
 
 summ_11_12 <- contrast_11_12 |>
-  summarise(x = c(mean(contrast), HPDI(contrast)))
+  reframe(x = c(mean(contrast), HPDI(contrast)))
 
 contrast_11_12 |> 
   ggplot(aes(contrast)) + 
@@ -1255,7 +1270,7 @@ contrast_11_12 |>
   )
 ```
 
-The contrast is reliably positive, but with a fair bit of variation. 
+The contrast is reliably positive, but with a fair bit of variation.
 
 ## Multinomial and categorical models
 
@@ -1293,17 +1308,252 @@ career
 ```
 
 ```{r}
+income <- c(1, 2, 5)
 dcareer <- list(
-  N = 500, 
-  K = 3, 
-  career = career, 
-  income = c(1, 2, 5)
+  n = 500,
+  k = 3,
+  career = career,
+  career_income = income
 )
 ```
 
 ```{r}
-m11_13 <- stan_model(file = here::here("inst/Stan/m11_13.stan")) |> 
-  sampling(data = dcareer, seed = 1121)
-stancode(m11_13)
+mod_11_13 <- cmdstan_model(here::here("inst/Stan/m11_13.stan"))
+m11_13 <- mod_11_13$sample(
+  data = dcareer,
+  seed = 1121,
+  refresh = 0
+)
 ```
 
+```{r}
+precis_cmdstan(m11_13, variables = c("a", "b"))
+```
+
+This is quite a different precis than the one that RM gets in the book, which is more like:
+
+```{r}
+#| echo: false
+tribble(
+  ~variable, ~ mean, ~sd,  ~lower, ~upper,
+  "a[1]",     0.06,  0.21, -0.31,  0.37,
+  "a[2]",    -0.49,  0.38, -1.19,  0.04,
+  "b",        0.27,  0.19,  0.02,  0.61
+)
+```
+Our model is now estimating a smaller effect from career (i.e. `b`), and is more confident about it (lower standard deviation on the estimate). But the intercepts for the two non-pivot careers are _much_ lower. Since their incomes are lower we expect them to be chosen less often: this is baked into the simulation, so our model should identify this.
+
+I couldn't replicate RM's results at all. I tried writing out the code exactly as RM did in the book, and even forcing the model to compile with RStan rather than CmdStan. Still I got identical results to mine. So let's try manually sampling from the `precis()` output from the book to approximate the posterior that RM got, simulate the career choices, then compare that to mine.
+
+```{r}
+set.seed(1200)
+tibble(
+  .draw = seq_len(4000),
+  a1 = rnorm(4000, 0.06, 0.21),
+  a2 = rnorm(4000, -0.49, 0.38),
+  b = rnorm(4000, 0.27, 0.19)
+) |> 
+  pivot_longer(
+    starts_with("a"),
+    names_to = "i",
+    names_prefix = "a",
+    names_transform = list(i = as.integer),
+    values_to = "a"
+  ) |> 
+  arrange(.draw, i) |> 
+  mutate(s = a + (b * i)) |> 
+  group_by(.draw) |> 
+  summarise(career_RM = sample(3, size = 1, prob = softmax(c(s, 0)))) |> 
+  inner_join(
+    m11_13 |> 
+      spread_draws(a[i], b) |> 
+      mutate(s = a + (b * i)) |> 
+      ungroup() |> 
+      arrange(.draw, i) |> 
+      group_by(.draw) |> 
+      summarise(career_mine = sample(3, size = 1, prob = softmax(c(s, 0)))),
+    by = join_by(.draw)
+  ) |> 
+  pivot_longer(
+    starts_with("career"),
+    names_prefix = "career_",
+    values_to = "career"
+  ) |> 
+  count(name, career) |>
+  group_by(name) |>
+  mutate(pct = n / sum(n)) |> 
+  mutate(label = scales::label_percent(accuracy = 1)(pct)) |> 
+  ggplot(aes(x = career, y = pct, fill = name)) + 
+  geom_col(position = position_dodge()) + 
+  geom_label_repel(
+    aes(x = career, y = pct, label = label),
+    inherit.aes = FALSE
+  ) +
+  scale_fill_viridis_d(option = "E") + 
+  scale_y_continuous(NULL, labels = scales::label_percent()) + 
+  theme(legend.position = "bottom") +
+  labs(title = "Comparing posterior samples for career choice model")
+```
+
+Something seems very off here. Sampling using RM's `precis()` results gives us exactly the opposite results to those we'd expect: career 1 most popular, followed by 2, and finally 3. We can see this from the precis: a mean estimate of 0.06 for the intercept plus a positive effect for income on choice (i.e. the positive estimate on b) means that the score, $s$, for career 1 is greater than zero. But career 3 was chosen as the pivot and has $s = 0$ hard-coded into the model. Compare this with the proportions of each career in the original data:
+
+```{r}
+table(career) / length(career)
+```
+
+This is something much closer to what I get from my model.
+
+[Solomon Kurz goes into depth](https://bookdown.org/content/4857/god-spiked-the-integers.html#predictors-matched-to-outcomes.) on this, although in his case it's with {brms}. The results are similar though, and he dives into the guts of these models nicely. I'll skip that level of detail here, and move on to the counterfactual that RM poses: how much does the probability of choosing career 2 change if we double its income?
+
+```{r}
+map(
+  seq_len(2),
+  ~ m11_13 |> 
+    spread_draws(a[i], b) |> 
+    mutate(s = a + (b * income[i] * .x)) |> 
+    ungroup() |> 
+    select(i, .chain, .iteration, .draw, s) |> 
+    pivot_wider(
+      names_from = i,
+      names_prefix = "career_",
+      values_from = s
+    ) |> 
+    mutate(career_3 = 0) |> 
+    select(starts_with("career")) |> 
+    as.matrix() |> 
+    apply(1, softmax) |> 
+    t() |> 
+    as_tibble(.name_repair = ~ str_c("p", 1:3)) |> 
+    rowid_to_column(".draw") |> 
+    add_column(i = .x, .before = 1)
+) |> 
+  list_rbind() |> 
+  pivot_longer(starts_with("p")) |> 
+  pivot_wider(
+    names_from = i,
+    names_prefix = "i"
+  ) |> 
+  transmute(.draw, name, value = i2 - i1) |> 
+  pivot_wider() |> 
+  select(-.draw) |> 
+  precis()
+```
+
+We get an average 4% increase in the probability of choosing career 2 after doubling its income, with a roughly equal decrease for career 3.
+
+### Predictors matched to observations
+
+Now we change things so that each observed outcome has unique predictor values. Sticking with career choices: now we want to model career choice based on the person's family income. So the predictor variable has the same value in every linear model
+
+```{r}
+set.seed(1423)
+dcareer_family <- tibble(family_income = runif(500)) |> 
+  mutate(
+    career = map_int(
+      family_income,
+      function(x) {
+        p <- softmax((0.5 * seq_len(3) + c(-2, 0, 2) * x))
+        sample(3, size = 1, prob = p)
+      }
+    )
+  ) |> 
+  compose_data() |> 
+  c(k = 3)
+```
+
+```{r}
+mod_11_14 <- cmdstan_model(here::here("inst/Stan/m11_14.stan"))
+m11_14 <- mod_11_14$sample(
+  data = dcareer_family,
+  seed = 1430,
+  refresh = 0
+)
+```
+
+```{r}
+precis_cmdstan(m11_14, variables = c("a", "b"))
+```
+
+These are again different results to those RM gets in the book, which are more like:
+
+```{r}
+#| echo: false
+tribble(
+  ~variable, ~ mean, ~sd, ~lower, ~upper,
+  "a[1]", -1.41, 0.28, -1.88, -0.97,
+  "a[2]", -0.64, 0.20, -0.96, -0.33,
+  "b[1]", -2.72, 0.60, -3.69, -1.79,
+  "b[2]", -1.72, 0.39, -2.32, -1.10
+)
+```
+
+The differences aren't quite so stark this time, e.g. all of the mean estimates are negative, and the estimates for intercept and coefficient for career 1 are quite similar. RM says that "computing implied predictions is the safest way to interpret these models". So let's do that.
+
+```{r}
+set.seed(1200)
+tibble(
+  i = c(1, 2, 1, 2),
+  name = c("a", "a", "b", "b"),
+  mean = c(-1.41, -0.64, -2.72, -1.72),
+  sd = c(0.28, 0.2, 0.6, 0.39)
+) |> 
+  transmute(
+    i,
+    name,
+    draws = map2(
+      mean,
+      sd,
+      ~ tibble(.draw = seq_len(4000), value = rnorm(4000, .x, .y))
+    )
+  ) |> 
+  unnest(draws) |> 
+  pivot_wider(names_from = c(name, i)) |> 
+  mutate(a_3 = 0, b_3 = 0) |> 
+  mutate(family_income = runif(4000)) |> 
+  pivot_longer(
+    matches("^a|^b"),
+    names_to = c("name", "i"),
+    names_sep = "_",
+    names_transform = list(i = as.integer)
+  ) |> 
+  pivot_wider() |> 
+  transmute(.draw, i, s = a + (b * family_income)) |> 
+  arrange(.draw, i) |> 
+  group_by(.draw) |> 
+  mutate(p = softmax(s)) |> 
+  ungroup() |> 
+  select(.draw, name = i, value = p) |> 
+  pivot_wider(names_prefix = "p") |> 
+  select(-.draw) |> 
+  precis()
+```
+
+```{r}
+m11_14 |> 
+  gather_draws(a[i], b[i]) |> 
+  ungroup() |> 
+  pivot_wider(names_from = c(.variable, i), values_from = .value) |> 
+  select(-c(.chain, .iteration)) |> 
+  mutate(a_3 = 0, b_3 = 0) |> 
+  mutate(family_income = runif(4000)) |> 
+  pivot_longer(
+    matches("^a|^b"),
+    names_to = c("name", "i"),
+    names_sep = "_",
+    names_transform = list(i = as.integer)
+  ) |> 
+  pivot_wider() |> 
+  transmute(.draw, i, s = a + (b * family_income)) |> 
+  arrange(.draw, i) |> 
+  group_by(.draw) |> 
+  mutate(p = softmax(s)) |> 
+  ungroup() |> 
+  select(.draw, name = i, value = p) |> 
+  pivot_wider(names_prefix = "p") |> 
+  select(-.draw) |> 
+  precis()
+```
+
+We get almost identical posterior distributions on the probability scale.
+
+### Multinomial in disguise as Poisson

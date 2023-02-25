@@ -1,9 +1,9 @@
 data{
     int n;
-    int pulled_left[n];
-    int actor[n];
-    int side[n];
-    int cond[n];
+    array[n] int pulled_left;
+    array[n] int actor;
+    array[n] int side;
+    array[n] int cond;
 }
 
 parameters{
@@ -18,8 +18,7 @@ model{
     bs ~ normal(0, 0.5);
     bc ~ normal(0, 0.5); 
     for (i in 1:n) {
-        p[i] = a[actor[i]] + bs[side[i]] + bc[cond[i]];
-        p[i] = inv_logit(p[i]);
+        p[i] = inv_logit(a[actor[i]] + bs[side[i]] + bc[cond[i]]);
     }
     pulled_left ~ binomial(1, p);
 }
@@ -28,8 +27,7 @@ generated quantities{
     vector[n] log_lik;
     vector[n] p;
     for (i in 1:n) {
-        p[i] = a[actor[i]] + bs[side[i]] + bc[cond[i]];
-        p[i] = inv_logit(p[i]);
+        p[i] = inv_logit(a[actor[i]] + bs[side[i]] + bc[cond[i]]);
     }
     for (i in 1:n) {
       log_lik[i] = binomial_lpmf(pulled_left[i] | 1, p[i]);
