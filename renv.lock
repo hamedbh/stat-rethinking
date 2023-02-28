@@ -136,16 +136,6 @@
         "RcppParallel"
       ]
     },
-    "TSP": {
-      "Package": "TSP",
-      "Version": "1.2-2",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "13a08202e10c249d45d91ab596ae9269",
-      "Requirements": [
-        "foreach"
-      ]
-    },
     "V8": {
       "Package": "V8",
       "Version": "4.2.2",
@@ -302,14 +292,6 @@
         "sass"
       ]
     },
-    "ca": {
-      "Package": "ca",
-      "Version": "0.71.1",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "392f13bb4dfd3c07259ecdeba6aa71f9",
-      "Requirements": []
-    },
     "cachem": {
       "Package": "cachem",
       "Version": "1.0.6",
@@ -369,14 +351,6 @@
       "Hash": "3f038e5ac7f41d4ac41ce658c85e3042",
       "Requirements": []
     },
-    "cluster": {
-      "Package": "cluster",
-      "Version": "2.1.4",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "5edbbabab6ce0bf7900a74fd4358628e",
-      "Requirements": []
-    },
     "cmdstanr": {
       "Package": "cmdstanr",
       "Version": "0.5.3",
@@ -434,23 +408,6 @@
         "cli",
         "memoise",
         "rlang"
-      ]
-    },
-    "corrr": {
-      "Package": "corrr",
-      "Version": "0.4.4",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "2fb521ffc0592c3c47d1d7e3b0cba2d0",
-      "Requirements": [
-        "dplyr",
-        "ggplot2",
-        "ggrepel",
-        "glue",
-        "purrr",
-        "rlang",
-        "seriation",
-        "tibble"
       ]
     },
     "cpp11": {
@@ -657,17 +614,6 @@
         "tibble"
       ]
     },
-    "foreach": {
-      "Package": "foreach",
-      "Version": "1.5.2",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "618609b42c9406731ead03adf5379850",
-      "Requirements": [
-        "codetools",
-        "iterators"
-      ]
-    },
     "fs": {
       "Package": "fs",
       "Version": "1.6.1",
@@ -722,16 +668,6 @@
         "rlang",
         "rstudioapi",
         "withr"
-      ]
-    },
-    "gclus": {
-      "Package": "gclus",
-      "Version": "1.3.2",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "8f905e7f70ac42e5b0e39d6ba360dd44",
-      "Requirements": [
-        "cluster"
       ]
     },
     "generics": {
@@ -1113,14 +1049,6 @@
       "Hash": "0080607b4a1a7b28979aecef976d8bc2",
       "Requirements": []
     },
-    "iterators": {
-      "Package": "iterators",
-      "Version": "1.0.14",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "8954069286b4b2b0d023d1b288dce978",
-      "Requirements": []
-    },
     "janitor": {
       "Package": "janitor",
       "Version": "2.2.0",
@@ -1491,14 +1419,6 @@
         "vctrs"
       ]
     },
-    "qap": {
-      "Package": "qap",
-      "Version": "0.1-2",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "21c4fc168ebf32add2db6a358ce4714c",
-      "Requirements": []
-    },
     "quadprog": {
       "Package": "quadprog",
       "Version": "1.5-8",
@@ -1547,14 +1467,6 @@
         "progress",
         "tibble"
       ]
-    },
-    "registry": {
-      "Package": "registry",
-      "Version": "0.5-1",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "1c9935f4f14c6c096c9c9072ddee59f1",
-      "Requirements": []
     },
     "rematch": {
       "Package": "rematch",
@@ -1626,15 +1538,15 @@
     },
     "rethinking": {
       "Package": "rethinking",
-      "Version": "2.21",
+      "Version": "2.31",
       "Source": "GitHub",
       "RemoteType": "github",
       "RemoteHost": "api.github.com",
       "RemoteRepo": "rethinking",
       "RemoteUsername": "rmcelreath",
       "RemoteRef": "HEAD",
-      "RemoteSha": "783d111a2c70c534ee9e59ae024800290cc5ac48",
-      "Hash": "6d8dc80f036cb8252eb79cac0e21197a",
+      "RemoteSha": "2f01a9c5dac4bc6e9a6f95eec7cae268200a8181",
+      "Hash": "d0e192720049e3d7a90017c6cb3780d3",
       "Requirements": [
         "MASS",
         "cmdstanr",
@@ -1766,23 +1678,6 @@
       "Requirements": [
         "R6",
         "stringr"
-      ]
-    },
-    "seriation": {
-      "Package": "seriation",
-      "Version": "1.4.1",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "16c40db2423f1f7453dba2f1db754f3f",
-      "Requirements": [
-        "MASS",
-        "TSP",
-        "ca",
-        "cluster",
-        "colorspace",
-        "gclus",
-        "qap",
-        "registry"
       ]
     },
     "shape": {
