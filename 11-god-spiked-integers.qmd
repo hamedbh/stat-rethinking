@@ -1114,11 +1114,6 @@ m11_11 <- mod_11_11$sample(
 )
 ```
 
-```{r}
-m11_11 <- stan_model(file = here::here("inst/Stan/m11_11.stan")) |> 
-  sampling(data = lkline_sci, seed = 1219)
-```
-
 We can compare the models as RM suggests. 
 
 ```{r}
@@ -1557,3 +1552,72 @@ m11_14 |>
 We get almost identical posterior distributions on the probability scale.
 
 ### Multinomial in disguise as Poisson
+
+Now we factor apart the multinomial model into a series of Poisson likelihoods. RM does the implementation first (albeit with a binary outcome) and then delves into the maths, so I'll do the same.
+
+We return to the Berkeley admissions data.
+
+```{r}
+data(UCBadmit)
+UCBadmit
+```
+
+```{r}
+mod_11_15_binom <- cmdstan_model(here::here("inst/Stan/m11_15_binom.stan"))
+m11_15_binom <- mod_11_15_binom$sample(
+  data = compose_data(UCBadmit |> select(admit, applications)),
+  seed = 1504,
+  refresh = 0
+)
+```
+
+```{r}
+mod_11_15_pois <- cmdstan_model(here::here("inst/Stan/m11_15_pois.stan"))
+m11_15_pois <- mod_11_15_pois$sample(
+  data = compose_data(UCBadmit |> select(admit, rej = reject)),
+  seed = 1505,
+  refresh = 0
+)
+```
+
+Let's compare the posterior predictions for probability of admission from each of these.
+
+```{r}
+set.seed(835)
+m11_15_binom |>
+  spread_draws(p) |> 
+  select(.draw, p_admit_binom = p) |> 
+  inner_join(
+    m11_15_pois |> 
+      spread_draws(lambda[i]) |> 
+      ungroup() |> 
+      select(.draw, name = i, value = lambda) |> 
+      pivot_wider(names_prefix = "lambda") |> 
+      transmute(.draw, p_admit_pois = lambda1 / (lambda1 + lambda2)),
+    by = ".draw"
+  ) |> 
+  pivot_longer(
+    matches("admit"),
+    names_to = "model",
+    names_prefix = "p_admit_",
+    values_to = "p"
+  ) |> 
+  ggplot(aes(x = p, fill = model)) + 
+  geom_density(alpha = 0.3) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    legend.position = "bottom"
+  ) +
+  labs(y = NULL)
+```
+
+We get near-identical inferences, as we should.
+
+## Summary
+
+RM wraps things up including a reminder that:
+
+> It is important to never convert counts to proportions before analysis, because doing so destroys information about sample size.
+
+Wise words. This was quite a big chapter, covered a lot of ground.
