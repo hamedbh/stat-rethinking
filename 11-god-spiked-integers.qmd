@@ -1205,12 +1205,12 @@ set.seed(926)
 dmonk <- bind_rows(
   tibble(
     y = rpois(30, 1.5), 
-    tau = log(1L), 
+    log_tau = log(1L), 
     monastery = 0L
   ), 
   tibble(
     y = rpois(4, 0.5 * 7), 
-    tau = log(7L), 
+    log_tau = log(7L), 
     monastery = 1L
   )
 )
@@ -1621,3 +1621,624 @@ RM wraps things up including a reminder that:
 > It is important to never convert counts to proportions before analysis, because doing so destroys information about sample size.
 
 Wise words. This was quite a big chapter, covered a lot of ground.
+
+## Practice
+
+### Easy
+
+11E1.
+
+$$
+\begin{align*}
+p = 0.35 \implies \operatorname{log-odds} &= \log\bigg(\frac{0.35}{0.65}\bigg) \\
+ &\approx -0.62
+\end{align*}
+$$
+
+11E2.
+
+$$
+\begin{align*}
+\operatorname{log-odds} = 3.2 \implies p &= \frac{1}{1 + e^{-3.2}} \\
+ &\approx 0.96
+\end{align*}
+$$
+
+11E3.
+
+The coefficient of 1.7 implies that for every unit increase in the predictor the log-odds will increase by 1.7.
+
+11E4.
+
+In Poisson regression we may have different time periods for different measurements. We keep $\lambda$ as our rate parameter, but now for each observation $\lambda = \mu / \tau$ ($\mu$ is the expected number of events per unit of time, $\tau$ is the length of time for the observation). When using the log link function the right hand side is just a difference of logs, so that $\log\tau$ is just a constant: the offset.
+
+We can cook up a simple example. Suppose we are counting how many cars are passing over a bridge. In the morning our first observer counts over periods of 15 minutes, but in the afternoon the second observer counts every hour. Then for all of the morning observations the offset would be $\log(15)$, and in the afternoon $\log(60)$.
+
+### Medium
+
+11M1.
+
+The likelihood changes because the binomial coefficient disappears in the disaggregated case. The binomial likelihood of seeing $y$ successes in $n$ trials with probability $p$ is:
+
+$$
+\operatorname{P}(y | n, p) = {n \choose y} p^y (1 - p)^{n - y}
+$$
+
+When $n = 1$, i.e. the disaggregated format, then we have the Bernoulli likelihood (which is just the binomial likelihood with $n = 1$).
+
+$$
+\begin{align*}
+\operatorname{P}(y | n = 1, p) &= {1 \choose y} p^y (1 - p)^{n - y} \\
+&= p^y (1 - p)^{n - y}
+\end{align*}
+$$
+
+This doesn't affect the inference because that coefficient represents the number of ways to rearrange the successes within the trials. As mentioned in the notes earlier: the aggregated case implicitly treats all of the observations in each aggregation as a single unit. This may make sense sometimes, e.g. in the Berkeley admissions data. But in general RM advises using the disaggregated version.
+
+11M2.
+
+In a Poisson regression a coefficient of 1.7 on a predictor means that for every unit increase on the predictor the log of the rate, $\lambda$, increases by 1.7. In turn that means $\lambda$ increases by $e^{1.7} \approx 5.5$.
+
+11M3.
+
+The logit link function has two important benefits for binomial GLMs.
+
+1. It allows us to map the domain of the predictors, $\mathbb{R}$, to the interval $[0, 1]$, which is appropriate for probabilities.
+2. The centre of each domain is preserved: $\operatorname{logit}(0.5) = 0$.
+
+11M4.
+
+The log link constrains $\lambda$ to be positive, which is required for a Poisson model.
+
+11M5.
+
+The simplest such model would be:
+
+$$
+\begin{align*}
+y &\sim \operatorname{Poisson}(\lambda) \\
+\operatorname{logit}(\lambda) &= \alpha \\
+\log\frac{\lambda}{1 - \lambda} &= \alpha \\
+\end{align*}
+$$
+
+I was struggling to think of a situation where this would be useful, since this will only be defined for $\lambda \in (0, 1)$. That implies that $\lambda$ is a probability, but in that case why wouldn't you just use Bernoulli instead of Poisson? Then I read [Wake Thompson's solutions](https://sr2-solutions.wjakethompson.com/generalized-linear-models.html#chapter-11) where he points out that the 1 in the denominator could just be a maximum count, $M$. So the model becomes:
+
+$$
+\begin{align*}
+y &\sim \operatorname{Poisson}(\mu) \\
+\operatorname{logit}(\mu) &= \alpha \\
+\log\frac{\mu}{M - \mu} &= \alpha \\
+\end{align*}
+$$
+
+This could be used in a situation where $M$ is very large, so the Poisson regression would be a simpler model, a bit like Joe Blitzstein's course using the Poisson to approximate the birthday problem (and then generalise it to more than two people sharing a birthday).
+
+11M6.
+
+The [maximum entropy constraints](https://en.wikipedia.org/wiki/Maximum_entropy_probability_distribution) for each are very similar:
+
+- First Binomial constraint is that $\operatorname{E}(X) = \mu$, i.e. a constant (although in Bayesian modelling we typically model a distribution of plausible values for $\mu$). First Poisson constraint is basically identical, except we would typically use $\lambda$ for the parameter.
+- The second constraint is different: for the binomial it must be an n-generalised binomial distribution, for the Poisson a $\infty\text{-generalised binomial distribution}$.
+
+This makes sense given what RM showed in the chapter: the Poisson is the limiting case of the binomial as $n \to \infty$. So while the two are similar they aren't identical.
+
+11M7.
+
+```{r}
+quap11_4 <- quap(
+  alist(
+    pulled_left ~ dbinom(1, p),
+    logit(p) <- a[actor] + b[treatment],
+    a[actor] ~ dnorm(0, 1.5),
+    b[treatment] ~ dnorm(0, 0.5)
+  ),
+  data = chimp_list
+)
+```
+
+```{r}
+precis(quap11_4, depth = 2) |> 
+  as_tibble(rownames = "variable") |> 
+  select(variable, mean_quap = mean) |> 
+  inner_join(
+    precis_cmdstan(m11_4, variables = c("a", "b")) |> 
+      select(variable, mean_HMC = mean),
+    by = "variable"
+  ) |> 
+  pivot_longer(
+    matches("mean"),
+    names_to = "model",
+    names_prefix = "mean_"
+  ) |> 
+  ggplot(aes(x = value, y = variable, colour = model)) + 
+  geom_point(alpha = 0.6)
+```
+
+The posterior means are very similar except for a[2]. Let's plot the posterior distribution for each model for that parameter.
+
+```{r}
+set.seed(1213)
+m11_4 |> 
+  spread_draws(a[i]) |> 
+  filter(i == 2) |> 
+  ungroup() |> 
+  select(.draw, a2_HMC = a) |> 
+  mutate(a2_quap = extract.samples(quap11_4, n = 4000)[["a"]][, 2]) |> 
+  pivot_longer(
+    matches("a2"),
+    names_to = "model",
+    names_prefix = "a2_",
+    values_to = "a2"
+  ) |> 
+  ggplot(aes(x = a2, fill = model)) +
+  geom_density(alpha = 0.4)
+```
+
+The quap model is constrained to be a normal distribution, i.e. symmetrical. However the HMC model has a longer tail to the right, and therefore gives higher estimates on average.
+
+Now let's repeat with the wider priors on the actor intercepts.
+
+```{r}
+quap11_4_wide <- quap(
+  alist(
+    pulled_left ~ dbinom(1, p),
+    logit(p) <- a[actor] + b[treatment],
+    a[actor] ~ dnorm(0, 10),
+    b[treatment] ~ dnorm(0, 0.5)
+  ),
+  data = chimp_list
+)
+```
+
+```{r}
+mod_11_4_wide <- cmdstan_model(here::here("inst/Stan/m11_4_wide.stan"))
+m11_4_wide <- mod_11_4_wide$sample(
+  data = chimp_list,
+  seed = 1223,
+  refresh = 0
+)
+```
+
+First just the mean estimates.
+
+```{r}
+precis(quap11_4_wide, depth = 2) |> 
+  as_tibble(rownames = "variable") |> 
+  select(variable, mean_quap = mean) |> 
+  inner_join(
+    precis_cmdstan(m11_4_wide, variables = c("a", "b")) |> 
+      select(variable, mean_HMC = mean),
+    by = "variable"
+  ) |> 
+  pivot_longer(
+    matches("mean"),
+    names_to = "model",
+    names_prefix = "mean_"
+  ) |> 
+  ggplot(aes(x = value, y = variable, colour = model)) + 
+  geom_point(alpha = 0.6)
+```
+
+Now the difference on a[2] is enormous, while the rest are still very similar. Let's compare just that parameter.
+
+```{r}
+set.seed(1232)
+m11_4_wide |> 
+  spread_draws(a[i]) |> 
+  filter(i == 2) |> 
+  ungroup() |> 
+  select(.draw, a2_HMC = a) |> 
+  mutate(a2_quap = extract.samples(quap11_4_wide, n = 4000)[["a"]][, 2]) |> 
+  pivot_longer(
+    matches("a2"),
+    names_to = "model",
+    names_prefix = "a2_",
+    values_to = "a2"
+  ) |> 
+  ggplot(aes(x = a2, fill = model)) +
+  geom_density(alpha = 0.4)
+```
+
+The HMC model has an even stronger right-skew than it did previously, although the locations of both distributions have moved a long way to the right. It's worth reminding ourselves what chimp number 2's results actually look like.
+
+```{r}
+dchimp |> 
+  filter(actor == 2L) |> 
+  count(pulled_left)
+```
+
+Chimp no. 2 pulled left every single time. Since a[2] is the actor-level intercept, we can interpret it as "conditional on knowing the treatment, how much of an increase in the log-odds can be explained by the experiment subject being actor 2?" The data will support about as high a number for a[2] as our priors will allow, which is why the HMC model (having no constraints on the distribution being symmetrical) gives a higher mean estimate.
+
+11M8.
+
+The models are already compiled, we just need to resample with new data. We can skip the intercept-only model and just do the geocentric model with the interaction.
+
+```{r}
+dkline_nohawaii <- dkline |> 
+  filter(culture != "Hawaii")
+lkline_nohawaii <- dkline_nohawaii |> 
+  transmute(
+    Y = total_tools, 
+    P = as.double(standardize(log(population))), 
+    cid = if_else(contact == "high", 2L, 1L)
+  ) |> 
+  compose_data()
+```
+
+```{r}
+m11_10_nohawaii <- mod_11_10$sample(
+  data = lkline_nohawaii,
+  seed = 1311,
+  refresh = 0
+)
+```
+
+And finally the scientific model.
+
+```{r}
+lkline_sci_nohawaii <- dkline_nohawaii |> 
+  transmute(
+    Y = total_tools, 
+    P = population, 
+    cid = 3L - as.integer(contact)
+  ) |> 
+  compose_data()
+```
+
+```{r}
+m11_11_nohawaii <- mod_11_11$sample(
+  data = lkline_sci_nohawaii,
+  seed = 1312,
+  refresh = 0
+)
+```
+
+First let's compare the models using PSIS.
+
+```{r}
+compare_cmdstan(m11_10_nohawaii, m11_11_nohawaii)
+```
+
+The scientific model is still the best, and still only about one standard error better than the interaction model. Let's plot both of those.
+
+```{r}
+set.seed(1908)
+P_seq <- seq(-1.4, 3, length.out = 100)
+full_kline_nohawaii <- bind_cols(
+  dkline_nohawaii, 
+  lkline_nohawaii |> 
+    as_tibble() |> 
+    select(-n) |> 
+    mutate(across(everything(), as.double))
+) |> 
+  mutate(
+    k = psis_with_relative_eff(m11_10_nohawaii), 
+    P_natural = exp(P * 1.53 + 9)
+  )
+d_fig_11_9_nohawaii <- m11_10_nohawaii |> 
+  spread_draws(a[i], b[i]) |> 
+  select(.iteration, a, b, cid = i) |> 
+  expand(nesting(.iteration, a, b), P = P_seq) |> 
+  mutate(value = exp(a + b * P)) |> 
+  group_by(P, cid) |> 
+  reframe_mean_PI() |> 
+  pivot_wider() |> 
+  rename(lambda = mean) |> 
+  mutate(
+    cid = if_else(cid == 1L, "low", "high") |> 
+      factor(levels = c("low", "high")), 
+    P_natural = exp(P * 1.53 + 9)
+  )
+
+full_kline_sci_nohawaii <- bind_cols(
+  dkline_nohawaii, 
+  lkline_sci_nohawaii |> 
+    as_tibble() |> 
+    select(-n) |> 
+    mutate(across(everything(), as.double))
+) |> 
+  mutate(k = psis_with_relative_eff(m11_11_nohawaii))
+
+d_fig_11_10_nohawaii <- m11_11_nohawaii |> 
+  spread_draws(a[i], b[i], g) |> 
+  ungroup() |>
+  select(.iteration, a, b, g, cid = i) |> 
+  expand(
+    nesting(.iteration, a, b, g, cid), 
+    P = seq(0, 280000, length.out = 100)
+  ) |> 
+  mutate(value = (exp(a) * P^b) / g) |> 
+  reframe_mean_PI(.by = c(P, cid)) |> 
+  pivot_wider() |> 
+  rename(lambda = mean) |> 
+  mutate(cid = factor(c("low", "high")[cid], levels = c("low", "high")))
+
+list(
+  geo = d_fig_11_9_nohawaii |> 
+    ggplot(aes(P_natural)) + 
+    geom_line(aes(y = lambda, linetype = cid)) + 
+    geom_ribbon(
+      aes(ymin = lower, ymax = upper, group = cid), 
+      colour = "grey60", 
+      alpha = 0.4
+    ) + 
+    geom_point(
+      aes(y = total_tools, shape = contact, size = k), 
+      data = full_kline_nohawaii, 
+      colour = "midnightblue"
+    ) + 
+    scale_linetype_manual(values = c(2, 1)) + 
+    scale_shape_manual(values = c(16, 1)) + 
+    scale_x_continuous(
+      "population", 
+      breaks = c(0, 50000, 150000, 250000), 
+      labels = scales::label_comma()
+    ) + 
+    scale_y_continuous(
+      "total tools", 
+      breaks = seq(0, 60, by = 20)
+    ) + 
+    coord_cartesian(
+      xlim = c(0, 290000),
+      ylim = c(0, 75)
+    ) + 
+    theme(legend.position = "none") +
+    labs(subtitle = "Geocentric"),
+  sci = d_fig_11_10_nohawaii |> 
+    ggplot(aes(P)) + 
+    geom_line(aes(y = lambda, linetype = cid)) + 
+    geom_ribbon(
+      aes(ymin = lower, ymax = upper, group = cid), 
+      colour = "grey60", 
+      alpha = 0.4
+    ) + 
+    geom_point(
+      aes(y = total_tools, shape = contact, size = k), 
+      data = full_kline_sci_nohawaii, 
+      colour = "midnightblue"
+    ) + 
+    scale_linetype_manual(values = c(2, 1)) + 
+    scale_shape_manual(values = c(16, 1)) + 
+    scale_x_continuous(
+      "population", 
+      breaks = c(0, 50000, 150000, 250000), 
+      labels = scales::label_comma()
+    ) + 
+    scale_y_continuous(
+      "total tools", 
+      breaks = seq(0, 70, by = 10)
+    ) + 
+    coord_cartesian(
+      xlim = c(0, 300000),
+      ylim = c(0, 75)
+    ) + 
+    theme(legend.position = "none") +
+    labs(subtitle = "Scientific")
+) |> 
+  wrap_plots() +
+  plot_annotation(
+    title = "Comparing models without Hawaii",
+    caption = "Solid line and filled points are high contact, dotted line and empty are low contact.",
+    theme = theme(plot.title = element_text(hjust = 0.5))
+  )
+```
+
+Our models no longer have to bend towards Hawaii, so we get different mean lines and credible intervals. Now the geocentric model is a much better fit: the low-contact mean line is below that for high-contact throughout. Since that was one of the motivations for building the scientific model, this seems an important improvement.
+
+### Hard
+
+11H1.
+
+I didn't actually fit the very simple models, so let's do that now. We can skip the models with the silly priors and just fit the one with a single coefficient for all chimps (but still with one coefficient per treatment).
+
+```{r}
+mod_11_3 <- cmdstan_model(here::here("inst/Stan/m11_3.stan"))
+m11_3 <- mod_11_3$sample(
+  data = chimp_list,
+  seed = 1820,
+  refresh = 0
+)
+```
+
+```{r}
+hwk_h1_compare <- compare_cmdstan(m11_3, m11_4)
+hwk_h1_compare
+```
+
+The difference is enormous: the difference in PSIS is about `r round(max(hwk_h1_compare$dPSIS) / hwk_h1_compare$dSE[[2]])` times the size of the standard error. We got a clue about why this might be in question 11M7: chimp number 2 is so unlike the others that having a single `a` coefficient for all chimps gives a terrible fit.
+
+11H2.
+
+```{r}
+data(eagles, package = "MASS")
+deagles <- eagles |> 
+  transmute(
+    y,
+    sample_size = n,
+    P = as.integer(P == "L"),
+    V = as.integer(V == "L"),
+    A = as.integer(A == "A")
+  )
+leagles <- compose_data(deagles)
+```
+
+```{r}
+eagles_quap <- quap(
+  alist(
+    y ~ dbinom(sample_size, p),
+    logit(p) <- a + (bP * P) + (bV * V) + (bA * A),
+    a ~ dnorm(0, 1.5),
+    c(bP, bV, bA) ~ dnorm(0, 0.5)
+  ),
+  data = leagles
+)
+eagles_quap
+```
+
+```{r}
+mod_11_hwh2 <- cmdstan_model(here::here("inst/Stan/m11_hwh2.stan"))
+m11_hwh2 <- mod_11_hwh2$sample(
+  data = leagles,
+  seed = 1842,
+  refresh = 0
+)
+```
+
+Let's compare the posterior means and 90% interval.
+
+```{r}
+(
+  (
+    eagles_quap |> 
+      precis(prob = 0.9) |> 
+      as_tibble(rownames = "variable") |>
+      rename(q5 = `5%`, q95 = `95%`) |> 
+      arrange(variable) |> 
+      select(-c(sd, variable)) |> 
+      as.matrix()
+  ) - (
+    m11_hwh2 |> 
+      precis_cmdstan() |> 
+      filter(variable %in% c("a", "bA", "bP", "bV")) |> 
+      arrange(variable) |> 
+      select(mean, q5, q95) |> 
+      as.matrix()
+  )
+) |> 
+  `rownames<-`(c("a", "bA", "bP", "bV"))
+```
+
+These are pretty close to each other, so we have RM's permission to use the quap fit. But let's stick with the HMC fit to get more practice.
+
+Let's check the parameter estimates more closely.
+
+```{r}
+eagles_precis <- m11_hwh2 |> 
+  precis_cmdstanfit(pars = c("a", "bA", "bP", "bV"), prob = 0.9)
+eagles_precis
+```
+
+We've used dummy variable encoding here, which gives a nice interpretation for the mean estimate of `r round(eagles_precis["a", "mean", drop = TRUE], 2)` for the intercept: it corresponds to `r round(plogis(eagles_precis["a", "mean", drop = TRUE]), 2)` mean probability of success in salmon pirating when the pirate and victim both have small body size, and the pirate was not an adult.
+
+If we 'switch on' any of the dummy variables we get corresponding changes in the log-odds of success, as summarised in the precis above.
+
+Now let's generate some posterior predictions. First compute the predicted probabilities and then the counts for each row of the original data.
+
+```{r}
+post11_hwh2 <- m11_hwh2 |> 
+  spread_draws(a, bA, bP, bV) |> 
+  expand(
+    nesting(.draw, a, bA, bP, bV),
+    transmute(deagles, i = row_number(), n = sample_size, A, P, V)
+  )
+set.seed(1524)
+(
+  post11_hwh2 |> 
+    transmute(i, A, P, V, value = plogis(a + (bP * P) + (bV * V) + (bA * A))) |> 
+    reframe_mean_PI(.by = c(i, A, P, V)) |> 
+    pivot_wider() |> 
+    pivot_longer(c(A, P, V)) |> 
+    unite("label", name, value, sep = " = ") |> 
+    group_by(i, mean, lower, upper) |> 
+    summarise(across(label, ~ str_c(.x, collapse = ", ")), .groups = "drop") |>
+    inner_join(
+      deagles |> 
+        transmute(i = row_number(), observed = y / sample_size),
+      by = "i"
+    ) |> 
+    unite(label, i, label, sep = ": ") |> 
+    mutate(label = fct_inorder(label)) |> 
+    ggplot(aes(y = fct_rev(label))) +
+    geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) +
+    geom_point(aes(x = observed), colour = "steelblue") +
+    scale_x_continuous(
+      breaks = seq(0.25, 1, by = 0.25),
+      labels = c("0.25", "0.5", "0.75", "1")
+    ) +
+    labs(x = NULL, y = NULL) +
+    theme(axis.text.y = element_blank())
+) + (
+  post11_hwh2 |> 
+    transmute(i, n, A, P, V, p = plogis(a + (bP * P) + (bV * V) + (bA * A))) |> 
+    {
+      \(x) mutate(x, value = rbinom(n = nrow(x), size = n, prob = p))
+    }() |> 
+    reframe_mean_PI(.by = c(i, n, A, P, V)) |> 
+    pivot_wider() |> 
+    pivot_longer(c(n, A, P, V)) |> 
+    unite("label", name, value, sep = " = ") |> 
+    group_by(i, mean, lower, upper) |> 
+    summarise(across(label, ~ str_c(.x, collapse = ", ")), .groups = "drop") |> 
+    inner_join(
+      deagles |> 
+        transmute(i = row_number(), observed = y),
+      by = "i"
+    ) |> 
+    unite(label, i, label, sep = ": ") |> 
+    mutate(label = fct_inorder(label)) |> 
+    ggplot(aes(y = fct_rev(label))) +
+    geom_pointrange(aes(x = mean, xmin = lower, xmax = upper)) +
+    geom_point(aes(x = observed), colour = "steelblue") +
+    labs(x = NULL, y = NULL)
+) +
+  plot_annotation(
+    title = "Posterior success probabilities and counts for salmon pirates",
+    subtitle = "Blue points are observed values"
+  )
+```
+
+The plot of probabilities ignores sample size. Row 8 of the dataset, where the pirate and victim are both small and the pirate is non-adult, shows a big difference across the two plots. The posterior predicted probability is much higher than the observed (25%, one success from four attempts). Because the sample size is small the posterior estimate for $p$ is fairly wide, meaning that many values are plausible.
+
+Now we try to improve the model. We can introduce an interaction term for the pirate's size and age as RM suggests.
+
+```{r}
+mod_11_hwh2_interact <- cmdstan_model(
+  here::here("inst/Stan/m11_hwh2_interact.stan")
+)
+m11_hwh2_interact <- mod_11_hwh2_interact$sample(
+  data = leagles,
+  seed = 905,
+  refresh = 0
+)
+```
+
+```{r}
+compare_cmdstan(m11_hwh2, m11_hwh2_interact)
+```
+
+The interaction term made the model slightly worse. Let's inspect the parameter estimates for the new model and the previous one.
+
+```{r}
+precis_cmdstan(m11_hwh2_interact, variables = c("a", "bA", "bP", "bV", "bPA")) |> 
+  mutate(interaction = "yes") |> 
+  bind_rows(
+    precis_cmdstan(m11_hwh2, variables = c("a", "bA", "bP", "bV")) |> 
+      mutate(interaction = "no")
+  ) |> 
+  ggplot(aes(y = fct_rev(variable), colour = interaction)) +
+  geom_pointrange(
+    aes(x = mean, xmin = q5, xmax = q95),
+    position = position_dodge(width = 0.25)
+  ) +
+  scale_colour_manual(values = c("grey20", "steelblue")) +
+  labs(
+    title = "Parameter estimates for models with and without interaction",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+There's really very little difference between them. Adding the interaction reduces the estimates for A and P a little. The coefficient on the interaction term is mostly positive but with a wider interval. What should we make of this? Let's return to the original data.
+
+```{r}
+deagles |> 
+  as_tibble() |> 
+  mutate(PA = P * A, p = round(y / sample_size, 2))
+```
+
+The column `p` is the proportion of pirating attempts that succeeded. 
+
+There are only two rows in the dataset where $PA = 1$. Both have a fairly high success rate, but one has $V = 1$ (i.e. victim was large) the other $V = 0$. Both models agree that the effect of $V$ is strongly negative though. So in some sense the interaction is only adding confusion, which is why it reduces the PSIS.
+

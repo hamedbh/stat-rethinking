@@ -5,4 +5,5 @@ psis_with_relative_eff <- function(m) {
       r_eff = loo::relative_eff(ll_draws)
     ) |> 
     pluck("diagnostics", "pareto_k")
+  p
 }
