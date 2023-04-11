@@ -12,6 +12,8 @@ library(tidyverse)
 library(tidybayes)
 library(bayesplot)
 library(shape)
+library(dagitty)
+library(ggdag)
 # set up the theme
 theme_set(
   theme_light() + 
@@ -2242,3 +2244,285 @@ The column `p` is the proportion of pirating attempts that succeeded.
 
 There are only two rows in the dataset where $PA = 1$. Both have a fairly high success rate, but one has $V = 1$ (i.e. victim was large) the other $V = 0$. Both models agree that the effect of $V$ is strongly negative though. So in some sense the interaction is only adding confusion, which is why it reduces the PSIS.
 
+11H3.
+
+```{r}
+data(salamanders)
+dsalaman <- salamanders |> 
+  as_tibble() |> 
+  mutate(
+    cover = as.double(scale(PCTCOVER)),
+    tree_age = as.double(scale(FORESTAGE))
+  )
+lsalaman <- dsalaman |> 
+  select(C = cover, A = tree_age, S = SALAMAN) |> 
+  compose_data()
+dsalaman
+```
+
+For part (a) our model will be:
+
+$$
+\begin{align*}
+S_i &\sim \operatorname{Poisson}(\lambda_i) \\
+\log(\lambda_i) & = \alpha + \beta_C C_i
+\end{align*}
+$$
+
+Now need to set some reasonable priors. RM suggests "weakly informative", and recalling the Poisson example earlier the log-link implies that the parameters have an exponential relationship with the outcome variable. If we use normal priors then we are modelling them as lognormal, and the mean of the lognormal variable increases at $O(e^{\sigma^2})$. Therefore it's the scale parameters on our priors that we need to control.
+
+Let's try simulating from the priors we used earlier.
+
+```{r}
+set.seed(1050)
+tibble(
+  a = rnorm(1000, 3, 0.5),
+  b = rnorm(1000, 0, 0.5)
+) |> 
+  mutate(S = rpois(1000, lambda = exp(a + b))) |> 
+  pivot_longer(everything()) |> 
+  ggplot(aes(value)) +
+  geom_histogram(bins = 25) + 
+  facet_wrap(~ name, scales = "free", ncol = 1)
+```
+
+This seems pretty reasonable. For the intercept we have a peak at 3; for the coefficient we centre at zero but with some spread to $\pm 1$; and on the prediction scale our peak is somewhere just below 20, most values under 100, but with a few up to 150. 150 would be two salamanders per metre squared across 49$m^2$, which seems like a lot of salamanders. So our model now looks like:
+
+$$
+\begin{align*}
+S_i &\sim \operatorname{Poisson}(\lambda_i) \\
+\log(\lambda_i) & = \alpha + \beta_C C_i \\
+\alpha &\sim \mathcal{N}(3, 0.5) \\
+\beta_C &\sim \mathcal{N}(0, 0.5)
+\end{align*}
+$$
+
+```{r}
+mod_11_hwh3 <- cmdstan_model(here::here("inst/Stan/m11_hwh3.stan"))
+m11_hwh3 <- mod_11_hwh3$sample(
+  data = lsalaman,
+  seed = 835,
+  refresh = 0
+)
+```
+
+```{r}
+precis_cmdstan(m11_hwh3, variables = c("a", "bC"))
+```
+Let's compare this to the quadratic approximation.
+
+```{r}
+q11_hwh3 <- quap(
+  alist(
+    S ~ dpois(lambda),
+    log(lambda) <- a + (bC * C),
+    a ~ dnorm(3, 0.5),
+    bC ~ dnorm(0, 0.5)
+  ),
+  data = lsalaman
+)
+precis(q11_hwh3)
+```
+
+We get very similar estimates for the parameters, so we perhaps could use the `quap()` model, but we'll stick with HMC.
+
+Now we want the expected counts and 89% interval against cover.
+
+```{r}
+C_seq <- seq(-2, 2, length.out = 101)
+m11_hwh3 |> 
+  spread_draws(a, bC) |> 
+  select(.draw, a, bC) |> 
+  group_by(.draw) |> 
+  reframe(
+    tibble(
+      C = C_seq,
+      value = exp(a + (bC * C))
+    )
+  ) |> 
+  reframe_mean_PI(.by = C) |> 
+  pivot_wider() |> 
+  ggplot(aes(x = C)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
+  geom_line(aes(y = mean)) +
+  geom_point(
+    aes(cover, SALAMAN),
+    colour = "steelblue",
+    alpha = 0.7,
+    data = dsalaman,
+    inherit.aes = FALSE
+  ) +
+  labs(
+    title = "Expected counts vs. actual",
+    subtitle = expression(paste("Showing mean and 89% interval for ", lambda)),
+    x = "Tree cover (standardised)",
+    y = NULL
+  )
+```
+
+This fit is not great, but the line with just the mean is perhaps underestimating the variance. Let's plot the posterior prediction intervals vs. the actual counts.
+
+```{r}
+m11_hwh3 |> 
+  spread_draws(a, bC) |> 
+  select(.draw, a, bC) |> 
+  expand(
+    nesting(.draw, a, bC),
+    C = C_seq
+  ) |> {
+    \(x) mutate(x, value = rpois(nrow(x), lambda = exp(a + (bC * C))))
+  }() |> 
+  reframe_mean_PI(.by = C) |> 
+  pivot_wider() |> 
+  ggplot(aes(x = C)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) + 
+  geom_line(aes(y = mean)) +
+  geom_point(
+    aes(cover, SALAMAN),
+    colour = "steelblue",
+    alpha = 0.7,
+    data = dsalaman,
+    inherit.aes = FALSE
+  ) +
+  labs(
+    title = "Posterior predicted counts vs. actual",
+    subtitle = "Showing mean and 89% interval",
+    x = "Tree cover (standardised)",
+    y = NULL
+  )
+```
+
+This is better but still not exactly good: in particular at the higher levels of cover we have many observed counts outside the 89% interval.
+
+Let's move on to considering the age of the forest. We add it to the model and then can consider whether it improves things.
+
+```{r}
+mod_11_hwh3b <- cmdstan_model(here::here("inst/Stan/m11_hwh3b.stan"))
+m11_hwh3b <- mod_11_hwh3b$sample(
+  data = lsalaman,
+  seed = 908,
+  refresh = 0
+)
+```
+
+Let's compare the models with PSIS.
+
+```{r}
+compare_cmdstan(m11_hwh3, m11_hwh3b)
+```
+It made the model worse. Why? Before we get into that let's also inspect the parameter estimates for each model.
+
+```{r}
+bind_rows(
+  m11_hwh3 |> 
+    gather_draws(a, bC) |> 
+    rename(value = .value) |> 
+    reframe_mean_PI() |> 
+    add_column(model = "without age", .before = 1),
+  m11_hwh3b |> 
+    gather_draws(a, bC, bA) |> 
+    rename(value = .value) |> 
+    reframe_mean_PI() |> 
+    add_column(model = "with age", .before = 1)
+) |> 
+  pivot_wider() |> 
+  mutate(model = fct_rev(model)) |> 
+  ggplot(aes(y = .variable, colour = model)) +
+  geom_pointrange(
+    aes(x = mean, xmin = lower, xmax = upper),
+    position = position_dodge(width = 0.25)
+  ) +
+  scale_colour_manual(values = c("grey20", "steelblue")) + 
+  labs(
+    colour = NULL,
+    y = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+The second model estimates roughly zero effect for forest age: the other parameter estimates are unchanged. Let's consider the DAG. We've already assumed a causal arrow from C to S, so let's leave that as-is. Then we need to consider the four possibilities for edges with forest age.
+
+1. Edge from S to A
+2. Edge from A to S
+3. Edge from C to A
+4. Edge from A to C
+
+We can rule out 1 and 3 straight away: such causal relationships are nonsense.
+
+That leaves three possible DAGs.
+
+```{r}
+salamander_coords <- tibble(
+  name = c("S", "A", "C"),
+  x = c(1, 0, 0),
+  y = c(1, 0, 1)
+)
+# First: only edge from A to S
+salamander_dag_1 <- dagify(
+  S ~ C + A,
+  outcome = "S",
+  coords = salamander_coords
+  )
+salamander_dag_1 |> 
+  ggdag() + 
+  theme_dag()
+```
+
+```{r}
+# Second: only edge from A to C
+salamander_dag_2 <- dagify(
+  S ~ C,
+  C ~ A,
+  outcome = "S",
+  coords = salamander_coords
+  )
+salamander_dag_2 |> 
+  ggdag() + 
+  theme_dag()
+```
+
+```{r}
+# Third: both edges out of A
+salamander_dag_3 <- dagify(
+  S ~ C + A,
+  C ~ A,
+  outcome = "S",
+  coords = salamander_coords
+  )
+salamander_dag_3 |> 
+  ggdag() + 
+  theme_dag()
+```
+
+What does each of these DAGs imply in terms of testable conditional independencies?
+
+```{r}
+list(
+  salamander_dag_1,
+  salamander_dag_2,
+  salamander_dag_3
+) |> 
+  map(~ impliedConditionalIndependencies(.x, type = "all"))
+```
+
+The first DAG, with no edge between A and C, implies that the two variables would be independent. We can model that quickly with `quap()`.
+
+```{r}
+quap(
+  alist(
+    C ~ dnorm(mu, sigma),
+    mu <- a + (bA * A),
+    a ~ dnorm(0, 1),
+    bA ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  data = dsalaman |> 
+    select(C = PCTCOVER, A = FORESTAGE) |> 
+    mutate(across(everything(), ~ as.double(standardize(.x))))
+) |> 
+  precis()
+```
+
+We get quite a strong positive association between forest age and tree cover, which suggests that DAG 1 isn't that reasonable. And intuitively this makes sense: as trees get older we would expect that the tree cover would increase.
+
+DAG 2 implies that S is independent of A given C: that's the model we just fit, and there's quite good evidence for it. DAG 2 seems plausible. This would explain why the predictions got worse when we added A to the model: we were conditioning on a confounder.
