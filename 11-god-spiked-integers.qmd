@@ -2526,3 +2526,188 @@ quap(
 We get quite a strong positive association between forest age and tree cover, which suggests that DAG 1 isn't that reasonable. And intuitively this makes sense: as trees get older we would expect that the tree cover would increase.
 
 DAG 2 implies that S is independent of A given C: that's the model we just fit, and there's quite good evidence for it. DAG 2 seems plausible. This would explain why the predictions got worse when we added A to the model: we were conditioning on a confounder.
+
+11H4.
+
+```{r}
+data(NWOGrants)
+dnwo <- NWOGrants |> 
+  as_tibble() |> 
+  transmute(
+    D = discipline,
+    G = fct_relevel(gender, "f", "m"),
+    A = applications,
+    Y = awards
+  )
+disc_lookup <- NWOGrants |> 
+  distinct(D = as.integer(discipline), discipline)
+lnwo <- compose_data(dnwo) |> 
+   map(as.integer)
+dnwo
+```
+
+We want to model Y as a function of G, considering a pipe through D also. So our DAG would be:
+
+```{r}
+nwo_coords <- tibble(
+  name = c("Y", "G", "D"),
+  x = c(1, 0, 0),
+  y = c(1, 0, 1)
+)
+nwo_dag <- dagify(
+  Y ~ G + D,
+  D ~ G,
+  outcome = "Y",
+  exposure = "G",
+  coords = nwo_coords
+  )
+nwo_dag |> 
+  ggdag() + 
+  theme_dag()
+```
+
+Let's check conditional indepdendcies and adjustment sets.
+
+```{r}
+impliedConditionalIndependencies(nwo_dag, type = "all")
+adjustmentSets(nwo_dag, effect = "direct")
+adjustmentSets(nwo_dag, effect = "total")
+```
+
+So we will need two models: first conditioning on D to estimate the direct causal effect, and then with no covariates to estimate the total causal effect.
+
+```{r}
+mod_11_hwh4a <- cmdstan_model(here::here("inst/Stan/m11_hwh4a.stan"))
+m11_hwh4a <- mod_11_hwh4a$sample(
+  data = lnwo,
+  seed = 1506,
+  refresh = 0
+)
+```
+
+```{r}
+precis_cmdstan(m11_hwh4a, variables = c("a", "bG[1]", "bG[2]"))
+```
+
+Both estimates are mostly negative, but the estimate for women (gender level 1) is lower. We can compute the contrasts and plot.
+
+```{r}
+m11_hwh4a |> 
+  spread_draws(a, bG[i]) |> 
+  ungroup() |> 
+  transmute(.draw, name = c("f", "m")[i], a, value = bG) |> 
+  pivot_wider(names_prefix = "bG") |> 
+  transmute(
+    gender_gap_abs = bGm - bGf,
+    gender_gap_prob = inv_logit(a + bGm) - inv_logit(a + bGf)
+  ) |> 
+  pivot_longer(
+    everything(),
+    names_to = "grp",
+    names_prefix = "gender_gap_",
+    values_to = "value"
+  ) |> 
+  mutate(grp = fct_recode(grp, "log-odds" = "abs", "probability" = "prob")) |> 
+  ggplot(aes(value)) + 
+  geom_density(colour = "grey30", fill = "steelblue", alpha = 0.3) + 
+  geom_vline(
+    aes(xintercept = value),
+    data = . %>% reframe_mean_PI(.by = grp) %>% filter(name != "mean"),
+    alpha = 0.3,
+    linetype = 2
+  ) +
+  facet_wrap(~ grp, scales = "free") +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  labs(
+    title = "Gender gap: direct causal effect",
+    subtitle = "Absolute (log-odds) and relative (probability) gaps shown",
+    y = NULL,
+    x = NULL
+  )
+```
+
+This suggests a gender gap in favour of men when we consider the direct causal effect of gender. Now let's check the total causal effect of gender.
+
+```{r}
+mod_11_hwh4b <- cmdstan_model(here::here("inst/Stan/m11_hwh4b.stan"))
+m11_hwh4b <- mod_11_hwh4b$sample(
+  data = lnwo,
+  seed = 1650,
+  refresh = 0
+)
+```
+
+```{r}
+precis_cmdstan(m11_hwh4b, variables = c("a", "bG[1]", "bG[2]"))
+```
+Both gender coefficient estimates still negative but the intercept is quite different. Let's get the same plot as before with the contrasts.
+
+```{r}
+m11_hwh4b |> 
+  spread_draws(a, bG[i]) |> 
+  ungroup() |> 
+  transmute(.draw, name = c("f", "m")[i], a, value = bG) |> 
+  pivot_wider(names_prefix = "bG") |> 
+  transmute(
+    gender_gap_abs = bGm - bGf,
+    gender_gap_prob = inv_logit(a + bGm) - inv_logit(a + bGf)
+  ) |> 
+  pivot_longer(
+    everything(),
+    names_to = "grp",
+    names_prefix = "gender_gap_",
+    values_to = "value"
+  ) |> 
+  mutate(grp = fct_recode(grp, "log-odds" = "abs", "probability" = "prob")) |> 
+  ggplot(aes(value)) + 
+  geom_density(colour = "grey30", fill = "steelblue", alpha = 0.3) + 
+  geom_vline(
+    aes(xintercept = value),
+    data = . %>% reframe_mean_PI(.by = grp) %>% filter(name != "mean"),
+    alpha = 0.3,
+    linetype = 2
+  ) +
+  facet_wrap(~ grp, scales = "free") +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  labs(
+    title = "Gender gap: total causal effect",
+    subtitle = "Absolute (log-odds) and relative (probability) gaps shown",
+    y = NULL,
+    x = NULL
+  )
+```
+
+The probability difference is much smaller, so in terms of success rate there is no longer a substantial gender gap.
+
+The interpretation is that the total effect of gender is very small, because when it's mediated by discipline that offsets some of the direct effect. We can simply plot the success rates by discipline to get an idea of what's going on.
+
+```{r}
+dnwo |> 
+  transmute(
+    discipline = as.character(D),
+    gender = G,
+    A,
+    Y,
+    p = Y / A
+  ) |> 
+  group_by(discipline) |> 
+  mutate(discipline = str_c(discipline, sum(A), sep = ": ")) |> 
+  ggplot(aes(x = p, y = fct_reorder(discipline, A, sum), colour = gender)) + 
+  geom_point() +
+  scale_x_continuous(labels = scales::label_percent()) +
+  labs(
+    title = "Application success rate by subject",
+    y = NULL,
+    x = NULL
+  )
+```
+
+In the four largest areas, which comprise `r dnwo |> count(D, wt = A, sort = TRUE) |> mutate(cum_prop = cumsum(n) / sum(n)) |> slice(4) |> pull(cum_prop) |> scales::label_percent()()` of the applications, three have substantial advantages for men.
