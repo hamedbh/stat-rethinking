@@ -2,9 +2,14 @@ project:
   type: book
 
 book:
-  title: "Statistical Rethinking, 2nd Edition"
-  subtitle: "Notes and exercises from the book"
+  title: "Statistical Rethinking in Tidyverse and Stan"
+  subtitle: "Notes and exercises from the book, 2nd Edition"
   author: "Hamed Bastan-Hagh"
+  search: true
+  repo-url: "https://github.com/hamedbh/stat-rethinking"
+  repo-actions: [edit]
+  sharing: [twitter, facebook]
+  page-navigation: true
   chapters:
     - index.qmd
     - 01-golem.qmd
@@ -17,7 +22,7 @@ book:
     - 08-conditional-manatees.qmd
     - 09-markov-chain-monte-carlo.qmd
     - 10-big-entropy-glm.qmd
-    - 11-got-spiked-integers.qmd
+    - 11-god-spiked-integers.qmd
 
 toc: true
 toc-depth: 3

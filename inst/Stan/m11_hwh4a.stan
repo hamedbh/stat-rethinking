@@ -11,16 +11,14 @@ data {
 parameters {
   vector[n_D] bD;
   vector[n_G] bG;
-  real a;
 }
 
 model {
   bD ~ normal(0, 0.5);
   bG ~ normal(0, 0.5);
-  a ~ normal(0, 0.5);
   
   for (i in 1:n) {
-    Y[i] ~ binomial_logit(A[i], bD[D[i]] + bG[G[i]] + a);
+    Y[i] ~ binomial_logit(A[i], bD[D[i]] + bG[G[i]]);
   }
 }
 
@@ -28,6 +26,6 @@ generated quantities {
   vector[n] log_lik;
   
   for (i in 1:n) {
-    log_lik[i] = binomial_logit_lpmf(Y[i] | A[i], bD[D[i]] + bG[G[i]] + a);
+    log_lik[i] = binomial_logit_lpmf(Y[i] | A[i], bD[D[i]] + bG[G[i]]);
   }
 }

@@ -2410,6 +2410,7 @@ Let's compare the models with PSIS.
 ```{r}
 compare_cmdstan(m11_hwh3, m11_hwh3b)
 ```
+
 It made the model worse. Why? Before we get into that let's also inspect the parameter estimates for each model.
 
 ```{r}
@@ -2586,20 +2587,20 @@ m11_hwh4a <- mod_11_hwh4a$sample(
 ```
 
 ```{r}
-precis_cmdstan(m11_hwh4a, variables = c("a", "bG[1]", "bG[2]"))
+precis_cmdstan(m11_hwh4a, variables = c("bG[1]", "bG[2]"))
 ```
 
 Both estimates are mostly negative, but the estimate for women (gender level 1) is lower. We can compute the contrasts and plot.
 
 ```{r}
-m11_hwh4a |> 
-  spread_draws(a, bG[i]) |> 
+plot_hwh4a <- m11_hwh4a |> 
+  spread_draws(bG[i]) |> 
   ungroup() |> 
-  transmute(.draw, name = c("f", "m")[i], a, value = bG) |> 
+  transmute(.draw, name = c("f", "m")[i], value = bG) |> 
   pivot_wider(names_prefix = "bG") |> 
   transmute(
     gender_gap_abs = bGm - bGf,
-    gender_gap_prob = inv_logit(a + bGm) - inv_logit(a + bGf)
+    gender_gap_prob = inv_logit(bGm) - inv_logit(bGf)
   ) |> 
   pivot_longer(
     everything(),
@@ -2628,6 +2629,7 @@ m11_hwh4a |>
     y = NULL,
     x = NULL
   )
+plot_hwh4a
 ```
 
 This suggests a gender gap in favour of men when we consider the direct causal effect of gender. Now let's check the total causal effect of gender.
@@ -2642,19 +2644,20 @@ m11_hwh4b <- mod_11_hwh4b$sample(
 ```
 
 ```{r}
-precis_cmdstan(m11_hwh4b, variables = c("a", "bG[1]", "bG[2]"))
+precis_cmdstan(m11_hwh4b, variables = c("bG[1]", "bG[2]"))
 ```
-Both gender coefficient estimates still negative but the intercept is quite different. Let's get the same plot as before with the contrasts.
+
+Both gender coefficient estimates still negative but both are also lower. Let's get the same plot as before with the contrasts.
 
 ```{r}
 m11_hwh4b |> 
-  spread_draws(a, bG[i]) |> 
+  spread_draws(bG[i]) |> 
   ungroup() |> 
-  transmute(.draw, name = c("f", "m")[i], a, value = bG) |> 
+  transmute(.draw, name = c("f", "m")[i], value = bG) |> 
   pivot_wider(names_prefix = "bG") |> 
   transmute(
     gender_gap_abs = bGm - bGf,
-    gender_gap_prob = inv_logit(a + bGm) - inv_logit(a + bGf)
+    gender_gap_prob = inv_logit(bGm) - inv_logit(bGf)
   ) |> 
   pivot_longer(
     everything(),
@@ -2685,12 +2688,11 @@ m11_hwh4b |>
   )
 ```
 
-The probability difference is much smaller, so in terms of success rate there is no longer a substantial gender gap.
-
-The interpretation is that the total effect of gender is very small, because when it's mediated by discipline that offsets some of the direct effect. We can simply plot the success rates by discipline to get an idea of what's going on.
+The probability difference is smaller, so in terms of success rate there is a smaller gender gap. This is the opposite effect to what we saw with the Berkeley data, where conditioning on the department/discipline made the gap disappear. The interpretation is that the total effect of gender is small, but the gender gap grows when we condition by discipline. In other words: for the NWO data, once we know the discipline gender becomes _more_ informative about the probability of success; at UC Berkeley knowing the department made gender _less_ informative about the application success probability. We can simply plot the  success rates for each dataset by discipline to get an idea of what's going on.
 
 ```{r}
-dnwo |> 
+(
+  dnwo |> 
   transmute(
     discipline = as.character(D),
     gender = G,
@@ -2704,10 +2706,149 @@ dnwo |>
   geom_point() +
   scale_x_continuous(labels = scales::label_percent()) +
   labs(
-    title = "Application success rate by subject",
+    subtitle = "NWO",
+    y = NULL,
+    x = NULL
+  )
+) + (
+  UCBadmit |> 
+  transmute(
+    dept = as.character(dept),
+    gender = str_sub(applicant.gender, 1L, 1L),
+    A = applications,
+    Y = admit,
+    p = admit / applications
+  ) |> 
+  group_by(dept) |> 
+  mutate(dept = str_c(dept, sum(A), sep = ": ")) |> 
+  ggplot(aes(x = p, y = fct_reorder(dept, A, sum), colour = gender)) + 
+  geom_point() +
+  scale_x_continuous(labels = scales::label_percent()) +
+  labs(
+    subtitle = "UCB",
+    y = NULL,
+    x = NULL
+  )
+) + 
+  plot_annotation(title = "Admission rates by subject and gender") + 
+  plot_layout(guides = "collect")
+```
+
+There are big differences between genders in different disciplines for the NWO data, whereas there are minimal differences in the UCB data. And in the NWO data: in the four largest areas, which comprise `r dnwo |> count(D, wt = A, sort = TRUE) |> mutate(cum_prop = cumsum(n) / sum(n)) |> slice(4) |> pull(cum_prop) |> scales::label_percent()()` of the applications, three have substantial advantages for men. The intervention may be to address the practices in each of these disciplines, and ensure that applications are treated fairly.
+
+11H5.
+
+Let's plot the new DAG.
+
+```{r}
+nwo_coords_confound <- tibble(
+  name = c("Y", "G", "D", "U"),
+  x = c(1, 0, 0, 0.5),
+  y = c(1, 0, 1, 1.5)
+)
+nwo_dag_confound <- dagify(
+  Y ~ G + D + U,
+  D ~ G + U,
+  outcome = "Y",
+  exposure = "G",
+  coords = nwo_coords_confound
+  )
+nwo_dag_confound |> 
+  ggdag() + 
+  theme_dag()
+```
+
+Let's check conditional indepdencies and adjustment sets.
+
+```{r}
+impliedConditionalIndependencies(nwo_dag_confound, type = "all")
+adjustmentSets(nwo_dag_confound, effect = "direct")
+adjustmentSets(nwo_dag_confound, effect = "total")
+```
+
+We can no longer condition on discipline alone to estimate the direct causal effect. Once we condition on D, U is a fork for D and Y, so we would have to condition on U in order to block that path.
+
+Let's try the exercise that RM suggests and simulate data from this DAG.
+
+```{r}
+set.seed(730)
+lnwo_11h5 <- tibble(
+  # randomly assign gender 50/50
+  G = rbinom(1000, 1, 0.5) + 1,
+  # Create the unobserved confound
+  U = rnorm(1000)
+) |> 
+  mutate(
+    # Assign departments based on g + u, i.e. weight of 1 on each
+    D = rbinom(1000, 1, prob = inv_logit(G + U)) + 1,
+    # Simulate acceptance based on g + u + d, i.e. weight of 1 on each
+    Y = rbinom(1000, 1, prob = inv_logit(G + U + D))
+  ) |> 
+  group_by(D, G) |> 
+  summarise(
+    A = n(),
+    Y = sum(Y),
+    .groups = "drop"
+  ) |> 
+  mutate(
+    D = factor(D, labels = c("Dep 1", "Dep 2")),
+    G = factor(G, labels = c("m", "f"))
+  ) |> 
+  compose_data()
+```
+
+```{r}
+m11_hwh5 <- mod_11_hwh4a$sample(
+  data = lnwo_11h5,
+  seed = 754,
+  refresh = 0
+)
+```
+
+```{r}
+precis_cmdstan(m11_hwh5, variables = c("bG[1]", "bG[2]"))
+```
+
+Both estimates are reliably positive (this is just because of how I built the simulation), but the estimate for women (gender level 1) is lower. So far, so good. However we know that the effect of gender on the log-odds scale is 1, so we can compute the contrasts and plot.
+
+```{r}
+contrasts_hwh5 <- m11_hwh5 |> 
+  spread_draws(bG[i]) |> 
+  ungroup() |> 
+  transmute(.draw, name = c("f", "m")[i], value = bG) |> 
+  pivot_wider(names_prefix = "bG") |> 
+  transmute(
+    gender_gap_abs = bGm - bGf,
+    gender_gap_prob = inv_logit(bGm) - inv_logit(bGf)
+  )
+contrasts_hwh5 |> 
+  pivot_longer(
+    everything(),
+    names_to = "grp",
+    names_prefix = "gender_gap_",
+    values_to = "value"
+  ) |> 
+  mutate(grp = fct_recode(grp, "log-odds" = "abs", "probability" = "prob")) |> 
+  ggplot(aes(value)) + 
+  geom_density(colour = "grey30", fill = "steelblue", alpha = 0.3) + 
+  geom_vline(
+    aes(xintercept = value),
+    data = . %>% reframe_mean_PI(.by = grp) %>% filter(name != "mean"),
+    alpha = 0.3,
+    linetype = 2
+  ) +
+  facet_wrap(~ grp, scales = "free") +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  labs(
+    title = "Gender gap: direct causal effect",
+    subtitle = "Absolute (log-odds) and relative (probability) gaps shown",
     y = NULL,
     x = NULL
   )
 ```
 
-In the four largest areas, which comprise `r dnwo |> count(D, wt = A, sort = TRUE) |> mutate(cum_prop = cumsum(n) / sum(n)) |> slice(4) |> pull(cum_prop) |> scales::label_percent()()` of the applications, three have substantial advantages for men.
+Now our estimate for the effect of gender is much lower than the true effect: probability of the contrast log-odds being less than 1 is `rscales::label_percent()(mean(contrasts_hwh5[[1]] < 1))`. If we were to tweak the coefficients in the simulation we could probably shrink this to zero, but I can stop here as it demonstrates the point: the confound is biasing our estimate for the effect of gender.

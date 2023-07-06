@@ -1,3 +1,3 @@
 # Intro {.unnumbered}
 
-This is my attempt to work through the second edition of Statistical Rethinking, by Richard McElreath. It borrows a lot from Solomon Kurz's {tidyverse} and {brms}-centric take on the exercises, in that I use the tidyverse packages where possible. However I wanted to really get stuck into Stan directly, so I'm writing out my models by hand rather than using {brms}.
+This is my attempt to work through the second edition of [Statistical Rethinking](https://xcelab.net/rm/statistical-rethinking/), by Richard McElreath. It borrows a lot from Solomon Kurz's [{tidyverse}- and {brms}-centric take](https://bookdown.org/content/4857/) on the book, in that I use the tidyverse packages where possible. However I wanted to really get stuck into Stan directly, so I'm writing out my models in Stan rather than using {brms}.
