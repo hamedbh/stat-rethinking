@@ -1288,13 +1288,13 @@ We could analyse this by breaking out first marriages, second, etc.
 I found data on [Wikipedia][1] for membership of the LDS. 
 
 ```{r}
-read_rds(here::here("data/LDS.rds"))
+read_tsv(here::here("data/LDS.tsv"), col_types = cols(Loc = col_factor()))
 ```
 
 Now we can bind this to the rest of the data and use it as a predictor. RM has given a hint that we may want to transform the LDS membership. Let's plot it and see why. 
 
 ```{r}
-read_rds(here::here("data/LDS.rds")) |> 
+read_tsv(here::here("data/LDS.tsv"), col_types = cols(Loc = col_factor())) |> 
   ggplot(aes(LDS)) + 
   geom_histogram(binwidth = 0.05)
 ```
@@ -1303,7 +1303,10 @@ The data have a strong right skew. We can take its common log before using in ou
 
 ```{r}
 hw_5m4_d <- d |> 
-  inner_join(read_rds(here::here("data/LDS.rds")), by = "Loc") |> 
+  inner_join(
+    read_tsv(here::here("data/LDS.tsv"), col_types = cols(Loc = col_factor())),
+    by = "Loc"
+  ) |> 
   mutate(L = standardize(log10(LDS)))
 hw_5m4_d
 
