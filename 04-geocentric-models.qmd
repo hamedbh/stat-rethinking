@@ -951,15 +951,15 @@ cherry_p
 
 ### Easy
 
-4E1. 
+#### 4E1. 
 
 The likelihood is $y_i \sim \mathcal{N}(\mu, \sigma)$. The other two lines are priors on the $\mu$ and $\sigma$ parameters. 
 
-4E2. 
+#### 4E2. 
 
 Two: $\mu$ and $\sigma$. 
 
-4E3. 
+#### 4E3. 
 
 $$
 \text{P}(\mu, \sigma | y) = 
@@ -968,24 +968,24 @@ $$
     {\int \int \mathcal{N}(y|\mu, \sigma) \mathcal{N}(\mu|0, 10) \text{Expo}(\sigma|1) d\mu d\sigma }
 $$
 
-4E4. 
+#### 4E4. 
 
 The second line, $\mu_i = \alpha + \beta x_i$. 
 
-4E5. 
+#### 4E5. 
 
 Three parameters: $\alpha$, $\beta$, and $\sigma$. 
 
 ### Medium
 
-4M1. 
+#### 4M1. 
 
 ```{r}
 y <- rnorm(N, mean = rnorm(N, 0, 10), sd = rexp(N, 1))
 ```
 
 
-4M2. 
+#### 4M2. 
 
 The associated formula for `quap()`. 
 
@@ -998,7 +998,7 @@ hw_4m2_formula <- alist(
 hw_4m2_formula
 ```
 
-4M3. 
+#### 4M3. 
 
 $$
 \begin{align}
@@ -1010,7 +1010,7 @@ y_i    &\sim \mathcal{N}(\mu_i, \sigma) \\
 \end{align}
 $$
 
-4M4. 
+#### 4M4. 
 
 $$
 \begin{align}
@@ -1024,15 +1024,15 @@ $$
 
 The prior on $\beta$ ensures that children cannot shrink in a year. Other than that the model is quite basic. 
 
-4M5. 
+#### 4M5. 
 
 Every student getting taller was already in the model via $\beta \sim \text{Expo}(1)$. 
 
-4M6. 
+#### 4M6. 
 
 The parameter that governs the variance is $\sigma$, so we need to set this to keep the variance under 64cm. Could achieve this by changing the prior to $\sigma \sim \text{Uniform}(0, 8)$. 
 
-4M7. 
+#### 4M7. 
 
 Start by fitting the model again and then drawing posterior samples. 
 
@@ -1138,7 +1138,7 @@ hw_4m7_p1 + hw_4m7_p2
 
 We get near-identical predictions. The main thing that changes is the interpretation of $\alpha$: instead of being the expected height of a person of average weight, it's the expected height of a person weighing nothing. 
 
-4M8.
+#### 4M8.
 
 It will speed things up to functionalise the process. 
 
@@ -1232,7 +1232,7 @@ Together the number of knots and the prior on the weights control the wiggliness
 
 ### Hard
 
-4H1. 
+#### 4H1. 
 
 Our weights are: 
 
@@ -1278,7 +1278,7 @@ sim(m4_3, data = hw_new_weights) |>
   )
 ```
 
-4H2. 
+#### 4H2. 
 
 ```{r}
 child_kung <- Howell1 |> 
@@ -1355,7 +1355,7 @@ child_kung |>
 
 The model seems a poor fit: we have many observations outside the 89% interval. Our model overestimates height for very light and heavy children, and underestimates it for those in the middle. This suggests that our assumption of a linear relationship isn't sound. 
 
-4H3.
+#### 4H3.
 
 For part (a) we just fit the model. 
 
@@ -1438,7 +1438,7 @@ The fit is much better, although there are still observations outside the interv
 
 The fit is log-linear, so we get this logarithmic curve when plotting with the raw data. 
 
-4H4.
+#### 4H4.
 
 ```{r}
 m4_5 <- quap(
@@ -1503,7 +1503,7 @@ hw4h4_plot_prior(100, 178, 20, 0, 10, mu_b2 = -1, sd_b2 = 3)
 
 These look more reasonable. It's still a bit troubling that highest prediction for height comes at the lowest weight, but this is a weakness of parabolic regression. 
 
-4H5. 
+#### 4H5. 
 
 Let's start with a simple linear model to see how well we do. Let $y$ by the blossom date and $x$ be the March temperature. 
 
@@ -1581,7 +1581,7 @@ cherry_hw |>
 
 There does seem to be a negative association between `temp` and `doy` (i.e. as temperature rises the blossom date is lower), which makes intuitive sense: warmer temperatures should mean earlier blossom. 
 
-4H6. 
+#### 4H6. 
 
 This question sort of follows on from 4M8, where we established that the prior on the weights will control the wiggliness of the curves. Let's look at the prior predictive simulation from the model to get the whole picture. 
 
@@ -1678,7 +1678,7 @@ prior_pred_cherry(
 
 The overall range and the wiggliness have increased. 
 
-4H8. 
+#### 4H8. 
 
 ```{r}
 hw_m4h8 <- quap(

@@ -9,7 +9,7 @@ try(
     conflicted::conflict_prefer("set_names", "purrr")
     conflicted::conflict_prefer("stan", "rstan")
     options(mc.cores = parallel::detectCores())
-    rstan_options(auto_write = TRUE)
+    rstan::rstan_options(auto_write = TRUE)
   },
   silent = TRUE
 )
