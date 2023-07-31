@@ -273,7 +273,7 @@ PI(hw_samples, prob = 0.66)
 
 ### Medium
 
-3M1. 
+#### 3M1. 
 
 ```{r}
 hw_m_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) |>
@@ -281,7 +281,7 @@ hw_m_post <- tibble(p = seq(0, 1, length.out = 1000), prior = 1) |>
   mutate(posterior = (prior * likelihood)/sum(prior * likelihood))
 ```
 
-3M2. 
+#### 3M2. 
 
 ```{r}
 hw_m_samples <- hw_m_post |> 
@@ -291,7 +291,7 @@ hw_m_samples <- hw_m_post |>
 HPDI(hw_m_samples$p, 0.9)
 ```
 
-3M3. 
+#### 3M3. 
 
 ```{r}
 hw_m_ppd <- hw_m_samples |> 
@@ -320,7 +320,7 @@ hw_m_ppd_summary |>
   labs(x = "Water count", y = "Frequency")
 ```
 
-3M4. 
+#### 3M4. 
 
 ```{r}
 hw_m_samples |> 
@@ -328,7 +328,7 @@ hw_m_samples |>
   summarise(answer = mean(draws == 6L))
 ```
 
-3M5. 
+#### 3M5. 
 
 ```{r}
 # Start again with the better prior
@@ -374,7 +374,7 @@ hw_m_samples_step |>
 
 The main difference between the inferences is that the better prior discounts the possibility of seeing less than 50% water. 
 
-3M6. 
+#### 3M6. 
 
 Our strategy will be to use some approximations and analysis to narrow down the range, and then test it with simulation. 
 
@@ -420,7 +420,7 @@ head(birth1)
 head(birth2)
 ```
 
-3H1. 
+#### 3H1. 
 
 ```{r}
 boys <- sum(birth1 + birth2)
@@ -439,7 +439,7 @@ Compare to the frequentist MLE:
 (hw_h_post |> slice_max(posterior) |> pull(p)) - (boys / births)
 ```
 
-3H2. 
+#### 3H2. 
 
 ```{r}
 hw_h_samples <- hw_h_post |> 
@@ -448,7 +448,7 @@ hw_h_samples <- hw_h_post |>
 map(c(0.5, 0.89, 0.97), ~ HPDI(hw_h_samples[["p"]], .x))
 ```
 
-3H3. 
+#### 3H3. 
 
 ```{r}
 tibble(draws = rbinom(1e4, 200, prob = hw_h_samples[["p"]])) |> 
@@ -459,7 +459,7 @@ tibble(draws = rbinom(1e4, 200, prob = hw_h_samples[["p"]])) |>
 
 It seems an OK match for the data: its peak is at/near 111, most of the mass is near that point, fairly symmetrical. There's perhaps more mass than we would expect out in the tails. 
 
-3H4. 
+#### 3H4. 
 
 ```{r}
 tibble(draws = rbinom(1e4, 100, prob = hw_h_samples$p)) |> 
@@ -470,7 +470,7 @@ tibble(draws = rbinom(1e4, 100, prob = hw_h_samples$p)) |>
 
 This is no longer performing that well, putting most of the density well above the value seen in the data. 
 
-3H5. 
+#### 3H5. 
 
 ```{r}
 boy_after_girl <- birth2[birth1 == 0L]
@@ -484,7 +484,7 @@ Our model expects far fewer boys to be born than we actually see. Possibly this 
 
 ### Week 1 Homework
 
-Q1. 
+#### Q1. 
 
 ```{r}
 plot_hw_globe <- function(w, l, prior = rep(1, length(p_grid))) {
@@ -499,13 +499,13 @@ plot_hw_globe <- function(w, l, prior = rep(1, length(p_grid))) {
 plot_hw_globe(4, 11)
 ```
 
-Q2. 
+#### Q2. 
 
 ```{r}
 plot_hw_globe(4, 2, if_else(p_grid < 0.5, 0, 1))
 ```
 
-Q3. 
+#### Q3. 
 
 ```{r}
 set.seed(830)
@@ -528,7 +528,7 @@ The PI is wider because it needs to be centred, with equal probability density o
 
 Neither of those intervals tell us anything about the discontinuity at 0.5 though, which is why we need the whole posterior. 
 
-Q4. 
+#### Q4. 
 
 ```{r}
 set.seed(846)

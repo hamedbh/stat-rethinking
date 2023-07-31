@@ -736,29 +736,29 @@ I finally feel like I get HMC: a big step forward.
 
 ### Easy
 
-9E1.
+#### 9E1.
 
 c.: the proposal distribution must be symmetric.
 
-9E2.
+#### 9E2.
 
 Gibbs sampling is more efficient because it produces better proposals (i.e. with a higher acceptance rate) by using conjugate priors. However we may not want to use conjugate priors, especially in multilevel models, and GS can get stuck in certain areas of the posterior.
 
-9E3.
+#### 9E3.
 
 HMC can only work with continuous parameters. This is because it relies on taking derivatives and then moving smoothly through the space, which is not possible in discrete space.
 
-9E4.
+#### 9E4.
 
 Markov chain samples are dependent (whether correlated or anticorrelated), so we cannot use $N$ itself when calculating our estimating power. From the Stan reference manual:
 
 > Given dependent samples, the number of independent samples is replaced with the effective sample size $N_{eff}$, which is the number of independent samples with the same estimation power as the $N$ autocorrelated samples. ... The no-U-turn sampling (NUTS) algorithm used in Stan can produce $N_{eff} > N$ for parameters which have close to Gaussian posterior and little dependency on other parameters.
 
-9E5.
+#### 9E5.
 
 $\hat{R}$ should approach 1 from above. It measures the ratio of the average variance of samples within each chain to the variance of the pooled samples across chains. When this is higher than 1 it suggests that the chains have not converged.
 
-9E6.
+#### 9E6.
 
 Rather than sketching we can use part of the same plot as earlier:
 
@@ -773,7 +773,7 @@ map(
 
 In the top plot we see an unhealthy trace plot: no stationarity (local averages are very different to the global average); poor mixing (chains get stuck); poor convergence (per-chain means are very different to each other). (NB. you need to pay attention to the y-axis to see all of that.) In the bottom plot we have the desired properties.
 
-9E7.
+#### 9E7.
 
 ```{r}
 map(
@@ -787,7 +787,7 @@ In the top plot the histograms do not overlap throughout: we see chains staying 
 
 ### Medium
 
-9M1.
+#### 9M1.
 
 ```{r}
 mod_hw9m1 <- cmdstan_model(here::here("inst/Stan/m_hw9m1.stan"))
@@ -826,7 +826,7 @@ tibble(
 
 The posterior distribution of the difference is basically zero: there was so much data that it overwhelmed the priors.
 
-9M2.
+#### 9M2.
 
 ```{r}
 mod_hw9m2 <- cmdstan_model(here::here("inst/Stan/m_hw9m2.stan"))
@@ -890,7 +890,7 @@ list(normal = m9_1, expo = m_hw9m2) |>
 
 We see that the new prior had little effect on $\beta_1$, where the difference is clustered around zero; but a substantial effect on $\beta_2$. The exponential prior does not allow for negative values, which biases the estimates upwards.
 
-9M3.
+#### 9M3.
 
 We can use the ruggedness model, but change the number of warmup samples.
 
@@ -943,13 +943,13 @@ The picture is quite different in the bulk of the distribution and the tail: muc
 
 ### Hard
 
-9H1.
+#### 9H1.
 
 The model does not link the parameters with the data, so what we will get are just samples from the priors.
 
 ```{r}
 mod_hw9h1 <- cmdstan_model(here::here("inst/Stan/m_hw9h1.stan"))
-m_hw9h1 <- mod_hw9h1$sample(data = list(y = 1), seed = 1451)
+m_hw9h1 <- mod_hw9h1$sample(data = list(y = 1), seed = 1451, refresh = 0)
 ```
 
 ```{r}
@@ -973,7 +973,7 @@ mcmc_trace(m_hw9h1$draws(), pars = c("a", "b"), np = nuts_params(m_hw9h1))
 
 The trace for `a` (i.e. the Normal) looks like the model trace plots for healthy chains. The Cauchy trace doesn't, but there are no divergent transitions. The 'hairy caterpillar' bit is just compressed, because the chains occasionally shoot off to relatively large values. This isn't wrong though: this is just how the Cauchy behaves.
 
-9H2.
+#### 9H2.
 
 ```{r}
 data("WaffleDivorce")
@@ -1052,7 +1052,7 @@ The explanation is the same as it was then:
 -   $M$ has little value as a predictor once we know $A$, so including it in the model makes little difference to performance;
 -   If we don't know $A$ then $M$ is a somewhat useful predictor, so model 2 gives worse performance that is still within 2 standard errors.
 
-9H3.
+#### 9H3.
 
 We simulate the data again exactly as in Chapter 6:
 
@@ -1124,7 +1124,7 @@ map2_dfr(
 
 The third model correctly estimates the value at 1.
 
-9H4.
+#### 9H4.
 
 ```{r}
 compare_cmdstan(m5_8s, m5_8s2, m5_8s3)
@@ -1132,7 +1132,7 @@ compare_cmdstan(m5_8s, m5_8s2, m5_8s3)
 
 The original model has more effective parameters, because there really *are* more parameters in that model.
 
-9H5.
+#### 9H5.
 
 We need to rerun the island-hopping example, but where the populations and island numbers are no longer the same. Start by reassigning populations to the islands.
 
@@ -1176,7 +1176,7 @@ inner_join(
 
 Mostly the estimates are decent enough.
 
-9H6.
+#### 9H6.
 
 Now need to adapt this further to the globe-tossing example: the job is to estimate the proportion of water, $p$, given our data (6 tosses water, 3 tosses land). I put this in a function to reduce the amount of junk built up in the environment.
 
@@ -1218,7 +1218,7 @@ hw_9h6_metro_globe |>
   theme(axis.ticks.y = element_blank(), axis.text.y = element_blank())
 ```
 
-9H7.
+#### 9H7.
 
 Now we rip off code from McElreath to do the sampling (pages 276-278).
 
@@ -1296,7 +1296,7 @@ plot_HMC_globe(1e4)
 
 ### Week 4 Homework
 
-Q1.
+#### Q1.
 
 ```{r}
 dmarriage <- xfun::cache_rds(
@@ -1339,7 +1339,7 @@ precis_cmdstanfit(m6_9, depth = 2, pars = c("a[1]", "a[2]", "bA", "sigma"))
 
 None of these estimates can be interpreted causally: they simply describe associations in the model. For example: the estimate for `bA` is solidly negative. If this were unbiased it would imply that people become unhappier as they get older. In this case though it is simply describing the association between age and unhappiness in our data. We know that this is not causal, because the simulation ensures it! However because we've stratified by marriage status, we see an association: older people are, within either the married or unmarried population, likely to be unhappier than younger ones.
 
-Q2.
+#### Q2.
 
 In the interests of speed let's just use `quap()` to fit these models, since there are seven possible models:
 
@@ -1455,7 +1455,7 @@ dagitty::impliedConditionalIndependencies(
 
 We see that area should be independent of weight conditional on avgfood, in which case the estimate on area should be zero. In this case though it is estimated between -0.04 and 0.37. This might indicate that there is something wrong with the DAG, or that this sample is just a little strange.
 
-Q3.
+#### Q3.
 
 ```{r}
 data("cherry_blossoms")
@@ -1543,7 +1543,7 @@ post_cherry |>
 
 Given that our new data point was extreme it's not so surprising that we get some extreme predictions. We even get a few predictions (c. `sprintf("%.0f%%", mean(post_cherry$doy < 0) * 100)`) below zero, i.e. the first blossom will occur in the previous year.
 
-Q4.
+#### Q4.
 
 ```{r}
 data("Dinosaurs")

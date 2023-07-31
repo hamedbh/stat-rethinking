@@ -660,17 +660,17 @@ The embedded linear model thing was genuinely eye-opening. Also interesting that
 
 ### Easy
 
-8E1. 
+#### 8E1. 
 
 1. Ambient temperature; 
 2. Geographical location; 
 3. Which gear the car is in. 
 
-8E2. 
+#### 8E2. 
 
 Only the first one is an interaction, the others could be independent of one another (i.e. additive only). 
 
-8E3. 
+#### 8E3. 
 
 For the onions: 
 
@@ -698,11 +698,11 @@ $$
 
 ### Medium
 
-8M1. 
+#### 8M1. 
 
 If there were no blooms at all at the higher temperature $T$ then we can say there's an interaction between all three predictors: we know that water and shade interact, but they now interact with temperature also. 
 
-8M2. 
+#### 8M2. 
 
 We could rewrite the model from above as follows, supposing that $T$ takes the value 0 when it is low and 1 when it's high. 
 
@@ -717,7 +717,7 @@ $$
 
 The last form is maybe the most suggestive: we see that $1 - T_i$ is just killing all of the terms whenever the temperature is high. 
 
-8M3. 
+#### 8M3. 
 
 The question says that ravens depend on wolves, but not the reverse. So the DAG would be: 
 
@@ -734,7 +734,7 @@ tibble(wolves = rpois(10, 20)) |>
   mutate(ravens = rpois(10, 3 * (wolves + rnorm(10, sd = 4))))
 ```
 
-8M4. 
+#### 8M4. 
 
 ```{r}
 set.seed(1126)
@@ -776,7 +776,7 @@ This seems better.
 
 ### Hard
 
-8H1.
+#### 8H1.
 
 ```{r}
 m8h1 <- quap(
@@ -791,7 +791,7 @@ m8h1 <- quap(
 )
 ```
 
-8H2. 
+#### 8H2. 
 
 ```{r}
 compare(m8_5, m8h1)
@@ -807,7 +807,7 @@ coeftab_plot(coeftab(m8h1))
 
 The intervals for beds 2 and 3 are almost identical. There seems to be some difference with bed 1, but even that interval overlaps a little with bed 2. So the `bed` variable just isn't that helpful, which explains why the WAIC scores were so similar. 
 
-8H3. 
+#### 8H3. 
 
 ```{r}
 set.seed(1250)
@@ -887,7 +887,7 @@ map2_dfr(
   )
 ```
 
-8H4. 
+#### 8H4. 
 
 ```{r}
 data(nettle)
@@ -1095,7 +1095,7 @@ coeftab(m8h4c, m8h4d) |>
 
 The most noticeable change is that $\sigma$ is much smaller in the robust regression: to make the values in the tails more plausible the standard regression must estimate a higher variance. 
 
-8H5. 
+#### 8H5. 
 
 ```{r}
 data(Wines2012)
@@ -1154,7 +1154,7 @@ m8h5 |>
 
 Based on the plot there seems to be more variation among the judges than the wines. 
 
-8H6. 
+#### 8H6. 
 
 ```{r}
 m8h6 <- quap(
@@ -1245,7 +1245,7 @@ contrasts_8h6 |>
 
 So there is a 95% chance of a US judge giving higher scores, and only a 10% chance of US wines getting higher scores. 
 
-8H7. 
+#### 8H7. 
 
 Now we revert to using indicator variables as suggested. 
 

@@ -1,4 +1,4 @@
-# The Many Variables & The Spurious Waffles
+# The Haunted DAG & The Causal Terror
 
 ```{r}
 #| label: setup
@@ -1049,17 +1049,17 @@ Similar estimate for `bW`, although we are now fairly certain it's positive. In 
 
 ### Easy
 
-6E1. 
+#### 6E1. 
 
 Multicollinearity, post-treatment effect, and collider bias. 
 
-6E2. 
+#### 6E2. 
 
 An example of multicollinearity: 
 
 Suppose there was a population of taxpayers, and we want to predict risk of non-compliance. There are two predictors that are almost exactly the same. If we use both predictors we will get wide estimates for the posterior distributions, as many combinations of them would be compatible with the data. We should instead use just one of them, or find a sensible way to combine them (e.g. summing them as we did in the leg example). 
 
-6E3. 
+#### 6E3. 
 
 1. The fork: in this case $X \perp\!\!\!\perp Y | Z$. If we condition on $Z$ we block the path. 
 
@@ -1098,7 +1098,7 @@ dagitty("dag {X <- Z -> Y; Z -> D}") |>
 
 Now we get the $X \perp\!\!\!\perp Y | Z$ that we expect from the fork example above. Also we see $D \perp\!\!\!\perp X | Z$ and $D \perp\!\!\!\perp Y | Z$ as before. So the relationship of $D$ to $X$ and $Y$ doesn't change. 
 
-6E4. 
+#### 6E4. 
 
 We can consider that there is some variable, $B$, that governs the bias of the sample: how likely is a given observation to be present in the sample? If our quantities of interest ($X$ and $Y$) both affect $B$, then $B$ is a collider. 
 
@@ -1131,7 +1131,7 @@ This is Berkson's Paradox, as we saw at the beginning of the chapter.
 
 ### Medium 
 
-6M1. 
+#### 6M1. 
 
 We can create the DAG. 
 
@@ -1163,7 +1163,7 @@ dagitty("dag {X <- U <- A -> C -> Y; U -> B <- C; X -> Y; C <- V -> Y}") |>
 
 Seems we could also condition on $C$ and $V$: this makes sense, as conditioning on $C$ would open up that path but then conditioning on $V$ would close it. (Although $V$ is unobserved, so not an option.)
 
-6M2. 
+#### 6M2. 
 
 ```{r}
 set.seed(1001)
@@ -1208,6 +1208,7 @@ quap(
 ) |> 
   precis()
 ```
+
 Unsurprisingly $X$ is predictive of $Y$. 
 
 ```{r}
@@ -1226,7 +1227,7 @@ quap(
 
 Similar estimates from modelling with $Z$ only. 
 
-6M3. 
+#### 6M3. 
 
 In each we want the total causal influence of $X$ on $Y$. In every case I will exclude the direct path $XY$. 
 
@@ -1304,6 +1305,7 @@ No open backdoor paths to close, can model $X \to Y$ directly.
 dagitty("dag {A -> X -> Y -> Z; A -> Z <- X}") |> 
   adjustmentSets(exposure = "X", outcome = "Y")
 ```
+
 Fourth DAG. 
 
 ```{r}
@@ -1332,7 +1334,7 @@ dagitty("dag {A -> X -> Y <- Z; A -> Z <- X}") |>
 
 ### Hard
 
-6H1. 
+#### 6H1. 
 
 We can have a reasonable prior that Waffle Houses will have no effect on divorce rate. So we want a DAG where $D \perp\!\!\!\perp W | \text{(some predictors)}$. Start by looking at the data. 
 
@@ -1423,7 +1425,7 @@ The estimate for `bW` is centred exactly at 0 but with a fairly wide interval.
 
 The estimate for `bA` is reliably negative, which is consistent with our findings from earlier. 
 
-6H2. 
+#### 6H2. 
 
 ```{r}
 dag_6h1 |> 
@@ -1520,7 +1522,7 @@ quap(
 
 Good enough. 
 
-6H3. 
+#### 6H3. 
 
 Set up the data and DAG for the fox questions. 
 
@@ -1661,7 +1663,7 @@ m6h3 |>
 
 Very little association between them. Doesn't seem that changing `area` will affect `weight`. 
 
-6H4. 
+#### 6H4. 
 
 We now want to infer the effect of avgfood on weight. 
 
@@ -1770,7 +1772,7 @@ We still see a negative association between $S$ and $W$, but it is much weaker t
 
 ### Week 3 Homework
 
-Q1. 
+#### Q1. 
 
 This question extends the exercises from the book. Now we need to find total causal effect of area on food. 
 
@@ -1807,7 +1809,7 @@ quap(
 
 This suggests a very strong association between area and avgfood: increasing area by 1 standard deviation increases food by 0.8-0.95 standard deviations. 
 
-Q2. 
+#### Q2. 
 
 This is a repeat of question 6H4 from the book. Just as a reminder we can check the adjustment sets again. 
 
@@ -1832,7 +1834,7 @@ m6h5 |>
 
 We see that the direct causal effect of avgfood on weight seems positive, 0.19-0.76. 
 
-Q3. 
+#### Q3. 
 
 ```{r}
 stroke_dag <- dagify(
@@ -1867,7 +1869,7 @@ $$
 
 The coefficient for $X$ in our model will be what we intend. However including $S$ in the model opens up the backdoor through $U$ (fork), so we cannot trust its coefficient. This same fork will bias our estimate for $A$ (which has a path running $ASUY$).
 
-Q4. 
+#### Q4. 
 
 ```{r}
 sim_stroke_data <- function(N = 1000) {

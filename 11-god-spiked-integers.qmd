@@ -1628,7 +1628,7 @@ Wise words. This was quite a big chapter, covered a lot of ground.
 
 ### Easy
 
-11E1.
+#### 11E1.
 
 $$
 \begin{align*}
@@ -1637,7 +1637,7 @@ p = 0.35 \implies \operatorname{log-odds} &= \log\bigg(\frac{0.35}{0.65}\bigg) \
 \end{align*}
 $$
 
-11E2.
+#### 11E2.
 
 $$
 \begin{align*}
@@ -1646,11 +1646,11 @@ $$
 \end{align*}
 $$
 
-11E3.
+#### 11E3.
 
 The coefficient of 1.7 implies that for every unit increase in the predictor the log-odds will increase by 1.7.
 
-11E4.
+#### 11E4.
 
 In Poisson regression we may have different time periods for different measurements. We keep $\lambda$ as our rate parameter, but now for each observation $\lambda = \mu / \tau$ ($\mu$ is the expected number of events per unit of time, $\tau$ is the length of time for the observation). When using the log link function the right hand side is just a difference of logs, so that $\log\tau$ is just a constant: the offset.
 
@@ -1658,7 +1658,7 @@ We can cook up a simple example. Suppose we are counting how many cars are passi
 
 ### Medium
 
-11M1.
+#### 11M1.
 
 The likelihood changes because the binomial coefficient disappears in the disaggregated case. The binomial likelihood of seeing $y$ successes in $n$ trials with probability $p$ is:
 
@@ -1677,22 +1677,22 @@ $$
 
 This doesn't affect the inference because that coefficient represents the number of ways to rearrange the successes within the trials. As mentioned in the notes earlier: the aggregated case implicitly treats all of the observations in each aggregation as a single unit. This may make sense sometimes, e.g. in the Berkeley admissions data. But in general RM advises using the disaggregated version.
 
-11M2.
+#### 11M2.
 
 In a Poisson regression a coefficient of 1.7 on a predictor means that for every unit increase on the predictor the log of the rate, $\lambda$, increases by 1.7. In turn that means $\lambda$ increases by $e^{1.7} \approx 5.5$.
 
-11M3.
+#### 11M3.
 
 The logit link function has two important benefits for binomial GLMs.
 
 1. It allows us to map the domain of the predictors, $\mathbb{R}$, to the interval $[0, 1]$, which is appropriate for probabilities.
 2. The centre of each domain is preserved: $\operatorname{logit}(0.5) = 0$.
 
-11M4.
+#### 11M4.
 
 The log link constrains $\lambda$ to be positive, which is required for a Poisson model.
 
-11M5.
+#### 11M5.
 
 The simplest such model would be:
 
@@ -1716,7 +1716,7 @@ $$
 
 This could be used in a situation where $M$ is very large, so the Poisson regression would be a simpler model, a bit like Joe Blitzstein's course using the Poisson to approximate the birthday problem (and then generalise it to more than two people sharing a birthday).
 
-11M6.
+#### 11M6.
 
 The [maximum entropy constraints](https://en.wikipedia.org/wiki/Maximum_entropy_probability_distribution) for each are very similar:
 
@@ -1725,7 +1725,7 @@ The [maximum entropy constraints](https://en.wikipedia.org/wiki/Maximum_entropy_
 
 This makes sense given what RM showed in the chapter: the Poisson is the limiting case of the binomial as $n \to \infty$. So while the two are similar they aren't identical.
 
-11M7.
+#### 11M7.
 
 ```{r}
 quap11_4 <- quap(
@@ -1852,7 +1852,7 @@ dchimp |>
 
 Chimp no. 2 pulled left every single time. Since a[2] is the actor-level intercept, we can interpret it as "conditional on knowing the treatment, how much of an increase in the log-odds can be explained by the experiment subject being actor 2?" The data will support about as high a number for a[2] as our priors will allow, which is why the HMC model (having no constraints on the distribution being symmetrical) gives a higher mean estimate.
 
-11M8.
+#### 11M8.
 
 The models are already compiled, we just need to resample with new data. We can skip the intercept-only model and just do the geocentric model with the interaction.
 
@@ -2030,7 +2030,7 @@ Our models no longer have to bend towards Hawaii, so we get different mean lines
 
 ### Hard
 
-11H1.
+#### 11H1.
 
 I didn't actually fit the very simple models, so let's do that now. We can skip the models with the silly priors and just fit the one with a single coefficient for all chimps (but still with one coefficient per treatment).
 
@@ -2050,7 +2050,7 @@ hwk_h1_compare
 
 The difference is enormous: the difference in PSIS is about `r round(max(hwk_h1_compare$dPSIS) / hwk_h1_compare$dSE[[2]])` times the size of the standard error. We got a clue about why this might be in question 11M7: chimp number 2 is so unlike the others that having a single `a` coefficient for all chimps gives a terrible fit.
 
-11H2.
+#### 11H2.
 
 ```{r}
 data(eagles, package = "MASS")
@@ -2244,7 +2244,7 @@ The column `p` is the proportion of pirating attempts that succeeded.
 
 There are only two rows in the dataset where $PA = 1$. Both have a fairly high success rate, but one has $V = 1$ (i.e. victim was large) the other $V = 0$. Both models agree that the effect of $V$ is strongly negative though. So in some sense the interaction is only adding confusion, which is why it reduces the PSIS.
 
-11H3.
+#### 11H3.
 
 ```{r}
 data(salamanders)
@@ -2528,7 +2528,7 @@ We get quite a strong positive association between forest age and tree cover, wh
 
 DAG 2 implies that S is independent of A given C: that's the model we just fit, and there's quite good evidence for it. DAG 2 seems plausible. This would explain why the predictions got worse when we added A to the model: we were conditioning on a confounder.
 
-11H4.
+#### 11H4.
 
 ```{r}
 data(NWOGrants)
@@ -2736,7 +2736,7 @@ The probability difference is smaller, so in terms of success rate there is a sm
 
 There are big differences between genders in different disciplines for the NWO data, whereas there are minimal differences in the UCB data. And in the NWO data: in the four largest areas, which comprise `r dnwo |> count(D, wt = A, sort = TRUE) |> mutate(cum_prop = cumsum(n) / sum(n)) |> slice(4) |> pull(cum_prop) |> scales::label_percent()()` of the applications, three have substantial advantages for men. The intervention may be to address the practices in each of these disciplines, and ensure that applications are treated fairly.
 
-11H5.
+#### 11H5.
 
 Let's plot the new DAG.
 

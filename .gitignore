@@ -11,3 +11,5 @@ rsconnect
 cache/*
 
 /.quarto/
+[0-9]*_cache
+[0-9]*_files

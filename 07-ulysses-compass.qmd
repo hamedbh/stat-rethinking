@@ -1039,25 +1039,25 @@ RM points out that this chapter covers a lot! I feel more confident about what P
 
 ### Easy
 
-7E1. 
+#### 7E1. 
 
 1. Continuity: very small changes in the inputs should only change the entropy by a small amount. 
 2. The uncertainty should go up as the number of options increases. 
 3. Additivity: when we combine different measures of entropy they should add. 
 
-7E2. 
+#### 7E2. 
 
 ```{r}
 - sum(c(0.7, 0.3) * log(c(0.7, 0.3)))
 ```
 
-7E3. 
+#### 7E3. 
 
 ```{r}
 - sum(c(0.2, 0.25, 0.25, 0.3) * log(c(0.2, 0.25, 0.25, 0.3)))
 ```
 
-7E4. 
+#### 7E4. 
 
 We must be careful here as $\log(0)$ is undefined. So if we just plug in the numbers to the code above we get: 
 
@@ -1075,7 +1075,7 @@ The entropy of this die is less than the one in 7E3: we have effectively reduced
 
 ### Medium
 
-7M1. 
+#### 7M1. 
 
 $$
 \begin{align}
@@ -1089,19 +1089,19 @@ The second form of AIC is more suggestive for this question. WAIC is more genera
 
 To make the two the same we would need $p \approx \sum_i \text{var}_{\theta} \log p(y_i|\theta)$. 
 
-7M2. 
+#### 7M2. 
 
 Model selection is the process of selecting a model based on a score (e.g. PSIS). Model comparison is when we compare the scores across models. 
 
 Model selection (as presented) is a rather mindless process. The information lost includes how much difference there is between the top-scoring model and the rest. 
 
-7M3. 
+#### 7M3. 
 
 The information criteria used all estimate at the level of the observation, then aggregate this. So if models were fit to different data we would not be comparing like with like (especially problematic in the case of outliers). 
 
 Having different numbers of observations would also pose problems because deviance is additive, so the information criteria are estimating that sum. Sums over different numbers of observations cannot be compared meaningfully. 
 
-7M4. 
+#### 7M4. 
 
 ```{r}
 m_7m4_wide <- quap(
@@ -1142,11 +1142,11 @@ compare(m_7m4_wide, m_7m4_med, m_7m4_tight)
 
 The number of effective parameters gets lower as the priors get tighter. This corresponds to making the model less flexible: the tighter the priors, the fewer parameter values will be compatible with the model. 
 
-7M5. 
+#### 7M5. 
 
 The term _sceptical priors_ helps with understanding this: we are telling our model to be more sceptical about what it sees in the data. Overfitting is when our model overreacts to patterns in the training data: making our model sceptical means that the evidence required in the data will have to be stronger to move our posterior estimates away from the prior. 
 
-7M6. 
+#### 7M6. 
 
 Continuing from the last question: suppose we made our priors incredibly tight, e.g. $\mathcal{N}(0, 0.00001)$. Then our 99% interval for possible values would be: 
 
@@ -1158,7 +1158,7 @@ This will make it incredibly hard for any amount of evidence in the data to shif
 
 ### Hard
 
-7H1. 
+#### 7H1. 
 
 ```{r}
 data("Laffer")
@@ -1215,7 +1215,7 @@ All of them are fairly similar (i.e. within two standard errors), but we get war
 
 It's hard to draw any conclusions about this. 
 
-7H2. 
+#### 7H2. 
 
 ```{r}
 model_list_7h1 <- list(m_7h1_linear, m_7h1_quad, m_7h1_cubic)
@@ -1331,7 +1331,7 @@ tibble(
 
 No point is contributing more than 5% of the total penalty: given that there are 29 points this is only a little bit more than a $1/N$ share. The overall penalty has dropped a lot as well. 
 
-7H3. 
+#### 7H3. 
 
 ```{r}
 d_7h3 <- tibble(
@@ -1399,7 +1399,7 @@ D_KL_7h3 |>
 
 Island 1 has a much lower overall KL divergence than the others. Why? Because its proportions are spread evenly, that distribution is less surprised than the others when it sees any particular bird. 
 
-7H4. 
+#### 7H4. 
 
 ```{r}
 set.seed(11)
@@ -1441,7 +1441,7 @@ compare(m6_9, m6_10)
 
 This highlights the difference between causal inference and prediction. When we condition on a collider in `m6_9` (i.e. whether or not a person is married) we make the wrong inferences about the causal structure. But a person's marriage status is extremely informative about their happiness: we know from the DAG that the causality runs the other way, but marriage status helps us to make better predictions. 
 
-7H5. 
+#### 7H5. 
 
 ```{r}
 data("foxes")

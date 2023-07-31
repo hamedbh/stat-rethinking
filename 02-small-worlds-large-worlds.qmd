@@ -452,27 +452,27 @@ Everything is set up now for the rest of the book. I'll be using tidyverse packa
 
 ### Easy
 
-2E1. Which of the expressions below correspond to the statement: the
+#### 2E1. Which of the expressions below correspond to the statement: the
 probability of rain on Monday?
 
 $Pr(rain|Monday)$
 
-2E2. Which of the following statements corresponds to the expression:
+#### 2E2. Which of the following statements corresponds to the expression:
 $Pr(Monday|rain)$?
 
 The probability that it is Monday, given that it is raining.
 
-2E3. Which of the expressions below correspond to the statement: the probability that it is Monday, given that it is raining?
+#### 2E3. Which of the expressions below correspond to the statement: the probability that it is Monday, given that it is raining?
 
 Numbers 1 ($Pr(Monday|rain)$) and 4 ($Pr(rain|Monday)Pr(Monday)/Pr(rain)$).
 
-2E4. ... What does it mean to say "the probability of water is 0.7"?
+#### 2E4. ... What does it mean to say "the probability of water is 0.7"?
 
 This depends on our perspective. Using a Bayesian framework this statement means "based on our prior beliefs and evidence gathered the most plausible value for the proportion of water on the globe is 0.7". For a frequentist it would mean "if we were to sample the proportion of water infinitely many times our expected value would be 0.7".
 
 ### Medium
 
-2M1.1
+#### 2M1.1
 
 ```{r}
 # set up a function to make the computation simpler for the rest of the example
@@ -513,19 +513,19 @@ plot_globe_grid_unif <- function(grid_size = 100, N, W) {
 plot_globe_grid_unif(N = 3, W = 3)
 ```
 
-2M1.2
+#### 2M1.2
 
 ```{r}
 plot_globe_grid_unif(N = 4, W = 3)
 ```
 
-2M1.3
+#### 2M1.3
 
 ```{r}
 plot_globe_grid_unif(N = 7, W = 5)
 ```
 
-2M2.1
+#### 2M2.1
 
 ```{r}
 # change the function for the new prior
@@ -566,19 +566,19 @@ plot_globe_grid_step <- function(grid_size = 100, N, W) {
 plot_globe_grid_step(N = 3, W = 3)
 ```
 
-2M2.2
+#### 2M2.2
 
 ```{r}
 plot_globe_grid_step(N = 4, W = 3)
 ```
 
-2M2.3
+#### 2M2.3
 
 ```{r}
 plot_globe_grid_step(N = 7, W = 5)
 ```
 
-2M3.
+#### 2M3.
 
 Set up the computation in Bayes' theorem:
 
@@ -603,7 +603,7 @@ $$
 round((0.3 * 0.5)/((0.3 * 0.5) + (1 * 0.5)), 2)
 ```
 
-2M4.
+#### 2M4.
 
 Call the cards by how many black sides they have: 0B, 1B, 2B. We want $\text{P}(2B)$.
 
@@ -615,7 +615,7 @@ Call the cards by how many black sides they have: 0B, 1B, 2B. We want $\text{P}(
 
 Can discount the 0B row and just consider the others: there are three ways that I can have a black side facing up, of which two have a black side down, which implies the probability of $2/3$.
 
-2M5.
+#### 2M5.
 
 Same table as above, just with an extra row.
 
@@ -628,7 +628,7 @@ Same table as above, just with an extra row.
 
 Either of the last two rows will give the required answer, so the probability that the other side is black is $(2 + 2)/(2 + 2 + 1) = 0.8$.
 
-2M6.
+#### 2M6.
 
 Use same as before, but multiply each by the new prior (i.e. probability of drawing the card, or $\text{P}(2B)$).
 
@@ -640,7 +640,7 @@ Use same as before, but multiply each by the new prior (i.e. probability of draw
 
 This reweights the 1B row, so that the 2B row is now 2/4 of the ways to have a black side up.
 
-2M7.
+#### 2M7.
 
 We want to get $\text{P}(2B | 1B, 1W)$. Use the counting method as suggested.
 
@@ -654,7 +654,7 @@ Multiply the ways to show black on the first card by the ways to show white on t
 
 ### Hard
 
-2H1.
+#### 2H1.
 
 We want $\text{P}(2T|T)$. We get some info from the question:
 
@@ -700,7 +700,7 @@ $$
 \end{align}
 $$
 
-2H2.
+#### 2H2.
 
 We want $\text{P}(A|T)$. Already computed that as part of the last question:
 
@@ -712,7 +712,7 @@ $$
 \end{align}
 $$
 
-2H3.
+#### 2H3.
 
 Everything in this question is conditional on the first birth being
 twins, so we can leave that out of the equations for simplicity.
@@ -748,7 +748,7 @@ $$
 \end{align}
 $$
 
-2H4.
+#### 2H4.
 
 Call the event that the test asserts that panda is species $A$, $Test_A$. First compute $\text{P}(A|Test_A)$ without the birth data, then again with it.
 
