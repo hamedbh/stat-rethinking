@@ -1,0 +1,19 @@
+# Monsters and Mixtures
+
+```{r}
+#| label: setup
+#| output: false
+library(rethinking)
+set_ulam_cmdstan(TRUE)
+library(patchwork)
+library(magrittr)
+library(tidyverse)
+library(tidybayes)
+# set up the theme
+theme_set(
+  theme_light() + 
+    theme(panel.grid = element_blank())
+)
+walk(list.files(here::here("R"), full.names = TRUE), source)
+```
+

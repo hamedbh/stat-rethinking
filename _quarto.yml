@@ -23,6 +23,8 @@ book:
     - 09-markov-chain-monte-carlo.qmd
     - 10-big-entropy-glm.qmd
     - 11-god-spiked-integers.qmd
+    - 12-monsters-mixtures.qmd
+    - 13-models-memory.qmd
 
 toc: true
 toc-depth: 3
