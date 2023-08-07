@@ -53,6 +53,9 @@ A strong negative correlation, even though we know from the simulation that trus
 
 $$
 X \perp\!\!\!\perp Y \\
+$$
+
+$$
 X \not\!\perp\!\!\!\perp Y | S
 $$
 
@@ -1343,7 +1346,7 @@ WaffleDivorce |>
   as_tibble()
 ```
 
-We've already been using median age marriage ($A$) and marriage rate ($M$) as predictors, but the usefulness of $M$ was close to zero once we know $A$. We also have the indicator of a state being in the South, $S$. 
+We've already been using median age marriage ($A$) and marriage rate ($M$) as predictors, but the usefulness of $M$ was close to zero once we know $A$, so let's drop that. We also have the indicator of a state being in the South, $S$. 
 
 The remaining variables in the data are those relating to the state as it was in 1860: how many slaves they had, the population, and the ratio of the two. By what mechanism could we imagine these variables affecting divorce rate? It's possible that the history of slavery, with its frequent separations of family members, could affect the cultural norms around divorce. However let's keep things simpler for the moment and limit ourselves to just $W$, $A$, $M$, $S$, and $D$. 
 
@@ -1352,13 +1355,12 @@ Let's put our five variables into a DAG and see if it makes sense.
 ```{r}
 dag_6h1 <- dagify(
   A ~ S, 
-  M ~ A + S, 
   W ~ S, 
   D ~ W + A, 
   coords = tibble(
-    name = c("A", "S", "M", "D", "W"), 
-    x = c(1, 1, 2, 3, 3), 
-    y = c(1, 3, 2, 1, 3)
+    name = c("A", "S", "D", "W"), 
+    x = c(1, 1, 3, 3), 
+    y = c(1, 3, 1, 3)
   )
 )
 
@@ -1411,7 +1413,7 @@ Trying the other model:
 quap(
   alist(
     D ~ dnorm(mu, sigma), 
-    mu <- a + (bW + W) + (bA * A), 
+    mu <- a + (bW + W) + (bA * A) , 
     a ~ dnorm(0, 0.5), 
     c(bW, bA) ~ dnorm(0, 0.5), 
     sigma ~ dexp(1)
@@ -1423,7 +1425,7 @@ quap(
 
 The estimate for `bW` is centred exactly at 0 but with a fairly wide interval. 
 
-The estimate for `bA` is reliably negative, which is consistent with our findings from earlier. 
+The estimate for `bA` is reliably negative, which is consistent with our findings from earlier.
 
 #### 6H2. 
 
@@ -1450,42 +1452,6 @@ quap(
 
 Close enough. 
 
-Testing $D \perp\!\!\!\perp M | A, S$.
-
-```{r}
-quap(
-  alist(
-    D ~ dnorm(mu, sigma), 
-    mu <- a[sid] + (bM * M) + (bA * A), 
-    a[sid] ~ dnorm(0, 0.5), 
-    c(bM, bA) ~ dnorm(0, 0.5), 
-    sigma ~ dexp(1)
-  ), 
-  data = d_6h1
-) |> 
-  precis()
-```
-
-Good enough. 
-
-Testing $D \perp\!\!\!\perp M | A, W$. 
-
-```{r}
-quap(
-  alist(
-    D ~ dnorm(mu, sigma), 
-    mu <- a + (bM * M) + (bA * A) + (bW * W), 
-    a ~ dnorm(0, 0.5), 
-    c(bM, bA, bW) ~ dnorm(0, 0.5), 
-    sigma ~ dexp(1)
-  ), 
-  data = d_6h1
-) |> 
-  precis()
-```
-
-Good enough. 
-
 Testing $D \perp\!\!\!\perp S | A, W$. 
 
 ```{r}
@@ -1500,24 +1466,6 @@ quap(
   data = d_6h1
 ) |> 
   precis(depth = 2)
-```
-
-Good enough. 
-
-Testing $M \perp\!\!\!\perp W | S$. 
-
-```{r}
-quap(
-  alist(
-    M ~ dnorm(mu, sigma), 
-    mu <- a[sid] + (bW * W), 
-    a[sid] ~ dnorm(0, 0.5), 
-    bW ~ dnorm(0, 0.5), 
-    sigma ~ dexp(1)
-  ), 
-  data = d_6h1
-) |> 
-  precis()
 ```
 
 Good enough. 
@@ -1661,7 +1609,7 @@ m6h3 |>
   precis()
 ```
 
-Very little association between them. Doesn't seem that changing `area` will affect `weight`. 
+Very little association between them. Doesn't seem that changing `area` will affect `weight`.
 
 #### 6H4. 
 
@@ -1701,7 +1649,7 @@ m6h4 |>
 
 Again the inference is that `avgfood` has little impact on its own with `weight`. 
 
-6H5. 
+#### 6H5. 
 
 ```{r}
 dag_fox |> 
