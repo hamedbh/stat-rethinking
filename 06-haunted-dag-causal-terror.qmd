@@ -947,8 +947,6 @@ I worked through the steps:
 3. Classify each path by whether it's a backdoor path: of the open paths only $XUACY$ has a path entering $X$. 
 4. Decide which variables to condition on to close the backdoor: can use $A$ or $C$. 
 
-RM suggests that $C$ will be better in this particular case because it will tell us about the precision of our estimate of $X \to Y$. Maybe this will make more sense later in the book when we cover measurement?
-
 Can also get this info from {dagitty}: 
 
 ```{r}
@@ -965,6 +963,58 @@ dagitty::adjustmentSets(
   outcome = "Y"
 )
 ```
+
+RM suggests that $C$ will be better in this particular case because it will tell us about the precision of our estimate of $X \to Y$. Maybe this will make more sense later in the book when we cover measurement? For now though we can try a simulation study to see whether it makes any difference.
+
+```{r}
+set.seed(1354)
+d_two_roads <- tibble(A = rnorm(1000)) |> 
+  mutate(
+    U = rnorm(1000, mean = A),
+    C = rnorm(1000, mean = A)
+  ) |> 
+  mutate(
+    B = rnorm(1000, mean = U + C),
+    X = rnorm(1000, mean = U)
+  ) |> 
+  mutate(Y = rnorm(1000, mean = X + C))
+```
+
+First condition on `C`.
+
+```{r}
+m_two_roads_C <- quap(
+  alist(
+    Y ~ dnorm(mu, sigma),
+    mu <- a + (bX * X) + (bC * C),
+    c(a, bX, bC) ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  data = d_two_roads
+)
+
+m_two_roads_C |> 
+  precis()
+```
+
+Now condition on `A`.
+
+```{r}
+m_two_roads_A <- quap(
+  alist(
+    Y ~ dnorm(mu, sigma),
+    mu <- a + (bX * X) + (bA * A),
+    c(a, bX, bA) ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  data = d_two_roads
+)
+
+m_two_roads_A |> 
+  precis()
+```
+
+The coefficient parameter estimates are still about right, but very slightly worse than before. However `sigma` is much higher now, so we could expect much more variance in our posterior predictions.
 
 ### Backdoor waffles
 
