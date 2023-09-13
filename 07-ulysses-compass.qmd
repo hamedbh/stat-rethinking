@@ -1081,13 +1081,13 @@ $$
 \begin{align}
 \text{AIC} &= -2\text{lppd} + 2p \\
            &= -2(\text{lppd} - p) \\
-WAIC(y, \Theta) &= -2(\text{lppd} - \sum_i \text{var}_{\theta} \log p(y_i|\theta))
+WAIC(y, \Theta) &= -2(\text{lppd} - \sum_i \text{var}_{\theta} \log \operatorname{P}(y_i|\theta))
 \end{align}
 $$
 
 The second form of AIC is more suggestive for this question. WAIC is more general, as its penalty term will take account of the variance of the posterior probabilities, rather than just the number of parameters.
 
-To make the two the same we would need $p \approx \sum_i \text{var}_{\theta} \log p(y_i|\theta)$. 
+To make the two the same we would need $p \approx \sum_i \text{var}_{\theta} \log \operatorname{P}(y_i|\theta)$. 
 
 #### 7M2. 
 
